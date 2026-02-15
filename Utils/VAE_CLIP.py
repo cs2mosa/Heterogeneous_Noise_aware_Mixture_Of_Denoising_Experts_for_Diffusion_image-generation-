@@ -8,23 +8,23 @@ class StabilityVAE:
     def __init__(self,
                  vae_name: str = "stabilityai/sd-vae-ft-mse",
                  batch_size=32,
-                 # Standard SD Scaling Factor
-                 scale_factor=0.18215,
-                 # You want latents to have std=0.5 for your EDM config
-                 target_std=0.5
+                 raw_mean=(5.81, 3.25, 0.12, -2.15),
+                 raw_std=(4.17, 4.62, 3.71, 3.28),
+                 final_mean=0.0,
+                 final_std=0.5,
                  ):
         self.vae_name = vae_name
         self._vae = None
         self.batch_size = int(batch_size)
 
-        self.scale_factor = scale_factor
-        self.target_std = target_std
 
-        # Calculate the multiplier to go from VAE -> N(0, 0.5)
-        # Standard VAE output is approx N(0, 1/0.18215).
-        # We multiply by 0.18215 to get N(0, 1).
-        # We multiply by 0.5 to get N(0, 0.5).
-        self.enc_scaler = self.scale_factor * self.target_std
+
+        scale = np.array(final_std, dtype=np.float32) / np.array(raw_std, dtype=np.float32)
+        bias = np.array(final_mean, dtype=np.float32) - np.array(raw_mean, dtype=np.float32) * scale
+
+        # 2. Store as tensors with shape [1, C, 1, 1] for broadcasting
+        self.scale = torch.tensor(scale).reshape(1, -1, 1, 1)
+        self.bias = torch.tensor(bias).reshape(1, -1, 1, 1)
 
     def init(self, device):
         if self._vae is None:
@@ -47,9 +47,12 @@ class StabilityVAE:
     def encode(self, x):
         """
         Input: uint8 [0, 255]
-        Output: float32 centered latents N(0, 0.5)
+        Output: float32 centered latents N(0, 0.5) with Channel-wise Whitening
         """
-        # [0, 255] -> [-1, 1]
+        # Ensure VAE is ready
+        self.init(x.device)
+
+        # [0, 255] -> [-1, 1] (Standard SD VAE Input Range)
         pixels_fp32 = (x.to(torch.float32) / 127.5) - 1.0
 
         latents_list = []
@@ -62,8 +65,13 @@ class StabilityVAE:
 
         raw_latents = torch.cat(latents_list, dim=0)
 
-        # Scale to match EDM config (sigma_data=0.5)
-        final_latents = raw_latents * self.enc_scaler
+        # --- EDM Scaling Logic ---
+        # Move constants to the correct device/dtype
+        scale = self.scale.to(device=raw_latents.device, dtype=raw_latents.dtype)
+        bias = self.bias.to(device=raw_latents.device, dtype=raw_latents.dtype)
+
+        # Apply Affine Transform: x * scale + bias
+        final_latents = raw_latents * scale + bias
 
         return final_latents
 
@@ -75,8 +83,12 @@ class StabilityVAE:
         """
         self.init(x.device)
 
-        # Inverse scaling: N(0, 0.5) -> VAE Native Space
-        raw_latents = x / self.enc_scaler
+        # --- Inverse EDM Scaling Logic ---
+        scale = self.scale.to(device=x.device, dtype=x.dtype)
+        bias = self.bias.to(device=x.device, dtype=x.dtype)
+
+        # Inverse Affine Transform: (x - bias) / scale
+        raw_latents = (x - bias) / scale
 
         decoded_pixels_fp32 = torch.cat(
             [self._run_vae_decoder_on_batch(batch) for batch in raw_latents.split(self.batch_size)]
@@ -92,7 +104,7 @@ class CLIP_EMBED:
                  embed_name: str = "openai/clip-vit-large-patch14",
                  device: str = 'cuda'
                  ):
-        self.embed_name = embed_name  # Store the name for reloading
+        self.embed_name = embed_name
         self.tokenizer = None
         self.text_encoder = None
         self.device = device
@@ -101,14 +113,14 @@ class CLIP_EMBED:
         """Lazy initialization to be called on first use."""
         if self.tokenizer is None:
             self.tokenizer = CLIPTokenizer.from_pretrained(self.embed_name)
-            self.text_encoder = CLIPTextModel.from_pretrained(self.embed_name,ignore_mismatched_sizes=True).to(self.device)
+            self.text_encoder = CLIPTextModel.from_pretrained(self.embed_name, ignore_mismatched_sizes=True).to(
+                self.device)
             self.text_encoder.requires_grad_(False)
             self.text_encoder.eval()
 
     def __getstate__(self):
         """Customize serialization to exclude the large models."""
         state = self.__dict__.copy()
-        # Do not save the models, only their configuration name.
         state['tokenizer'] = None
         state['text_encoder'] = None
         return state
@@ -123,6 +135,9 @@ class CLIP_EMBED:
         Input: List of strings ["a dog", "a cat"]
         Output: Embeddings (B, 77, 768)
         """
+        # Ensure loaded
+        self.init()
+
         inputs = self.tokenizer(
             text_list,
             padding="max_length",
@@ -132,6 +147,5 @@ class CLIP_EMBED:
         )
         input_ids = inputs.input_ids.to(self.device)
 
-        # Get hidden states (Sequence output)
         encoder_output = self.text_encoder(input_ids)
         return encoder_output.last_hidden_state

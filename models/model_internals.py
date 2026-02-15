@@ -5,7 +5,7 @@ import torch.nn.functional as F
 import numpy as np
 
 
-def normalize(x: torch.Tensor, dim: Optional[list[int]] = None, eps: int = 1e-4)-> torch.Tensor:
+def normalize(x: torch.Tensor, dim: Optional[list[int]] = None, eps: float = 1e-4)-> torch.Tensor:
     """
         Normalizes the input tensor `x` to have unit variance (RMS Normalization).
 
@@ -142,7 +142,7 @@ class MP_Fourier(nn.Module):
     The sqrt(2) factor ensures the output preserves unit variance (Magnitude Preserving),
     assuming the input and weights are properly distributed.
     """
-    def __init__(self,num_channels: int, bandwidth: float = 1 ):
+    def __init__(self,num_channels: int, bandwidth: float = 1.0 ):
         """
         Args:
             num_channels (int): The dimension of the output embedding vector.
@@ -258,79 +258,80 @@ class MP_Conv(nn.Module):
         w = normalize(w)  # traditional weight normalization
         w = w * (gain / np.sqrt(w[0].numel()))  # magnitude-preserving scaling
         w = w.to(x.dtype)
-        if x.ndim == 2 :
-            return F.linear(x,w)
+        if x.ndim == 2:
+            # Flatten the weight from (Out, In, 1, 1) to (Out, In)
+            w_linear = w.view(self.out_channels, -1)
+            return F.linear(x, w_linear)
+
         assert x.ndim == 4
         k = w.shape[-1]  # kernel size (assuming square)
+        total_pad = max(k - self.stride, 0)
 
-        if self.stride == 1:
-            # 'same' padding for stride=1
-            total_pad = k - 1
-            pad = total_pad // 2
-            x = F.pad(x, (pad, total_pad - pad, pad, total_pad - pad))
-            return F.conv2d(x, w, padding=0, stride=1)
+        # Optimization: If padding is symmetric (even total_pad), use optimized F.conv2d padding
+        if total_pad % 2 == 0:
+            pad_val = total_pad // 2
+            return F.conv2d(x, w, padding=pad_val, stride=self.stride)
+        # Asymmetric Padding (Required for Even kernels with Stride 1, etc.)
+        # We pad more on the Right/Bottom to follow PyTorch/TensorFlow convention
         else:
-            # Standard padding for stride>1
-            # Use floor(k/2) which works for both odd and even
-            return F.conv2d(x, w, padding=k // 2, stride=self.stride)
+            pad_left = total_pad // 2
+            pad_right = total_pad - pad_left
+            # F.pad format: (left, right, top, bottom)
+            x = F.pad(x, (pad_left, pad_right, pad_left, pad_right))
+            return F.conv2d(x, w, padding=0, stride=self.stride)
 
 #magnitude preserving attention (single and multi_head) layer as in EDM2 paper
 #note: we will try to use gated attention mechanism for FUSING the output of the 2 main paths
 class MP_Attention(nn.Module):
     """
-    Magnitude Preserving Multi-Head Attention.
-
-    This block implements attention with specific normalizations to maintain signal variance
-    (Magnitude Preserving). It differs from standard "Dot-Product" attention in two ways:
-
-    1. It uses MP_Conv for projections to preserve magnitude.
-    2. It computes "Spatial Attention" (contracting over sequence length) rather than
-       "Spatial Attention" (contracting over channel dimensions). This creates a
-       (Head_Dim x Head_Dim) attention map instead of (Seq_Len x Seq_Len), making it
-       much more memory efficient for long sequences (e.g., high-res images).
+    Magnitude Preserving Multi-Head Self/Cross Attention (Spatial/Token Mixing).
+    Includes Relative Positional Bias (DiffiT Style).
     """
     def __init__(self,
-                 num_heads: int ,
-                 emb_dim: int ,
+                 num_heads: int,
+                 emb_dim: int,
                  seq_ln: int,
-                 time_dim: Optional[int] = 0 ,
-                 context_dim :Optional[int] = None ,
-                 attn_balance:Optional[float] = 0.5 ,
+                 time_dim: Optional[int] = 0,
+                 context_dim: Optional[int] = None,
+                 attn_balance: Optional[float] = 0.5,
                  is_cross_attn: Optional[bool] = False):
-        """
-        Args:
-            num_heads (int): Number of attention heads.
-            emb_dim (int): Total dimensionality of the input embedding.
-            time_dim (int): the diffusion step embedding dimension
-            seq_ln (int):  sequence length of input tensor
-            context_dim (int, optional): Dimensionality of the context (for Cross-Attention).
-                                         If None, defaults to emb_dim (Self-Attention).
-            attn_balance (float): Weight `t` for the residual connection in `mp_sum`.
-                                  0.0 = Keep input, 1.0 = Use only attention output.
-            is_cross_attn (bool):  true for cross attention , default is false.
-        """
         super().__init__()
         self.num_heads = num_heads
         self.emb_dim = emb_dim
         self.head_dim = emb_dim // num_heads
+        self.seq_ln = seq_ln
         self.time_emb = time_dim
-        assert emb_dim % num_heads == 0
-        if context_dim is None:
-            context_dim = emb_dim
+        assert emb_dim % num_heads == 0, f"Emb_dim {emb_dim} must be divisible by num_heads {num_heads}"
 
         self.is_cross = is_cross_attn
         self.attn_balance = attn_balance
         self.time_dependent = True if time_dim > 0 else False
-        self.rel_pos_bias = nn.Parameter(torch.zeros(self.num_heads, seq_ln,seq_ln)) if not is_cross_attn else None
-        self.q_proj = MP_Conv(emb_dim,emb_dim,kernel = (1,1))
-        self.k_proj = MP_Conv(context_dim,emb_dim,kernel = (1,1))
-        self.v_proj = MP_Conv(context_dim,emb_dim,kernel = (1,1))
 
-        self.q_time = MP_Conv(time_dim,emb_dim,kernel = (1,1))if self.time_dependent else None
-        self.k_time = MP_Conv(time_dim,emb_dim,kernel = (1,1)) if self.time_dependent and not is_cross_attn else None
-        self.v_time = MP_Conv(time_dim,emb_dim,kernel = (1,1)) if self.time_dependent and not is_cross_attn else None
+        if context_dim is None:
+            context_dim = emb_dim
 
-        self.out_proj = MP_Conv(emb_dim,emb_dim,kernel = (1,1))
+        # --- Projections ---
+        self.q_proj = MP_Conv(in_channels=emb_dim, out_channels=emb_dim, kernel=())
+        self.k_proj = MP_Conv(in_channels=context_dim, out_channels=emb_dim, kernel=())
+        self.v_proj = MP_Conv(in_channels=context_dim, out_channels=emb_dim, kernel=())
+
+        if self.time_dependent:
+            self.q_time = MP_Conv(in_channels=time_dim, out_channels=emb_dim, kernel=())
+            if not self.is_cross:
+                self.k_time = MP_Conv(in_channels=time_dim, out_channels=emb_dim, kernel=())
+                self.v_time = MP_Conv(in_channels=time_dim, out_channels=emb_dim, kernel=())
+
+        self.out_proj = MP_Conv(in_channels=emb_dim, out_channels=emb_dim, kernel=())
+
+        # --- Relative Positional Bias ---
+        # Only for Self-Attention. Cross-Attention usually relies on context alignment.
+        if not self.is_cross:
+            # Shape: (Heads, Seq_Len, Seq_Len)
+            # This is a learnable lookup table for attention scores.
+            self.rel_pos_bias = nn.Parameter(torch.zeros(num_heads, seq_ln, seq_ln))
+
+            # Initialize with small variance to not disrupt MP start
+            nn.init.trunc_normal_(self.rel_pos_bias, std=0.02)
 
     def forward(self,
                 query: torch.Tensor,
@@ -347,63 +348,73 @@ class MP_Attention(nn.Module):
             context (torch.Tensor, optional): Context for cross-attention.
                                               Shape (Batch, Seq_Len_Ctx, Context_Dim).
             time_embedding (torch.Tensor, optional):  The diffusion time step embedding used in TMSA for VIT experts
-
-        Returns:
-            torch.Tensor: Output tensor of shape (Batch, Seq_Len, Emb_Dim).
         """
-        res = query
-        batch_size,seq_len,emb_dim =query.shape
-        assert emb_dim == self.emb_dim
-        context = query if context is None else context
+        batch_size, seq_len_q, _ = query.shape
 
-        #emb_size = channels > because we need a different filter for each emb_size vector (the image)
-        #out_size = batch_size,emb_dim,seq_len,1
-        query = query.permute(0, 2, 1).unsqueeze(-1)
-        context = context.permute(0, 2, 1).unsqueeze(-1)
+        if context is None:
+            context = query
+        batch_size, seq_len_kv, _ = context.shape
 
-        q_proj = self.q_proj(query,gain = gain_s)
-        k_proj = self.k_proj(context,gain = gain_s)
-        v_proj = self.v_proj(context,gain = gain_s)
+        # Flatten for MP_Conv (Linear Mode)
+        q_flat = query.reshape(batch_size * seq_len_q, -1)
+        k_flat = context.reshape(batch_size * seq_len_kv, -1)
+        v_flat = context.reshape(batch_size * seq_len_kv, -1)
 
+        # Project
+        q = self.q_proj(q_flat, gain=gain_s).view(batch_size, seq_len_q, self.emb_dim)
+        k = self.k_proj(k_flat, gain=gain_s).view(batch_size, seq_len_kv, self.emb_dim)
+        v = self.v_proj(v_flat, gain=gain_s).view(batch_size, seq_len_kv, self.emb_dim)
+
+        # Time Injection
         if self.time_dependent and time_embedding is not None:
-            q_proj += self.q_time(time_embedding.view(batch_size, -1, 1, 1), gain = gain_t)
+            t_emb = time_embedding.view(batch_size, -1)
+            q_t = self.q_time(t_emb, gain=gain_t).unsqueeze(1)
+            q = mp_sum(q, q_t.expand(-1, seq_len_q, -1), t=0.3)
+
             if not self.is_cross:
-                k_proj += self.k_time(time_embedding.view(batch_size, -1, 1, 1), gain = gain_t)
-                v_proj += self.v_time(time_embedding.view(batch_size, -1, 1, 1), gain = gain_t)
+                k_t = self.k_time(t_emb, gain=gain_t).unsqueeze(1)
+                v_t = self.v_time(t_emb, gain=gain_t).unsqueeze(1)
+                k = mp_sum(k, k_t.expand(-1, seq_len_kv, -1), t=0.3)
+                v = mp_sum(v, v_t.expand(-1, seq_len_kv, -1), t=0.3)
 
-        #shape matches (batch,num_heads,seq_ln,head_dim)
-        q_proj = q_proj.view(batch_size,self.num_heads,self.head_dim,-1).transpose(-1,-2)
-        k_proj = k_proj.view(batch_size,self.num_heads,self.head_dim,-1).transpose(-1,-2)
-        v_proj = v_proj.view(batch_size,self.num_heads,self.head_dim,-1).transpose(-1,-2)
+        # Reshape to (B, Heads, Seq, Dim)
+        q = q.view(batch_size, seq_len_q, self.num_heads, self.head_dim).transpose(1, 2)
+        k = k.view(batch_size, seq_len_kv, self.num_heads, self.head_dim).transpose(1, 2)
+        v = v.view(batch_size, seq_len_kv, self.num_heads, self.head_dim).transpose(1, 2)
 
-        #attention matrix multiplication
-        q_k_prod = torch.matmul(q_proj, k_proj.transpose(-2, -1))
-        q_k_prod = q_k_prod / np.sqrt(self.head_dim)
+        # Attention Scores
+        attn_scores = torch.matmul(q, k.transpose(-2, -1))
+        attn_scores = attn_scores / np.sqrt(self.head_dim)
+
+        # --- Add Relative Positional Bias ---
         if not self.is_cross:
             bias = self.rel_pos_bias
-            #handling variable seq_ln problem
-            if seq_len <= bias.shape[1]:
-                #slicing the bais when input has small seq_ln
-                bias = self.rel_pos_bias[:, :seq_len, :seq_len]
-            else:
-                #interpolation when the input has large seq_ln
-                bias_in = self.rel_pos_bias.unsqueeze(0)
+
+            # Interpolation logic for variable sequence lengths (e.g. different patch sizes)
+            if seq_len_q != bias.shape[1] or seq_len_kv != bias.shape[2]:
+                # Reshape to (1, Heads, S, S) for interpolation
+                bias_in = bias.unsqueeze(0)
+
+                # Interpolate to current sequence length
                 bias = F.interpolate(
                     bias_in,
-                    size=(seq_len, seq_len),
-                    mode='bicubic',
+                    size=(seq_len_q, seq_len_kv),
+                    mode='bilinear',
                     align_corners=False
                 )
-                bias = bias.squeeze(0)
+                bias = bias.squeeze(0)  # (Heads, Sq, Skv)
 
-            q_k_prod += bias
+            # Add bias (Broadcasting over Batch dimension)
+            attn_scores = attn_scores + bias.unsqueeze(0)
 
-        q_k_prod = q_k_prod.softmax(dim = -1)
-        q_k_v_prod = torch.matmul(q_k_prod,v_proj)
+        # Softmax & Output
+        attn_probs = F.softmax(attn_scores, dim=-1)
+        out = torch.matmul(attn_probs, v)
 
-        attn_output = q_k_v_prod.transpose(1, 2).contiguous().view(batch_size, seq_len, emb_dim)
-        attn_output_reshaped = attn_output.permute(0, 2, 1).unsqueeze(-1)
+        # Reshape & Normalize
+        out = out.transpose(1, 2).contiguous().reshape(batch_size * seq_len_q, self.emb_dim)
+        out = normalize(out)
+        out = self.out_proj(out, gain=gain_s)
+        out = out.view(batch_size, seq_len_q, self.emb_dim)
 
-        out = self.out_proj(attn_output_reshaped, gain=gain_s)
-        out = out.squeeze(-1).permute(0, 2, 1)
-        return mp_sum(res,out,self.attn_balance)
+        return mp_sum(query, out, t=self.attn_balance)

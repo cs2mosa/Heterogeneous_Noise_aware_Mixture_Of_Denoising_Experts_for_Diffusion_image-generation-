@@ -10,7 +10,7 @@ Based on best practices from:
 - MoE literature (Switch Transformer, DeepSeek)
 - Recent diffusion model papers
 """
-
+import math
 import json
 import torch
 import numpy as np
@@ -100,7 +100,6 @@ class Logger:
                 self.accumulators[key].append(value.item())
             else:
                 self.accumulators[key].append(float(value))
-        
         self.accumulators['zeta'].append(float(zeta))
         self.accumulators['log_var'].append(float(log_var))
         self.accumulators['lr'].append(float(lr))
@@ -130,6 +129,8 @@ class Logger:
         Log detailed router statistics.
         
         Args:
+            p_std:
+            p_mean:
             step: Current training step
             unet_probs: UNet router probabilities (B, num_experts)
             vit_probs: ViT router probabilities (B, num_experts)
@@ -192,76 +193,106 @@ class Logger:
             }
             
             self._write_jsonl(self.router_log_file, record)
-    
+
     def log_scaling_gating(self,
                            scaling_factors: torch.Tensor,
                            gate_weights: torch.Tensor,
-                           sigma: torch.Tensor):
-        """
-        Log scaling network and gating behavior.
-        
-        Args:
-            scaling_factors: Scaling network output (B, 2) [vit, unet]
-            gate_weights: Final gate weights (B, 2) [wx, wa]
-            sigma: Noise levels (B,)
-        """
-        self.accumulators['scaling_vit_mean'].append(
-            scaling_factors[:, 0].mean().item()
-        )
-        self.accumulators['scaling_unet_mean'].append(
-            scaling_factors[:, 1].mean().item()
-        )
-        self.accumulators['scaling_vit_max'].append(scaling_factors[:, 0].max().item())
-        self.accumulators['scaling_vit_min'].append(scaling_factors[:, 0].min().item())
-        self.accumulators['scaling_unet_min'].append(
-            scaling_factors[:, 1].min().item()
-        )
-        self.accumulators['scaling_unet_max'].append(
-            scaling_factors[:, 1].max().item()
-        )
-        self.accumulators['gate_wx'].append(
-            gate_weights[:, 0].mean().item()
-        )
-        self.accumulators['gate_wa'].append(
-            gate_weights[:, 1].mean().item()
-        )
+                           sigma: torch.Tensor,
+                           p_mean: float = -0.4,
+                           p_std: float = 1.0):
+        # 1. Calculate Individual Percentiles
+        s = sigma.flatten()
+        log_sigma = torch.log(s)
+        sigma_pcts = 0.5 * (1 + torch.erf((log_sigma - p_mean) / (p_std * math.sqrt(2))))
+        sigma_pcts = sigma_pcts.clamp(0, 1)
+
+        # --- FOR THE LINE GRAPHS (Evolution over time) ---
+        # These need to be MEANS to show the stable trend of the model
+        self.accumulators['avg_sigma_percentile'].append(sigma_pcts.mean().item())
+        self.accumulators['scaling_vit_mean'].append(scaling_factors[:, 1].mean().item())
+        self.accumulators['scaling_unet_mean'].append(scaling_factors[:, 0].mean().item())
+        self.accumulators['scaling_fusion_mean'].append(scaling_factors[:, 2].mean().item())
+        self.accumulators['gate_wx_mean'].append(gate_weights[:, 0].mean().item())
+        self.accumulators['gate_wa_mean'].append(gate_weights[:, 1].mean().item())
+        self.accumulators['gate_wf_mean'].append(gate_weights[:, 2].mean().item())
+        # --- FOR THE SCATTER PLOTS (Inductive Bias / X-Pattern) ---
+        # These MUST be from the same index [0] to maintain correlation
+        self.accumulators['sample_sigma_percentile'].append(sigma_pcts[0].item())
+        self.accumulators['sample_vit_scale'].append(scaling_factors[0, 1].item())
+        self.accumulators['sample_unet_scale'].append(scaling_factors[0, 0].item())
+        self.accumulators['sample_fusion_scale'].append(scaling_factors[0, 2].item())
+        self.accumulators['sample_gate_wx'].append(gate_weights[0, 0].mean().item())
+        self.accumulators['sample_gate_wa'].append(gate_weights[0, 1].mean().item())
+        self.accumulators['sample_gate_wf'].append(gate_weights[0, 2].mean().item())
+        # --- FOR BOUNDARY CHECKING ---
+        self.accumulators['noise_pct_min'].append(sigma_pcts.min().item())
+        self.accumulators['noise_pct_max'].append(sigma_pcts.max().item())
         self.accumulators['noise_level_min'].append(sigma.min().item())
         self.accumulators['noise_level_max'].append(sigma.max().item())
-        self.accumulators['noise_level_std'].append(sigma.std().item())
-        self.accumulators['noise_level'].append(
-            sigma.mean().item()
-        )
-    
+
     def log_gradients(self,
-                     step: int,
-                     model,
-                     component_names: Optional[List[str]] = None):
+                      step: int,
+                      model: torch.nn.Module,
+
+                      current_lr: float,  # <--- Added Argument
+                      component_names: Optional[List[str]] = None):
         """
-        Log gradient norms for different model components.
-        
-        Args:
-            step: Current training step
-            model: The model
-            component_names: List of component names to track
-                           Default: ['Unet_experts', 'VIT_experts', 'Unet_router', 
-                                    'vit_router', 'scaling_net', 'cross_attn']
+        Logs gradient norms and the Update Ratio (Grad * LR / Weight).
+        Target Update Ratio is typically around 1e-3.
         """
         if step % self.log_interval != 0:
             return
-        
+
         if component_names is None:
+            # Adjust these names based on your exact attribute names in the model wrapper
             component_names = ['Unet_experts', 'VIT_experts', 'Unet_router',
-                             'vit_router', 'scaling_net', 'cross_attn']
-        
-        record = {"step": step}
-        
-        with torch.no_grad():
-            for name in component_names:
-                if hasattr(model, name):
-                    component = getattr(model, name)
-                    grad_norm = self._compute_grad_norm(component.parameters())
-                    record[f"{name}_grad_norm"] = grad_norm
-        
+                               'vit_router', 'gate_mlp', 'cross_attn',
+                               'output_proj_unet', 'output_proj_vit']
+
+        record: dict[str, Any] = {"step": step}
+
+        # Helper to handle DataParallel or Preconditioned wrappers
+        def get_submodule(root, name_):
+            if hasattr(root, 'net') and hasattr(root.net, name_):
+                return getattr(root.net, name_)
+            return getattr(root, name_, None)
+
+        for name in component_names:
+            component = get_submodule(model, name)
+
+            if component is None:
+                continue
+
+            total_grad_sq = 0.0
+            total_param_sq = 0.0
+            param_count = 0
+
+            # 1. Accumulate squared norms (Frobenius Norm logic)
+            for p in component.parameters():
+                if p.grad is not None:
+                    # Detach to prevent memory leaks during logging
+                    total_grad_sq += p.grad.detach().data.norm(2).item() ** 2
+                    total_param_sq += p.detach().data.norm(2).item() ** 2
+                    param_count += 1
+
+            if param_count > 0:
+                # 2. Square root to get actual Norm
+                grad_norm = total_grad_sq ** 0.5
+                param_norm = total_param_sq ** 0.5
+
+                record[f"{name}_grad_norm"] = grad_norm
+
+                # 3. Calculate Update Ratio.
+                # Ratio = (Gradient_Norm * Learning_Rate) / Weight_Norm
+                if param_norm > 1e-9:  # Avoid division by zero
+                    update_ratio = (grad_norm * current_lr) / param_norm
+                    record[f"{name}_update_ratio"] = update_ratio
+                else:
+                    record[f"{name}_update_ratio"] = 0.0
+            else:
+                record[f"{name}_grad_norm"] = 0.0
+                record[f"{name}_update_ratio"] = 0.0
+
         self._write_jsonl(self.gradient_log_file, record)
 
     def log_weight_statistics(self, step: int, model: torch.nn.Module):
@@ -274,7 +305,7 @@ class Logger:
             return
 
         component_names = ['Unet_experts', 'VIT_experts']
-        record = {"step": step}
+        record: dict[str, Any] = {"step": step}
 
         with torch.no_grad():
             for name in component_names:
@@ -331,7 +362,7 @@ class Logger:
             return
         
         # Average over the interval
-        record = {"step": int(self.accumulators['step'][-1])}
+        record: dict[str, Any] = {"step": int(self.accumulators['step'][-1])}
         
         for key, values in self.accumulators.items():
             if key == 'step':

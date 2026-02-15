@@ -1,9 +1,8 @@
 import math
-
 import torch
 import torch.nn as nn
-from models import model_internals as util
-from models import model_components as m
+import model_internals as util
+import model_components as m
 import torch.nn.functional as F
 from typing import Optional ,List,Tuple
 
@@ -138,12 +137,12 @@ class HDMOEM (nn.Module):
         self.scaling_net = m.Scaling_router(emb_dim= time_emb_dim,
                                             num_experts= 2)
 
-        self.Unet_router = m.Router(in_channels= self.internal_channels,
+        self.Unet_router = m.Router(
                                     time_dim= time_emb_dim,
                                     top_k= top_k,
                                     num_experts= num_experts)
 
-        self.vit_router = m.Router(in_channels=self.internal_channels,
+        self.vit_router = m.Router(
                                     time_dim=time_emb_dim,
                                     top_k=top_k,
                                     num_experts= num_experts)
@@ -243,47 +242,46 @@ class HDMOEM (nn.Module):
         time_embed = self.out_fourier1(x = time_embed)
         time_embed = self.out_fourier2(x = util.mp_silu(x= time_embed))
         x_feats = self.input_proj(x)
-        scaling_factors = self.scaling_net(x = time_embed,zeta = zeta)
-        scaling_vit = scaling_factors[:,0:1].view(-1, 1, 1, 1)
-        scaling_Unet = scaling_factors[:,1:2].view(-1, 1, 1, 1)
-        in_unet_router = scaling_Unet * x_feats
-        in_vit_router = scaling_vit * x_feats
-        out_vit_router,Vit_gate_probs,vit_raw = self.vit_router(x = in_vit_router,
+
+        out_vit_router,Vit_gate_probs,vit_raw = self.vit_router(
                                          time_emb = time_embed,
                                          zeta= zeta,
                                          mask = Vit_router_mask)
 
-        out_unet_router,Unet_gate_probs,Unet_raw = self.Unet_router(x = in_unet_router,
+        out_unet_router,Unet_gate_probs,Unet_raw = self.Unet_router(
                                            time_emb = time_embed,
                                            zeta = zeta,
                                            mask = Unet_router_mask)
 
-        out_Unet_expert = router_to_unet_experts(x = in_unet_router,
+        out_Unet_expert = router_to_unet_experts(x = x_feats,
                                             experts=self.Unet_experts,
                                             time_emb= time_embed,
                                             text_emb= text_emb,
                                             out_router=out_unet_router
                                             )
 
-        out_Vit_expert = router_to_unet_experts(x = in_vit_router,
+        out_Vit_expert = router_to_unet_experts(x = x_feats,
                                            experts=self.VIT_experts,
                                            time_emb= time_embed,
                                            text_emb= text_emb,
                                            out_router=out_vit_router
                                             )
 
-        out_Unet_flat = out_Unet_expert.flatten(2).transpose(1, 2)
-        out_Vit_flat = out_Vit_expert.flatten(2).transpose(1, 2)
-        # Determine which path is stronger based on scaling factors
-        # scaling_vit and scaling_Unet sum to ~1.0
-        vit_strength_diff = scaling_vit - scaling_Unet
-        vit_is_stronger = torch.sigmoid(alpha_routing * vit_strength_diff).view(-1, 1, 1)
-        # Swap query and context based on which path is stronger
-        query = vit_is_stronger * out_Vit_flat + (1 - vit_is_stronger) * out_Unet_flat
-        context = vit_is_stronger * out_Unet_flat + (1 - vit_is_stronger) * out_Vit_flat
+        scaling_factors = self.scaling_net(x = time_embed,zeta = zeta)
+        scaling_vit = scaling_factors[:,0:1].view(-1, 1, 1, 1)
+        scaling_Unet = scaling_factors[:,1:2].view(-1, 1, 1, 1)
 
-        out_final_attn = self.cross_attn(query = query,
-                                          context = context,
+        out_Unet_norm = util.normalize(out_Unet_expert, dim=[1, 2, 3])
+        out_Vit_norm  = util.normalize(out_Vit_expert,  dim=[1, 2, 3])
+
+        out_Unet_scaled = scaling_Unet * out_Unet_norm
+        out_Vit_scaled = scaling_vit * out_Vit_norm
+
+        out_Unet_flat = out_Unet_scaled.flatten(2).transpose(1, 2)
+        out_Vit_flat = out_Vit_scaled.flatten(2).transpose(1, 2)
+
+        out_final_attn = self.cross_attn(query = out_Unet_flat,
+                                          context = out_Vit_flat,
                                           gain_s = 1.0,
                                           gain_t = 1.0,
                                          )
