@@ -17,8 +17,8 @@ import math
 import torch
 import torch.nn as nn
 from typing import Optional, List, Tuple
-from models.model_internals import MP_Conv, MP_Fourier, mp_silu
-from models.model_components import Router, Unet_expert, Vit_expert
+from model_internals import MP_Conv, MP_Fourier, mp_silu
+from model_components import Router, Unet_expert, Vit_expert
 
 
 def router_to_experts(x: torch.Tensor,
@@ -320,8 +320,8 @@ class preconditioned_HDMOEM(nn.Module):
         c_skip = self.sigma_data ** 2 / (sigma ** 2 + self.sigma_data ** 2)
         c_out = sigma * self.sigma_data / (sigma ** 2 + self.sigma_data ** 2).sqrt()
         c_in = 1 / (self.sigma_data ** 2 + sigma ** 2).sqrt()
-        #c_noise = sigma.flatten().log() / 4
-        c_noise = sigma.flatten() / 4
+        c_noise = sigma.flatten().log() / 4
+
         x_in = x * c_in
 
         # Forward

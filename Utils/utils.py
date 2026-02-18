@@ -6,39 +6,6 @@ import math
 import torch.nn.functional as F
 
 
-def sample_sigma_normal(batch_size, device,
-                            p_mean=15.0, p_std=20.0,
-                            sigma_min=0.002, sigma_max=80.0):
-    """
-    Sample sigma from truncated normal distribution.
-
-    Designed for MoE: centers distribution higher than EDM
-    to give high-noise experts more training.
-
-    Args:
-        sigma_max:
-        device:
-        sigma_min:
-        batch_size:
-        p_mean: Center of distribution (default: 15.0)
-              - EDM effective mean ≈ 0.5 (too low for MoE!)
-              - We use 15.0 to balance all experts
-        p_std: Spread of distribution (default: 20.0)
-              - Large std ensures coverage of full range
-        sigma_min, sigma_max: Clamp range
-
-    Returns:
-        Tensor [batch_size, 1, 1, 1] with sigma values
-    """
-    # Sample from normal
-    sigma = torch.randn(batch_size, 1, 1, 1, device=device)
-    sigma = sigma * p_std + p_mean
-
-    # Clamp to valid range
-    sigma = torch.clamp(sigma, sigma_min, sigma_max)
-
-    return sigma
-
 def sample_sigma(batch_size: int,
                  uniform: bool = False,
                  p_mean: float = -0.4,
@@ -380,7 +347,7 @@ class MaskGenerator(nn.Module):
     def __call__(self, sigma: torch.Tensor, step: int) -> torch.Tensor:
         device = sigma.device
         s = sigma.flatten()
-        log_sigma = s #torch.log(s) we will try using the normal distribution
+        log_sigma = torch.log(s)
         sigma_percentile = 0.5 * (1 + torch.erf((log_sigma - self.p_mean) / (self.p_std * np.sqrt(2))))
         sigma_percentile = sigma_percentile.clamp(0, 1)
         sp_reshaped = sigma_percentile.view(-1, 1)

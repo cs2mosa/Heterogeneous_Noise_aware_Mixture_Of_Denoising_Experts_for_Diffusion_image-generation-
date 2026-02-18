@@ -2,7 +2,7 @@ from typing import Optional
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import models.model_internals as m
+import model_internals as m
 
 class Scaling_router(nn.Module):
     """
