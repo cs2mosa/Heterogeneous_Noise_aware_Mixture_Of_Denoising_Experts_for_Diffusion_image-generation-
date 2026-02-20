@@ -3,7 +3,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import math
-import torch.nn.functional as F
+from copy import deepcopy
 
 
 def sample_sigma(batch_size: int,
@@ -63,118 +63,6 @@ class GradBooster(torch.autograd.Function):
 
 def boost(x, multiplier=100.0):
     return GradBooster.apply(x, multiplier)
-
-
-class PathPriorLoss(nn.Module):
-    def __init__(self,
-                 expert_centers: torch.Tensor,
-                 p_mean: float = 0.0,
-                 p_std: float = 1.4,
-                 sharpness: float = 5.0):
-        super().__init__()
-        self.register_buffer('expert_centers', expert_centers)
-        self.p_mean = p_mean
-        self.p_std = p_std
-        self.sharpness = sharpness
-        self.kl_div = nn.KLDivLoss(reduction='batchmean')
-
-    def forward(self, gate_probs: torch.Tensor, sigma: torch.Tensor):
-        device = sigma.device
-        s = sigma.flatten()
-        log_sigma = torch.log(s + 1e-8)
-        sigma_percentile = 0.5 * (1 + torch.erf((log_sigma - self.p_mean) / (self.p_std * np.sqrt(2))))
-        sigma_percentile = sigma_percentile.clamp(0.001, 0.999).view(-1, 1)
-        dist_sq = (sigma_percentile - self.expert_centers.to(device).view(1, -1)) ** 2
-        target_logits = -dist_sq * self.sharpness
-        target_dist = F.softmax(target_logits, dim=-1)
-        log_probs = torch.log(gate_probs + 1e-8)
-        return self.kl_div(log_probs, target_dist)
-
-
-class EDM_LOSS(nn.Module):
-    def __init__(self,
-                 expert_centers_vit,
-                 expert_centers_Unet,
-                 num_experts: int,
-                 sigma_data: float = 0.5,
-                 Unet_bal: float = 0.0005,
-                 vit_bal: float = 0.0005,
-                 z_bal: float = 0.0001,
-                 prior_bal: float = 0.001,
-                 p_mean: float = 0.4,
-                 p_std: float = 1.6,
-                 sharpness: float = 2.0
-                 ):
-        super().__init__()
-        self.num_experts = num_experts
-        self.sigma_data = sigma_data
-        self.Unet_lambda = Unet_bal
-        self.vit_lambda = vit_bal
-        self.z_bal = z_bal
-        self.prior_bal = prior_bal
-        self.prior_path_loss_vit = PathPriorLoss(p_mean=p_mean, p_std=p_std, expert_centers=expert_centers_vit,
-                                                 sharpness=sharpness)
-        self.prior_path_loss_Unet = PathPriorLoss(p_mean=p_mean, p_std=p_std, expert_centers=expert_centers_Unet,
-                                                  sharpness=sharpness)
-
-    def __call__(self,
-                 x: torch.Tensor,
-                 sigma: torch.Tensor,
-                 out_model: dict[str, torch.Tensor]
-                 ) -> dict[str, torch.Tensor]:
-
-        # --- FIX 1: Correct EDM Weighting (Karras et al. 2022) ---
-        # Weight minimizes visual error, not just MSE.
-        weight = (sigma ** 2 + self.sigma_data ** 2) / (sigma * self.sigma_data) ** 2
-
-        # Clamp weight to prevent instability at very low sigma (0.002)
-        weight = weight.clamp(max=100.0)
-
-        # Main Denoising Loss
-        diff = out_model["denoised"] - x
-        if out_model["log_var"] is None:
-            pure_loss = torch.mean(weight * (diff ** 2))
-        else:
-            # Uncertainty-aware loss
-            log_var = out_model["log_var"].clamp(min=-10, max=10)
-            pure_loss = torch.mean((weight * (diff ** 2)) / log_var.exp() + log_var)
-
-        pure_loss = pure_loss.clamp(max=50)  # Safety clip
-        denoising_loss = torch.mean(diff ** 2)  # Raw MSE for logging
-
-        # Aux Losses
-        router_loss = (self.Unet_lambda * self.load_balance(out_model["Unet_router_loss"], self.num_experts) +
-                       self.vit_lambda * self.load_balance(out_model["vit_router_loss"], self.num_experts)).clamp(max=50)
-
-        scaling_loss = (self.prior_bal * (self.prior_path_loss_vit(out_model["Unet_router_loss"], sigma) +
-                                          self.prior_path_loss_Unet(out_model["vit_router_loss"], sigma))).clamp(max=50)
-
-        # Router Z-Loss to prevent logit explosion (ST-MoE)
-        z_los = (self.z_bal * self.z_loss(out_model["Unet_raw"]) +
-                 self.z_bal * self.z_loss(out_model["vit_raw"])).clamp(max=50)
-
-        total_loss = (pure_loss + z_los + router_loss + scaling_loss).clamp(max=50)
-
-        return {
-            "loss": total_loss,
-            "denoising": denoising_loss,
-            "balance": router_loss,
-            "z_loss": z_los,
-            "entropy": scaling_loss,
-            "pure_loss": pure_loss
-        }
-
-    @staticmethod
-    def load_balance(gate_probs, num_experts):
-        P = gate_probs.mean(dim=0)
-        return num_experts * torch.sum(P ** 2)
-
-    @staticmethod
-    def z_loss(logits):
-        # Penalize large logits to keep router stable
-        logits = logits.clamp(min=-50, max=50)
-        z = torch.logsumexp(logits, dim=-1) ** 2
-        return torch.mean(z)
 
 
 class Lr_Scheduler:
@@ -368,3 +256,53 @@ class MaskGenerator(nn.Module):
             return 0.9 - 0.7 * progress  # 0.9 → 0.2
         else:
             return 0.2
+
+#to be revised against EDM's PostHoc EMA implementation
+class EMA:
+    """
+    Maintains a shadow copy of the model parameters using Exponential Moving Average.
+    Implements the 'Power Function' warmup to prevent zero-bias at the start.
+    """
+
+    def __init__(self, model, beta=0.999, warmup_power:float = 2 / 3, min_warmup_step=0):
+        self.beta = beta
+        self.warmup_power = warmup_power
+        self.min_warmup_step = min_warmup_step
+        self.step = 0
+
+        # Create a shadow copy of the model
+        # We turn off gradients for the shadow model to save memory/compute
+        self.ema_model = deepcopy(model)
+        for param in self.ema_model.parameters():
+            param.requires_grad = False
+
+        # Map parameters for fast updates
+        self.source_dict = dict(model.named_parameters())
+        self.ema_dict = dict(self.ema_model.named_parameters())
+
+    def update(self):
+        self.step += 1
+
+        # 1. Calculate the Effective Decay (Power Function Warmup)
+        # This prevents the EMA from staying at 0.0 in the early steps.
+        # Logic: decay starts small (fast updates) and grows to self.beta (slow smoothing).
+        cur_beta = self.beta
+        if self.step < 10000:  # Standard "warmup" period
+            # A simple power-law approximation often used in EDM implementations
+            # Effective beta = 1 - (1/step) roughly
+            cur_beta = min(self.beta, (1 + self.step) / (10 + self.step))
+
+        # 2. Update Shadow Parameters
+        for name, source_param in self.source_dict.items():
+            if name in self.ema_dict:
+                ema_param = self.ema_dict[name]
+
+                # Apply EMA formula: Shadow = Beta * Shadow + (1-Beta) * Current
+                ema_param.data.mul_(cur_beta).add_(source_param.data, alpha=1.0 - cur_beta)
+
+    def copy_to(self, target_model):
+        """Copies the EMA weights into a target model (usually for saving inference)"""
+        m_param = dict(target_model.named_parameters())
+        for name, param in self.ema_dict.items():
+            if name in m_param:
+                m_param[name].data.copy_(param.data)

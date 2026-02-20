@@ -301,21 +301,21 @@ def test_diffusion_pipeline(
 
     # Add metrics text
     metrics_text = f"""LATENT STATISTICS
-Original: μ={results['encoded_latent']['mean']:.3f}, σ={results['encoded_latent']['std']:.3f}
-Noisy: μ={results['noisy_latent']['mean']:.3f}, σ={results['noisy_latent']['std']:.3f}
-Denoised: μ={results['denoised_latent']['mean']:.3f}, σ={results['denoised_latent']['std']:.3f}
-Sampled: μ={results['sampled_latent']['mean']:.3f}, σ={results['sampled_latent']['std']:.3f}
-
-DENOISING QUALITY
-Distance (noisy→original): {results['denoising_quality']['noisy_to_original_dist']:.4f}
-Distance (denoised→original): {results['denoising_quality']['denoised_to_original_dist']:.4f}
-Improvement: {results['denoising_quality']['improvement']:.4f}
-
-SAMPLER CONFIG
-σ_min: {sampler_sigma_min}
-σ_max: {sampler_sigma_max}
-steps: {num_sampling_steps}
-"""
+                        Original: μ={results['encoded_latent']['mean']:.3f}, σ={results['encoded_latent']['std']:.3f}
+                        Noisy: μ={results['noisy_latent']['mean']:.3f}, σ={results['noisy_latent']['std']:.3f}
+                        Denoised: μ={results['denoised_latent']['mean']:.3f}, σ={results['denoised_latent']['std']:.3f}
+                        Sampled: μ={results['sampled_latent']['mean']:.3f}, σ={results['sampled_latent']['std']:.3f}
+                        
+                        DENOISING QUALITY
+                        Distance (noisy→original): {results['denoising_quality']['noisy_to_original_dist']:.4f}
+                        Distance (denoised→original): {results['denoising_quality']['denoised_to_original_dist']:.4f}
+                        Improvement: {results['denoising_quality']['improvement']:.4f}
+                        
+                        SAMPLER CONFIG
+                        σ_min: {sampler_sigma_min}
+                        σ_max: {sampler_sigma_max}
+                        steps: {num_sampling_steps}
+                    """
     axes[1, 2].text(0.1, 0.5, metrics_text, fontsize=9, family='monospace',
                     verticalalignment='center', transform=axes[1, 2].transAxes)
     axes[1, 2].axis('off')
@@ -403,7 +403,8 @@ def sample_and_save(model_configs):
 
     # Note: Using absolute path from original snippet.
     # Ideally this path should also be in configs or passed as argument.
-    checkpoint_path = r"C:\Users\Maha Mamdouh\PycharmProjects\Heterogeneous-MOE-for-Diffusion-models\Utils\ckpt_6000.pt"
+    # I'm using here my absolute path just for testing,it needs to be changed
+    checkpoint_path = r"C:\Users\Maha Mamdouh\PycharmProjects\Heterogeneous-MOE-for-Diffusion-models\Utils\ckpt_8000.pt"
 
     print(f"Loading weights from {checkpoint_path}...")
     if os.path.exists(checkpoint_path):
@@ -459,12 +460,12 @@ def sample_and_save(model_configs):
     images_normalized = out_images.float() / 255.0
     images_normalized = images_normalized.clamp(0, 1)
 
-    # Run the pipeline test on a specific image (path from original snippet)
+    # using an absolute path on current os for testing, needs to be changed
     test_img_path = r"C:\Users\Maha Mamdouh\PycharmProjects\Heterogeneous-MOE-for-Diffusion-models\Utils\data\flowers-102\jpg\image_00002.jpg"
 
     # Check if test image exists before running test
     if os.path.exists(test_img_path):
-        test_diffusion_pipeline(
+        """test_diffusion_pipeline(
             model=modeli,
             vae=vae,
             clip=clip,
@@ -473,7 +474,7 @@ def sample_and_save(model_configs):
             num_sampling_steps=500,
             # Pass explicit config values to test function if needed,
             # otherwise it defaults to model_configs inside the function
-        )
+        )"""
     else:
         print(f"Skipping pipeline test: Image not found at {test_img_path}")
 
@@ -483,14 +484,16 @@ def sample_and_save(model_configs):
     # Initialize Plotter (paths kept from original)
     plotter = Plotter(run_name="test_run")
 
+    # needs to be changed , just for testing we will keep it like this
     base_log_path = r"C:\Users\Maha Mamdouh\PycharmProjects\Heterogeneous-MOE-for-Diffusion-models\Utils\logs"
-    train_log = os.path.join(base_log_path, "hdmoem_flower_run_training.jsonl")
-    grad_log = os.path.join(base_log_path, "hdmoem_flower_run_gradients.jsonl")
+    train_log = os.path.join(base_log_path, "hdmoem_flower102_v1_training.jsonl")
+    grad_log = os.path.join(base_log_path, "hdmoem_flower102_v1_gradients.jsonl")
+    route_log = os.path.join(base_log_path, "hdmoem_flower102_v1_router_stats.jsonl")
 
-    plotter.plot_training_overview(r"C:\Users\Maha Mamdouh\PycharmProjects\Heterogeneous-MOE-for-Diffusion-models\Utils\logs\hdmoem_flower102_v1_training.jsonl")
-    plotter.plot_scaling_gating_mechanisms(r"C:\Users\Maha Mamdouh\PycharmProjects\Heterogeneous-MOE-for-Diffusion-models\Utils\logs\hdmoem_flower102_v1_training.jsonl")
-    plotter.plot_gradient_health(r"C:\Users\Maha Mamdouh\PycharmProjects\Heterogeneous-MOE-for-Diffusion-models\Utils\logs\hdmoem_flower102_v1_gradients.jsonl")
-    plotter.plot_router_stats(r"C:\Users\Maha Mamdouh\PycharmProjects\Heterogeneous-MOE-for-Diffusion-models\Utils\logs\hdmoem_flower102_v1_router_stats.jsonl")
+    plotter.plot_training_overview(train_log)
+    plotter.plot_scaling_gating_mechanisms(train_log)
+    plotter.plot_gradient_health(grad_log)
+    plotter.plot_router_stats(route_log)
     plotter.visualize_expert_landscape(model=modeli,device='cuda',num_points=400)
 
     # Save individual images

@@ -1,7 +1,8 @@
 from typing import Any
 from models.model_config import  preconditioned_HDMOEM
 import torch
-from utils import EDM_LOSS, sample_sigma_normal,ZetaScheduler,MaskGenerator,Lr_Scheduler
+from loss import EDM_LOSS_LPD,EDM_LOSS_NOD,EDM_LOSS
+from utils import  sample_sigma,ZetaScheduler,MaskGenerator,Lr_Scheduler
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 import os
@@ -93,7 +94,7 @@ def training_HDMOE(model_config: dict[str,Any],
                                   total_steps=model_config['total_steps'],
                                   min_active=mask_config['min_active'],
                                   step_size=mask_config['step_size'],
-                                  max_bandwidth=mask_config['max_BW'],
+                                  max_bandwidth=mask_config['max_BW_u'],
                                   bandwidth=mask_config['BW'],
                                   strat_band=mask_config['strat_band'],
                                   noise_range=mask_config['unet_noise_range']
@@ -105,22 +106,24 @@ def training_HDMOE(model_config: dict[str,Any],
                                  total_steps=model_config['total_steps'],
                                  min_active=mask_config['min_active'],
                                  step_size=mask_config['step_size'],
-                                 max_bandwidth=mask_config['max_BW'],
+                                 max_bandwidth=mask_config['max_BW_v'],
                                  bandwidth=mask_config['BW'],
                                  strat_band=mask_config['strat_band'],
                                  noise_range=mask_config['vit_noise_range']
                                  )
 
-    criterion = EDM_LOSS(expert_centers_vit=vit_mask_gen.expert_centers,
-                         expert_centers_Unet=Unet_mask_gen.expert_centers,
-                         num_experts=model_config["num_experts"],
-                         sigma_data=model_config["sigma_data"],
-                         Unet_bal= loss_config["unet_bal"],
-                         vit_bal=loss_config['vit_bal'],
-                         z_bal=loss_config['z_bal'],
-                         prior_bal=loss_config['prior_bal'],
-                         sharpness=loss_config['sharpness']
-                         )
+    criterion = EDM_LOSS_LPD(expert_centers_vit=vit_mask_gen.expert_centers,
+                             expert_centers_Unet=Unet_mask_gen.expert_centers,
+                             num_experts=model_config["num_experts"],
+                             sigma_data=model_config["sigma_data"],
+                             Unet_bal= loss_config["unet_bal"],
+                             vit_bal=loss_config['vit_bal'],
+                             z_bal=loss_config['z_bal'],
+                             prior_bal=loss_config['prior_bal'],
+                             sharpness=loss_config['sharpness'],
+                             laplacian_sigma= loss_config['laplacian_std'],
+                             laplacian_kernel = loss_config['laplacian_kernel']
+                             )
 
     json_log_path = os.path.join(model_config["save_dir_stats"], "training_stats.jsonl")
     if os.path.exists(json_log_path):
@@ -130,18 +133,8 @@ def training_HDMOE(model_config: dict[str,Any],
 
     model.train()
     current_mse = float('inf')
-    """model.net.Unet_experts.requires_grad_(False)
-    model.net.Unet_router.requires_grad_(False)
-    model.net.VIT_experts.requires_grad_(True)
-    model.net.vit_router.requires_grad_(True)
-    model.net.cross_attn.requires_grad_(True)
-    model.net.cross_attn_text.requires_grad_(True)"""
 
     for step in range(model_config["total_steps"]):
-        """if step == 2000:
-            print(">>> Phase 2: Unfreezing U-Net Experts...")
-            model.net.Unet_experts.requires_grad_(True)
-            model.net.Unet_router.requires_grad_(True)"""
 
         try:
             images_rgb, _ = next(data_iter)  # Ignore labels, use fixed prompt
@@ -153,13 +146,12 @@ def training_HDMOE(model_config: dict[str,Any],
         images = (images + 1) / 2
         images = images * 255
         latent_images = vae.encode(images)
-        sigma = sample_sigma_normal(batch_size=model_config['batch_size'],
+        sigma = sample_sigma(batch_size=model_config['batch_size'],
                              sigma_max=model_config['sigma_max'],
                              sigma_min=model_config['sigma_min'],
                              p_mean= mask_config['p_mean'],
                              p_std= mask_config['p_std'],
-                             device=model_config['device']
-                             )#.to(device=model_config['device'])
+                             ).to(device=model_config['device'])
 
         noise = torch.randn_like(latent_images).to(model_config["device"]) * sigma
         images_noised = latent_images + noise
@@ -183,9 +175,10 @@ def training_HDMOE(model_config: dict[str,Any],
 
         loss = criterion(
             x= latent_images,
+            noisy_x= images_noised,
             sigma = sigma,
             out_model=out_model
-                         )
+        )
 
         logger.log_training_step(
             step=step,

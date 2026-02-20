@@ -17,8 +17,8 @@ import math
 import torch
 import torch.nn as nn
 from typing import Optional, List, Tuple
-from model_internals import MP_Conv, MP_Fourier, mp_silu
-from model_components import Router, Unet_expert, Vit_expert
+from models.model_internals import MP_Conv, MP_Fourier, mp_silu
+from models.model_components import Router, Unet_expert, Vit_expert
 
 
 def router_to_experts(x: torch.Tensor,
@@ -146,20 +146,25 @@ class HDMOEM(nn.Module):
                 time_dim=time_emb_dim
             ))
 
-        # 6. REMOVED: Cross-attention (was suppressing ViT)
-        # 7. REMOVED: gate_mlp (using deterministic blending)
-
         # 8. Separate Output Projections (NO shared fusion)
-        self.output_proj_vit = MP_Conv(
-            in_channels=self.internal_channels, 
+        self.output_proj_unet = nn.Conv2d(
+            in_channels=self.internal_channels,
             out_channels=IN_in_channels,
-            kernel=(5, 5)  # Larger kernel for ViT (coarse features)
+            kernel_size=3,
+            padding=1
         )
-        self.output_proj_unet = MP_Conv(
-            in_channels=self.internal_channels, 
+        # CRITICAL: Zero-Initialization
+        nn.init.constant_(self.output_proj_unet.weight, 0.0)
+        nn.init.constant_(self.output_proj_unet.bias, 0.0)
+
+        self.output_proj_vit = nn.Conv2d(
+            in_channels=self.internal_channels,
             out_channels=IN_in_channels,
-            kernel=(3, 3)  # Small kernel for UNet (fine details)
+            kernel_size=5,
+            padding=2
         )
+        # Initialize ViT to small values (not zero, to keep gradients flowing for structure)
+        nn.init.xavier_normal_(self.output_proj_vit.weight)
 
     def compute_blend_weights(self, sigma: torch.Tensor) -> tuple:
         """
@@ -225,7 +230,8 @@ class HDMOEM(nn.Module):
         w_vit, w_unet = self.compute_blend_weights(sigma_reconstructed)
 
         # 7. Blend outputs (simple weighted sum, no normalization needed since sum=1)
-        out = w_vit * vit_out + w_unet * unet_out
+        out = (vit_out + w_unet * unet_out)#/ torch.sqrt(1+w_unet**2) for testing LPD
+        #out = w_vit * vit_out + w_unet * unet_out
 
         # 8. Return compatible output (dummy values for removed components)
         dummy_scaling = torch.stack([w_unet.flatten(), w_vit.flatten(), 
@@ -233,7 +239,9 @@ class HDMOEM(nn.Module):
         dummy_gate = torch.stack([w_unet.flatten(), w_vit.flatten(), 
                                   torch.zeros_like(w_vit.flatten())], dim=1)
         
-        return (out, 
+        return (out,
+                vit_out,
+                unet_out,
                 Unet_gate_probs,  # Real UNet router probs
                 Unet_raw,          # Real UNet raw logits
                 Vit_gate_probs,    # Real ViT router probs
@@ -243,7 +251,7 @@ class HDMOEM(nn.Module):
 
 
 class preconditioned_HDMOEM(nn.Module):
-    """EDM Preconditioning Wrapper for Fixed HDMOEM"""
+    """EDM Preconditioning Wrapper for HDMOEM"""
     
     def __init__(self,
                  IN_in_channels: int,
@@ -325,7 +333,7 @@ class preconditioned_HDMOEM(nn.Module):
         x_in = x * c_in
 
         # Forward
-        out_net, Unet_probs, Unet_raw, Vit_probs, Vit_raw, scaling, gate = self.net(
+        out_net,vit_out,unet_out,Unet_probs, Unet_raw, Vit_probs, Vit_raw, scaling, gate = self.net(
             x=x_in,
             text_emb=text_emb,
             time_vec=c_noise,
@@ -339,6 +347,8 @@ class preconditioned_HDMOEM(nn.Module):
 
         result = {
             "denoised": D_x,
+            "vit_denoised": vit_out,
+            "unet_denoised": unet_out,
             "Unet_router_loss": Unet_probs,
             "Unet_raw": Unet_raw,
             "vit_router_loss": Vit_probs,
