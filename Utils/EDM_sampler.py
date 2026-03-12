@@ -1,3 +1,4 @@
+from typing import Optional
 import numpy as np
 import torch.nn as nn
 import torch
@@ -34,16 +35,13 @@ class EDM_Sampler:
         """
         Denoise helper that handles Classifier-Free Guidance internally.
         """
-        bs = x.shape[0]
-        num_experts = self.model.net.num_experts
-        Unet_router_mask = torch.ones((bs, num_experts), device=x.device)
-        vit_router_mask = torch.ones((bs, num_experts), device=x.device)
+
         out_model = self.model(
             x=x,
             sigma=sigma,
             text_emb=text_emb,
-            Unet_router_mask=Unet_router_mask,
-            Vit_router_mask=vit_router_mask,
+            Unet_router_mask=None,
+            Vit_router_mask=None,
             zeta=0,
         )
         D_x = out_model["denoised"].to(self.dtype)
@@ -55,8 +53,8 @@ class EDM_Sampler:
             x=x,
             sigma=sigma,
             text_emb=emb_for_guide,
-            Unet_router_mask=Unet_router_mask,
-            Vit_router_mask=vit_router_mask,
+            Unet_router_mask=None,
+            Vit_router_mask=None,
             zeta=0,
         )
         ref_D_x = out_guide["denoised"].to(self.dtype)
@@ -66,7 +64,7 @@ class EDM_Sampler:
     @torch.no_grad()
     def sample(self,
                noise: torch.Tensor,
-               text_emb: torch.Tensor,
+               text_emb: Optional[torch.Tensor] = None,
                transition_mean:float = 0.5,
                softness:float = 0.1,
                uncond_text_emb: torch.Tensor = None

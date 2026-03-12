@@ -4,7 +4,43 @@ import torch
 import torch.nn as nn
 import math
 from copy import deepcopy
+import os
 
+def save_checkpoint(model,
+                    optimizer,
+                    step,
+                    mse_score,
+                    configs,
+                    filename,
+                    ema_instance = None
+                    ):
+    if "save_dir" in configs:
+        save_path = configs["save_dir"]
+    elif "model_configs" in configs and "save_dir" in configs["model_configs"]:
+        save_path = configs["model_configs"]["save_dir"]
+    else:
+        save_path = "./checkpoints"
+
+    os.makedirs(save_path, exist_ok=True)
+    full_path = os.path.join(save_path, filename)
+    if hasattr(model, 'module'):
+        model_state = model.module.state_dict()
+    else:
+        model_state = model.state_dict()
+
+    checkpoint = {
+        'step': step,
+        'model_state_dict': model_state,
+        'optimizer_state_dict': optimizer.state_dict(),
+        'mse': mse_score,
+        'config': configs
+    }
+    if ema_instance is not None:
+        # We save the underlying model inside the EMA class
+        checkpoint['ema_model_state_dict'] = ema_instance.ema_model.state_dict()
+
+    torch.save(checkpoint, str(full_path))
+    print(f"   [Save] Checkpoint saved: {full_path}")
 
 def sample_sigma(batch_size: int,
                  uniform: bool = False,
@@ -65,6 +101,31 @@ def boost(x, multiplier=100.0):
     return GradBooster.apply(x, multiplier)
 
 
+def register_gradient_scalers(model):
+    """
+    Registers hooks to boost gradients for Expert layers specifically.
+    This helps overcome the "stiffness" of MP-initialized weights.
+    """
+    hooks = []
+
+    # Target the experts
+    target_modules = [model.net.Unet_experts,
+                      model.net.VIT_experts,
+                      model.net.input_proj,  # <--- ADD THIS
+                      model.net.input_time_proj
+                      ]
+
+    for module in target_modules:
+        for name, param in module.named_parameters():
+            if param.requires_grad:
+                # We define a lambda that multiplies the grad by 100
+                # logic: 1e-7 (current) * 100 -> 1e-5 (healthy start)
+                h = param.register_hook(lambda grad: grad * 1000.0)
+                hooks.append(h)
+
+    print(f"🧲 Registered Gradient Boosters (x100) on {len(hooks)} expert parameters.")
+    return hooks
+
 class Lr_Scheduler:
     """
     EDM2 Learning Rate Scheduler with support for multiple parameter groups.
@@ -78,6 +139,7 @@ class Lr_Scheduler:
             ref_batches: float = 70e3,
             rampup_Mimg: float = 10,
             dataset_size: int = 8200,
+            cur_nimg: int = 0
     ):
         self.optimizer = optimizer
         self.batch_size = batch_size
@@ -90,7 +152,7 @@ class Lr_Scheduler:
         self.base_lrs = [group['lr'] for group in optimizer.param_groups]
 
         # Track current number of images seen
-        self.cur_nimg = 0
+        self.cur_nimg = cur_nimg
         self._last_lrs = self.base_lrs.copy()
 
         print(f"📊 EDM2 Scheduler initialized with {len(self.base_lrs)} parameter groups:")
@@ -199,13 +261,15 @@ class MaskGenerator(nn.Module):
             expert_attributes: list,  # List of kernel sizes or patch sizes
             p_mean: float = -0.4,
             p_std: float = 1.0,
-            bandwidth: float = 0.3,
-            max_bandwidth: float = 0.9,
+            bandwidth: float = 0.9,
+            min_bandwidth: float = 0.3,
             min_active: int = 1,
             total_steps: int = 5000,
             step_size: float = 0.1,
             noise_range: tuple = (0.0, 1.0),
             strat_band: str = "step",
+            sigma_min: float = 0.002,
+            sigma_max: float = 80.0
     ):
         """
         Attributes-Aware Mask Generator (Rank-Based).
@@ -215,18 +279,20 @@ class MaskGenerator(nn.Module):
         super().__init__()
         self.strat_band = strat_band
         self.total_steps = total_steps
-        self.max_bw = max_bandwidth
+        self.min_bw = min_bandwidth
         self.step_size = step_size
         self.p_mean = p_mean
         self.p_std = p_std
         self.bandwidth = bandwidth
         self.min_active = min_active
+        self.sigma_min = sigma_min
+        self.sigma_max = sigma_max
 
         attrs = torch.tensor(expert_attributes, dtype=torch.float32)
         num_experts = len(attrs)
         _, sorted_indices = torch.sort(attrs, stable=True)
-        min_range, max_range = noise_range
-        equidistant_points = torch.linspace(min_range, max_range, steps=num_experts)
+        self.min_range, self.max_range = noise_range
+        equidistant_points = torch.linspace(self.min_range, self.max_range, steps=num_experts)
         final_centers = torch.zeros_like(attrs)
         final_centers[sorted_indices] = equidistant_points
         self.register_buffer('expert_centers', final_centers)
@@ -234,11 +300,10 @@ class MaskGenerator(nn.Module):
     @torch.no_grad()
     def __call__(self, sigma: torch.Tensor, step: int) -> torch.Tensor:
         device = sigma.device
-        s = sigma.flatten()
-        log_sigma = torch.log(s)
-        sigma_percentile = 0.5 * (1 + torch.erf((log_sigma - self.p_mean) / (self.p_std * np.sqrt(2))))
-        sigma_percentile = sigma_percentile.clamp(0, 1)
-        sp_reshaped = sigma_percentile.view(-1, 1)
+        log_sigma = torch.log(sigma.flatten())  # already computed
+        log_min, log_max = math.log(self.sigma_min), math.log(self.sigma_max)  # full range
+        sigma_normalized = (log_sigma - log_min) / (log_max - log_min)
+        sp_reshaped = sigma_normalized.view(-1, 1)
         experts_reshaped = self.expert_centers.to(device).view(1, -1)
         dist = torch.abs(sp_reshaped - experts_reshaped)
         current_bw = self.bandwidth_scheduler(step)
@@ -248,14 +313,26 @@ class MaskGenerator(nn.Module):
         return mask
 
     def bandwidth_scheduler(self, step: int) -> float:
-        if step < self.total_steps * 0.1:  # First 10%
-            return 0.9  # Start WIDE - let all experts see data
-        elif step < self.total_steps * 0.5:  # Next 40%
-            # Anneal quickly
-            progress = (step - 0.1 * self.total_steps) / (0.4 * self.total_steps)
-            return 0.9 - 0.7 * progress  # 0.9 → 0.2
+        if step >= self.total_steps:
+            return self.min_bw  # Changed from hardcoded 1.0 to max_bw
+
+        if self.strat_band == 'linear':
+            prog = step / float(self.total_steps)
+            return self.bandwidth + (self.min_bw - self.bandwidth) * prog
+
+        elif self.strat_band == 'step':
+            # Calculate interval based on total steps / num_intervals (or step_size fraction)
+            # Using step_size as a fraction (e.g. 0.1 for 10%)
+            interval_size = self.total_steps * self.step_size
+            current_interval = int(step / interval_size)
+
+            # Max progress is 1.0
+            total_intervals = int(1.0 / self.step_size)
+            progress = min(current_interval / total_intervals, 1.0)
+
+            return self.bandwidth + (self.min_bw - self.bandwidth) * progress
         else:
-            return 0.2
+            return self.bandwidth
 
 #to be revised against EDM's PostHoc EMA implementation
 class EMA:
@@ -264,7 +341,12 @@ class EMA:
     Implements the 'Power Function' warmup to prevent zero-bias at the start.
     """
 
-    def __init__(self, model, beta=0.999, warmup_power:float = 2 / 3, min_warmup_step=0):
+    def __init__(self,
+                 model,
+                 beta: float=0.999,
+                 warmup_power:float = 2 / 3,
+                 min_warmup_step=0
+                 ):
         self.beta = beta
         self.warmup_power = warmup_power
         self.min_warmup_step = min_warmup_step

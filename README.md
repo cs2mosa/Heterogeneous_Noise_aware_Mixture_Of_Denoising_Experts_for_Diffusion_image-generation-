@@ -15,4 +15,4 @@
     
     7. Router's mask pattern generator for expert specialization #DONE
     8. EDM sampler for generating images (2nd order solver) #DONE
-    9. implement lr_scheduler in utils.py 
+    9. implement lr_scheduler in utils.py #DONE

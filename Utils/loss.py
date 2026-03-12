@@ -61,7 +61,6 @@ class EDM_LOSS_NOD(nn.Module):
                  p_mean: float = 0.4,
                  p_std: float = 1.6,
                  sharpness: float = 2.0,
-                 # NEW: Trajectory decomposition params
                  transition_sigma: float = 3.0,
                  overlap_width: float = 1.5,
                  alpha_blend: float = 0.2,
@@ -94,26 +93,11 @@ class EDM_LOSS_NOD(nn.Module):
             sharpness=sharpness
         )
 
-    def compute_trajectory_masks(self, sigma: torch.Tensor):
-        """
-        Compute masks for trajectory decomposition.
-
-        UNet trains: σ < transition + overlap
-        ViT trains:  σ > transition - overlap
-        Overlap region: both train
-
-        Returns:
-            unet_mask: bool tensor (B,) indicating UNet training samples
-            vit_mask: bool tensor (B,) indicating ViT training samples
-        """
+    def _compute_trajectory_masks(self, sigma: torch.Tensor):
+        # We assume overlap width roughly correlates to the region of interest
         sigma_flat = sigma.flatten()
-
-        # UNet: low noise region
         unet_mask = sigma_flat < (self.transition_sigma + self.overlap_width)
-
-        # ViT: high noise region
         vit_mask = sigma_flat > (self.transition_sigma - self.overlap_width)
-
         return unet_mask, vit_mask
 
     def __call__(self,
@@ -122,74 +106,56 @@ class EDM_LOSS_NOD(nn.Module):
                  sigma: torch.Tensor,
                  out_model: dict[str, torch.Tensor]
                  ) -> dict[str, torch.Tensor]:
-        """
-        EDM loss with trajectory decomposition.
 
-        Key change: Each branch trains only on its designated noise range.
-        """
-        # Standard EDM preconditioning
+        # 1. EDM Weighting (Corrected Clamping)
         sigma = sigma.reshape(-1, 1, 1, 1)
-        c_skip = self.sigma_data ** 2 / (sigma ** 2 + self.sigma_data ** 2)
-        c_out = sigma * self.sigma_data / (sigma ** 2 + self.sigma_data ** 2).sqrt()
-
-        # Target in denoised space
-        target = (x - c_skip * noisy_x) / c_out
-
-        # EDM loss weighting
         weight = (sigma ** 2 + self.sigma_data ** 2) / (sigma * self.sigma_data) ** 2
-        weight = weight.clamp(max=100.0)
 
-        # === TRAJECTORY DECOMPOSITION ===
-        # Get masks for which branch should train on which samples
-        unet_mask, vit_mask = self.compute_trajectory_masks(sigma)
+        # 2. Trajectory Decomposition Setup
+        unet_mask, vit_mask = self._compute_trajectory_masks(sigma)
 
-        # 1. Blended output loss (train on ALL samples)
-        diff_blend = out_model["denoised"] - target
+        # This ensures Loss exactly matches Model behavior
+        wx_vit = out_model['w_vit']  # (B, 1, 1, 1)
+        wx_unet = out_model['w_unet']  # (B, 1, 1, 1)
 
+        # 3. Global Blend Loss (The "Truth")
+        diff_blend = out_model["denoised"] - x
         if out_model["log_var"] is None:
             pure_loss = torch.mean(weight * (diff_blend ** 2))
         else:
-            # Uncertainty-aware loss
             log_var = out_model["log_var"].clamp(min=-10, max=10)
-            pure_loss = torch.mean(
-                (weight * (diff_blend ** 2)) / log_var.exp() + log_var
-            )
-        pure_loss = pure_loss.clamp(max=50)
+            pure_loss = torch.mean((weight * (diff_blend ** 2)) / log_var.exp() + log_var)
 
-        # 2. UNet branch loss (ONLY on low-noise samples)
-        unet_loss = torch.tensor(0.0, device=x.device)
-        if unet_mask.any():
-            # Extract samples where UNet should train
-            w_unet = weight[unet_mask]
-            pred_unet = out_model['unet_denoised'][unet_mask]
-            target_unet = target[unet_mask]
+        # 4. UNet Branch Loss (Masked Reduction)
+        # We weight the error by 'wx_unet'. This means as the model naturally transitions
+        # away from UNet, we reduce supervision, preventing "Teacher Forcing" on noise.
+        m_unet = unet_mask.view(-1, 1, 1, 1).to(dtype=out_model['unet_denoised'].dtype)
+        unet_sq_error = (out_model['unet_denoised'] - x) ** 2
 
-            unet_loss = torch.mean(w_unet * (pred_unet - target_unet) ** 2)
-            unet_loss = unet_loss.clamp(max=50)
+        # Weight = EDM_Weight * Blend_Weight * Mask
+        weighted_err_unet = weight * wx_unet * unet_sq_error * m_unet
 
-        # 3. ViT branch loss (ONLY on high-noise samples)
-        vit_loss = torch.tensor(0.0, device=x.device)
-        if vit_mask.any():
-            # Extract samples where ViT should train
-            w_vit = weight[vit_mask]
-            pred_vit = out_model['vit_denoised'][vit_mask]
-            target_vit = target[vit_mask]
+        num_active_elements_u = m_unet.sum() * x.shape[1] * x.shape[2] * x.shape[3]
+        unet_loss = weighted_err_unet.sum() / (num_active_elements_u + 1e-6)
 
-            vit_loss = torch.mean(w_vit * (pred_vit - target_vit) ** 2)
-            vit_loss = vit_loss.clamp(max=50)
+        # 5. ViT Branch Loss (Masked Reduction)
+        m_vit = vit_mask.view(-1, 1, 1, 1).to(dtype=out_model['vit_denoised'].dtype)
+        vit_sq_error = (out_model['vit_denoised'] - x) ** 2
 
-        # Weighted combination of trajectory losses
+        weighted_err_vit = weight * wx_vit * vit_sq_error * m_vit
+
+        num_active_elements_v = m_vit.sum() * x.shape[1] * x.shape[2] * x.shape[3]
+        vit_loss = weighted_err_vit.sum() / (num_active_elements_v + 1e-6)
+
+        # 6. Total Loss Aggregation
         trajectory_loss = (
                 self.alpha_blend * pure_loss +
                 self.alpha_unet * unet_loss +
                 self.alpha_vit * vit_loss
         )
 
-        # === AUXILIARY LOSSES ===
-        # Denoising loss (for logging)
-        denoising_loss = torch.mean((out_model["denoised"] - x) ** 2)
-
-        # Router load balance
+        # Aux losses
+        denoising_loss = torch.mean(diff_blend ** 2)
         router_loss = (
                 self.Unet_lambda * self.load_balance(out_model["Unet_router_loss"], self.num_experts) +
                 self.vit_lambda * self.load_balance(out_model["vit_router_loss"], self.num_experts)
@@ -203,24 +169,22 @@ class EDM_LOSS_NOD(nn.Module):
         )
         ).clamp(max=50)
 
-        # Z-loss (router logit regularization)
         z_loss = (
                 self.z_bal * self.z_loss(out_model["Unet_raw"]) +
                 self.z_bal * self.z_loss(out_model["vit_raw"])
         ).clamp(max=50)
 
-        # === TOTAL LOSS ===
         total_loss = (
                 trajectory_loss +
                 router_loss +
                 scaling_loss +
                 z_loss
-        ).clamp(max=50)
+        )
 
         return {
             "loss": total_loss,
-            "loss_texture": unet_loss,  # Now: UNet on low-noise
-            "loss_structure": vit_loss,  # Now: ViT on high-noise
+            "loss_texture": unet_loss,
+            "loss_structure": vit_loss,
             "denoising": denoising_loss,
             "balance": router_loss,
             "z_loss": z_loss,
@@ -317,7 +281,6 @@ class EDM_LOSS_LPD(nn.Module):
         # 5. EDM Weighting (Critical for stability)
         # This weight balances the loss magnitude across different noise levels
         weight = (sigma ** 2 + self.sigma_data ** 2) / (sigma * self.sigma_data) ** 2
-        weight = weight.clamp(max=100.0)
 
         # 6. Calculate Orthogonal Losses
         # ViT Branch Loss (Structure)
@@ -339,7 +302,6 @@ class EDM_LOSS_LPD(nn.Module):
             log_var = out_model["log_var"].clamp(min=-10, max=10)
             pure_loss = torch.mean((weight * (diff ** 2)) / log_var.exp() + log_var)
 
-        pure_loss = pure_loss.clamp(max=50)
         denoising_loss = torch.mean(diff ** 2)  # Raw MSE for logging
 
         # 8. Auxiliary Losses (Router & Z-Loss)
@@ -347,8 +309,8 @@ class EDM_LOSS_LPD(nn.Module):
                        self.vit_lambda * self.load_balance(out_model["vit_router_loss"], self.num_experts)).clamp(
             max=50)
 
-        scaling_loss = (self.prior_bal * (self.prior_path_loss_vit(out_model["Unet_router_loss"], sigma) +
-                                          self.prior_path_loss_Unet(out_model["vit_router_loss"], sigma))).clamp(max=50)
+        scaling_loss = (self.prior_bal * (self.prior_path_loss_vit(out_model["vit_router_loss"], sigma) +
+                                          self.prior_path_loss_Unet(out_model["Unet_router_loss"], sigma))).clamp(max=50)
 
         z_los = (self.z_bal * self.z_loss(out_model["Unet_raw"]) +
                  self.z_bal * self.z_loss(out_model["vit_raw"])).clamp(max=50)
@@ -358,7 +320,7 @@ class EDM_LOSS_LPD(nn.Module):
 
         return {
             "loss": total_loss,
-            "loss_texture": unet_loss,  # Check this in logs. Should behave differently than before.
+            "loss_texture": unet_loss,
             "loss_structure": vit_loss,
             "denoising": denoising_loss,
             "balance": router_loss,
@@ -411,12 +373,8 @@ class EDM_LOSS(nn.Module):
                  out_model: dict[str, torch.Tensor]
                  ) -> dict[str, torch.Tensor]:
 
-        # --- FIX 1: Correct EDM Weighting (Karras et al. 2022) ---
-        # Weight minimizes visual error, not just MSE.
-        weight = (sigma ** 2 + self.sigma_data ** 2) / (sigma * self.sigma_data) ** 2
 
-        # Clamp weight to prevent instability at very low sigma (0.002)
-        weight = weight.clamp(max=100.0)
+        weight = (sigma ** 2 + self.sigma_data ** 2) / (sigma * self.sigma_data) ** 2
 
         # Main Denoising Loss
         diff = out_model["denoised"] - x
@@ -427,7 +385,6 @@ class EDM_LOSS(nn.Module):
             log_var = out_model["log_var"].clamp(min=-10, max=10)
             pure_loss = torch.mean((weight * (diff ** 2)) / log_var.exp() + log_var)
 
-        pure_loss = pure_loss.clamp(max=50)  # Safety clip
         denoising_loss = torch.mean(diff ** 2)  # Raw MSE for logging
 
         # Aux Losses
@@ -437,7 +394,6 @@ class EDM_LOSS(nn.Module):
         scaling_loss = (self.prior_bal * (self.prior_path_loss_vit(out_model["Unet_router_loss"], sigma) +
                                           self.prior_path_loss_Unet(out_model["vit_router_loss"], sigma))).clamp(max=50)
 
-        # Router Z-Loss to prevent logit explosion (ST-MoE)
         z_los = (self.z_bal * self.z_loss(out_model["Unet_raw"]) +
                  self.z_bal * self.z_loss(out_model["vit_raw"])).clamp(max=50)
 

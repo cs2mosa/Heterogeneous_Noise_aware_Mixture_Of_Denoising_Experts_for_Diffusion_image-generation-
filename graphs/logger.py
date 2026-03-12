@@ -208,7 +208,6 @@ class Logger:
 
         # --- FOR THE LINE GRAPHS (Evolution over time) ---
         # These need to be MEANS to show the stable trend of the model
-        self.accumulators['avg_sigma_percentile'].append(sigma_pcts.mean().item())
         self.accumulators['scaling_vit_mean'].append(scaling_factors[:, 1].mean().item())
         self.accumulators['scaling_unet_mean'].append(scaling_factors[:, 0].mean().item())
         self.accumulators['scaling_fusion_mean'].append(scaling_factors[:, 2].mean().item())

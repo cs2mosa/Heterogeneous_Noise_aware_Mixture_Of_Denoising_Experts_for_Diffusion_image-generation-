@@ -17,12 +17,12 @@ from scipy.ndimage import gaussian_filter1d
 from typing import Optional
 import warnings
 
-from Utils.configs import model_configs, mask_configs
+from Utils.config import model_configs
 
 warnings.filterwarnings('ignore')
 
 
-class Plotter:
+class Plotter2:
     """
     Research-grade visualization toolkit for Hybrid Diffusion MoE models.
     """

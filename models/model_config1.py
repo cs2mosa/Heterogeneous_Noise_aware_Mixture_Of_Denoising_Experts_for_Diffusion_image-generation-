@@ -212,14 +212,13 @@ class HDMOEM (nn.Module):
                 text_emb        : torch.Tensor, #shape -> (batch,text_seq_ln,text_emb_dim)
                 Unet_router_mask: torch.Tensor, #shape-> (batch,num_experts)
                 Vit_router_mask : torch.Tensor, #shape-> (batch,num_experts)
-                zeta            : float,
-                alpha_routing: float = 10
+                zeta            : float
                 )-> tuple[torch.Tensor,torch.Tensor,torch.Tensor,torch.Tensor,torch.Tensor,torch.Tensor,torch.Tensor]:
         """
         Forward pass of the Hybrid MoE.
 
         Args:
-            :param alpha_routing: for dynamic query and context swapping (we will test this logically)
+
             :param x : Input noisy image/latent.
                               Shape: (Batch, In_Channels, Height, Width).
             :param time_vec: Raw time steps or noise levels (sigma).

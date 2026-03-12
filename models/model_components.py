@@ -76,7 +76,7 @@ class Router(nn.Module):
                  time_dim: Optional[int] = 256,  # Input: dimension of noise vector
                  top_k: Optional[int] = 1,
                  num_experts: Optional[int] = 4,
-                 dropout: Optional[float] = 0.2
+                 dropout: Optional[float] = 0.0
                  ):
         super().__init__()
         self.mlp_route = nn.Sequential(
@@ -109,7 +109,7 @@ class Router(nn.Module):
             logits = logits + torch.randn_like(logits) * zeta
 
         if mask is not None:
-            logits = logits.masked_fill(mask == 0, float('-inf'))
+            logits = logits.masked_fill(mask == 0, -1e9)  # safer than -inf for softmax
 
         gate_probs = F.softmax(logits, dim=-1)
         topk_vals, topk_indices = torch.topk(logits, self.k, dim=-1)
@@ -170,7 +170,7 @@ class Unet_block(nn.Module):
         self.emb_layer = m.MP_Conv(in_channels = emb_size, out_channels = out_channels,kernel=())
         self.conv_res1 = m.MP_Conv(in_channels = out_channels if self.type == 'enc' else in_channels, out_channels= out_channels, kernel=self.kernel)
         self.conv_res2 = m.MP_Conv(in_channels = out_channels, out_channels= out_channels, kernel=self.kernel)
-
+        nn.init.constant_(self.conv_res2.weights, 0.0)
     def forward(self,
                 x        :torch.Tensor,
                 embedding:torch.Tensor
@@ -452,6 +452,8 @@ class Vit_block(nn.Module):
         #MLP used after the TMSA attention
         self.linear2 = m.MP_Conv(emb_dim,emb_dim*4,kernel = ())
         self.linear3 = m.MP_Conv(emb_dim*4,emb_dim,kernel = ())
+        nn.init.constant_(self.linear3.weights, 0.0)
+        nn.init.constant_(self.TMSA.out_proj.weights, 0.0)
 
     def forward(self,
                 x             : torch.Tensor,
@@ -552,6 +554,7 @@ class Vit_expert(nn.Module):
                  res_balance : Optional[float] = 0.5 ,
                  attn_balance: Optional[float] = 0.5 ,
                  emb_balance : Optional[float] = 0.5,
+                 pos_emb_balance: Optional[float] = 0.5,
                  gain_s      : Optional[float] = 1.0,
                  gain_t      : Optional[float] = 1.0,
                  ):
@@ -578,6 +581,7 @@ class Vit_expert(nn.Module):
         super().__init__()
         self.seq_ln = seq_ln
         self.emb_balance = emb_balance
+        self.pos_emb_balance = pos_emb_balance
         self.emb_dim = emb_dim
         self.patch = m.MP_Conv(in_channels=in_channels + 1,out_channels=emb_dim,kernel=(patch_size,patch_size),stride=patch_size)
         self.map_txt = m.MP_Conv(in_channels=text_dim,out_channels=time_dim,kernel=()) if text_dim != time_dim and text_dim != 0 else None
@@ -631,7 +635,7 @@ class Vit_expert(nn.Module):
         batch,c,h_patch,w_patch = x.shape
         assert h_patch*w_patch == self.seq_ln, f"Sequence length mismatch: Got {h_patch * w_patch}, expected {self.seq_ln}, shape: {x.shape}"
         x = x.flatten(2).transpose(1, 2)
-        x = m.mp_sum(x, self.pos_emb, t=0.2)
+        x = m.mp_sum(x, self.pos_emb, t=self.pos_emb_balance)
         if text_emb is not None:
             if self.map_txt is not None:
                 #shape transforms to -> (batch, text_emb_size) for the linear layer if ndims = 3

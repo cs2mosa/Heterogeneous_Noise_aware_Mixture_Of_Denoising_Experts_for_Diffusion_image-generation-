@@ -418,3 +418,130 @@ class MP_Attention(nn.Module):
         out = out.view(batch_size, seq_len_q, self.emb_dim)
 
         return mp_sum(query, out, t=self.attn_balance)
+
+
+class PooledCrossAttn(nn.Module):
+    """
+    Cheap inter-branch communication module.
+
+    Why pooled instead of full spatial?
+    ─────────────────────────────────────
+    Full spatial cross-attention at resolution H×W costs O((HW)²) per head.
+    For a 32×32 latent that is ~1M ops per head; for 64×64 it becomes ~16M.
+    By pooling both branches to a P×P grid (P=4 by default) the cost drops
+    to O(P⁴) = 256 ops — independent of input resolution.
+
+    The coarse grid is sufficient because the module's role is to give UNet
+    a sense of the *global* structure produced by ViT so it can preserve
+    large-scale coherence while refining local detail.  Fine spatial detail
+    does not need to cross the branch boundary; only coarse layout does.
+
+    How the transition gate enforces trajectory alignment
+    ──────────────────────────────────────────────────────
+    The correction tensor is multiplied by gate_strength = w_vit × w_unet.
+    This product is 0 when either branch is fully suppressed (σ extremes)
+    and reaches its maximum of 0.25 at σ = transition_sigma.
+
+    At high σ (ViT dominant): gate_strength → 0  → no UNet influence on ViT
+    At low  σ (UNet dominant): gate_strength → 0  → no ViT  influence on UNet
+    At transition σ:           gate_strength = 0.25 → maximal communication
+
+    Initialisation
+    ───────────────
+    out_proj is zero-initialised.  At step 0 the module outputs all-zeros,
+    making v3 identical to v2 at initialisation.  The module grows its
+    contribution organically as out_proj learns non-zero weights.
+
+    Args:
+        channels    : C — number of feature channels (= internal_channels).
+        num_heads   : Number of attention heads in MP_Attention.
+        pool_size   : P — spatial size of the pooled grid.  Default 4.
+        attn_balance: Residual blend factor inside MP_Attention.
+    """
+
+    def __init__(
+        self,
+        channels:     int,
+        num_heads:    int,
+        pool_size:    int   = 4,
+        attn_balance: float = 0.5,
+    ):
+        super().__init__()
+        self.pool_size = pool_size
+        pool_seq = pool_size * pool_size    # number of tokens after pooling
+
+        # Align channels to be divisible by num_heads (MP_Attention requirement)
+        assert channels % num_heads == 0, (
+            f"PooledCrossAttn: channels ({channels}) must be divisible "
+            f"by num_heads ({num_heads})."
+        )
+
+        # MP cross-attention on the pooled token sequences.
+        # query  = pooled UNet features  (B, P², C)
+        # context = pooled ViT features  (B, P², C)
+        self.cross_attn = MP_Attention(
+            num_heads    = num_heads,
+            emb_dim      = channels,
+            seq_ln       = pool_seq,
+            context_dim  = channels,
+            attn_balance = attn_balance,
+            is_cross_attn= True,
+        )
+
+        # 1×1 projection applied *after* upsampling back to (B, C, H, W).
+        # Zero-initialised → module is a no-op at step 0.
+        self.out_proj = MP_Conv(
+            in_channels  = channels,
+            out_channels = channels,
+            kernel       = (1, 1),
+        )
+        # Zero-init the weight tensor so the module starts silent.
+        nn.init.constant_(self.out_proj.weights, 0.0)
+
+    def forward(
+        self,
+        unet_feat:    torch.Tensor,    # (B, C, H, W)  — UNet branch features
+        vit_feat:     torch.Tensor,    # (B, C, H, W)  — ViT  branch features
+        gate_strength: torch.Tensor,   # (B, 1, 1, 1)  — w_vit × w_unet ∈ [0, 0.25]
+    ) -> torch.Tensor:
+        """
+        Returns an additive correction tensor of shape (B, C, H, W).
+        The correction is scaled by gate_strength so it vanishes at σ extremes.
+        """
+        B, C, H, W = unet_feat.shape
+        P = self.pool_size
+
+        # ── 1. Pool both branches to P×P ─────────────────────────────────────
+        # adaptive_avg_pool2d handles any H×W gracefully.
+        unet_pooled = F.adaptive_avg_pool2d(unet_feat, (P, P))   # (B, C, P, P)
+        vit_pooled  = F.adaptive_avg_pool2d(vit_feat,  (P, P))   # (B, C, P, P)
+
+        # Flatten spatial → sequence: (B, P², C)
+        unet_seq = unet_pooled.flatten(2).transpose(1, 2)
+        vit_seq  = vit_pooled.flatten(2).transpose(1, 2)
+
+        # ── 2. Cross-attention: UNet queries ViT ─────────────────────────────
+        # attn_out shape: (B, P², C)  — residual included inside MP_Attention
+        attn_out = self.cross_attn(
+            query   = unet_seq,
+            context = vit_seq,
+            gain_s  = 1.0,
+            gain_t  = 1.0,
+        )                                                          # (B, P², C)
+
+        # ── 3. Reshape back to spatial and upsample to full resolution ────────
+        attn_spatial = attn_out.transpose(1, 2).view(B, C, P, P) # (B, C, P, P)
+        attn_full    = F.interpolate(
+            attn_spatial,
+            size  = (H, W),
+            mode  = 'bilinear',
+            align_corners = False,
+        )                                                          # (B, C, H, W)
+
+        # ── 4. Project and gate ───────────────────────────────────────────────
+        # Reshape to 2D for MP_Conv in linear mode, then back.
+        correction = self.out_proj(attn_full)                     # (B, C, H, W)
+
+        # gate_strength peaks at 0.25 at transition σ, is 0 at extremes.
+        # Multiplying here ensures the correction is always a small perturbation.
+        return correction * gate_strength
