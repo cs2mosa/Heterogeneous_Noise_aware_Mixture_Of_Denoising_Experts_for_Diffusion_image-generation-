@@ -3,14 +3,52 @@ import numpy as np
 import torch
 import torch.nn as nn
 import math
+from copy import deepcopy
+import os
+
+def save_checkpoint(model,
+                    optimizer,
+                    step,
+                    mse_score,
+                    configs,
+                    filename,
+                    ema_instance = None
+                    ):
+    if "save_dir" in configs:
+        save_path = configs["save_dir"]
+    elif "model_configs" in configs and "save_dir" in configs["model_configs"]:
+        save_path = configs["model_configs"]["save_dir"]
+    else:
+        save_path = "./checkpoints"
+
+    os.makedirs(save_path, exist_ok=True)
+    full_path = os.path.join(save_path, filename)
+    if hasattr(model, 'module'):
+        model_state = model.module.state_dict()
+    else:
+        model_state = model.state_dict()
+
+    checkpoint = {
+        'step': step,
+        'model_state_dict': model_state,
+        'optimizer_state_dict': optimizer.state_dict(),
+        'mse': mse_score,
+        'config': configs
+    }
+    if ema_instance is not None:
+        # We save the underlying model inside the EMA class
+        checkpoint['ema_model_state_dict'] = ema_instance.ema_model.state_dict()
+
+    torch.save(checkpoint, str(full_path))
+    print(f"   [Save] Checkpoint saved: {full_path}")
+
 def sample_sigma(batch_size: int,
                  uniform: bool = False,
                  p_mean: float = -0.4,
                  p_std: float = 1.0,
                  sigma_max: Optional[float] = 80.0,
                  sigma_min: Optional[float] = 0.002
-                 )-> torch.Tensor:
-
+                 ) -> torch.Tensor:
     if uniform:
         low = torch.log(torch.tensor(sigma_min))
         high = torch.log(torch.tensor(sigma_max))
@@ -20,177 +58,169 @@ def sample_sigma(batch_size: int,
         sigma_vec = torch.randn([batch_size, 1, 1, 1])
         sigma_vec = (sigma_vec * p_std + p_mean).exp()
         sigma_vec = sigma_vec.clamp(min=sigma_min, max=sigma_max)
-
     return sigma_vec
+
 
 def sample_sigma_hybrid(batch_size,
                         sigma_min=0.002,
                         sigma_max=80.0,
-                        p_mean=-0.4,  # Adjusted for Latent Space
-                        p_std=1.0,  # Adjusted for Latent Space
+                        p_mean=-0.4,
+                        p_std=1.0,
                         extreme_prob=0.2,
                         device='cuda'):
-    """
-    Hybrid Sampler:
-    Ensures 'Core' training via Log-Normal (80%)
-    and 'Expert Coverage' via Log-Uniform (20%).
-    """
-
-    # 1. Calculate counts
     n_lognormal = int(batch_size * (1 - extreme_prob))
     n_uniform = batch_size - n_lognormal
 
-    # 2. Log-Normal Samples (The EDM2 core)
-    # Focuses on the most informative noise levels for the average expert
     rnd_normal = torch.randn([n_lognormal, 1, 1, 1], device=device)
     sigma_lognormal = (rnd_normal * p_std + p_mean).exp()
 
-    # 3. Log-Uniform Samples (The MoE safety floor)
-    # Ensures Structural and Detail experts get consistent gradients
     log_min = math.log(sigma_min)
     log_max = math.log(sigma_max)
     u = torch.rand([n_uniform, 1, 1, 1], device=device)
     sigma_uniform = (u * (log_max - log_min) + log_min).exp()
 
-    # 4. Combine, Clamp, and Shuffle
-    # Shuffling is vital so the batch doesn't have 'easy' and 'hard' halves
     sigma = torch.cat([sigma_lognormal, sigma_uniform], dim=0)
     sigma = sigma.clamp(sigma_min, sigma_max)
-
     perm = torch.randperm(batch_size, device=device)
     return sigma[perm]
 
-def lr_scheduler()->float:
-    pass
+
+class GradBooster(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, x, multiplier: int):
+        ctx.multiplier = multiplier
+        return x
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        grad_x = grad_output * ctx.multiplier
+        return grad_x, None
 
 
-class PathPriorLoss(nn.Module):
-    def __init__(self,
-                 transition_sigma: float = 1.0,
-                 sharpness: float = 2.0):
+def boost(x, multiplier=100.0):
+    return GradBooster.apply(x, multiplier)
+
+
+def register_gradient_scalers(model):
+    """
+    Registers hooks to boost gradients for Expert layers specifically.
+    This helps overcome the "stiffness" of MP-initialized weights.
+    """
+    hooks = []
+
+    # Target the experts
+    target_modules = [model.net.Unet_experts,
+                      model.net.VIT_experts,
+                      model.net.input_proj,  # <--- ADD THIS
+                      model.net.input_time_proj
+                      ]
+
+    for module in target_modules:
+        for name, param in module.named_parameters():
+            if param.requires_grad:
+                # We define a lambda that multiplies the grad by 100
+                # logic: 1e-7 (current) * 100 -> 1e-5 (healthy start)
+                h = param.register_hook(lambda grad: grad * 1000.0)
+                hooks.append(h)
+
+    print(f"🧲 Registered Gradient Boosters (x100) on {len(hooks)} expert parameters.")
+    return hooks
+
+class Lr_Scheduler:
+    """
+    EDM2 Learning Rate Scheduler with support for multiple parameter groups.
+    Each group maintains its own base LR but follows the same schedule.
+    """
+    def __init__(
+            self,
+            optimizer,
+            total_steps: int,
+            batch_size: int,
+            ref_batches: float = 70e3,
+            rampup_Mimg: float = 10,
+            dataset_size: int = 8200,
+            cur_nimg: int = 0
+    ):
+        self.optimizer = optimizer
+        self.batch_size = batch_size
+        self.ref_batches = ref_batches
+        self.rampup_Mimg = rampup_Mimg
+        self.dataset_size = dataset_size
+        self.total_steps = total_steps
+
+        # Store base LR for each parameter group
+        self.base_lrs = [group['lr'] for group in optimizer.param_groups]
+
+        # Track current number of images seen
+        self.cur_nimg = cur_nimg
+        self._last_lrs = self.base_lrs.copy()
+
+        print(f"📊 EDM2 Scheduler initialized with {len(self.base_lrs)} parameter groups:")
+        for i, lr in enumerate(self.base_lrs):
+            print(f"   Group {i}: base_lr = {lr:.6f}")
+
+    def step(self):
+        """Call this after optimizer.step()"""
+        # Compute the LR multiplier (same for all groups)
+        lr_multiplier = self._compute_lr_multiplier(self.cur_nimg)
+
+        # Apply multiplier to each group's base LR
+        new_lrs = []
+        for i, (param_group, base_lr) in enumerate(zip(self.optimizer.param_groups, self.base_lrs)):
+            new_lr = base_lr * lr_multiplier
+            param_group['lr'] = new_lr
+            new_lrs.append(new_lr)
+
+        # Update image counter
+        self.cur_nimg += self.batch_size
+        self._last_lrs = new_lrs
+
+        return new_lrs
+
+    def _compute_lr_multiplier(self, cur_nimg):
         """
-        Enforces Inductive Bias:
-        - High Noise (> transition_sigma) -> Prefer ViT (Index 0)
-        - Low Noise (< transition_sigma)  -> Prefer U-Net (Index 1)
-
-        Args:
-            transition_sigma: The noise level where the preference flips (50/50).
-            sharpness: How strictly to enforce the split. Higher = Harder switch.
+        Compute the learning rate multiplier based on images seen.
+        This multiplier is applied to ALL base learning rates.
         """
-        super().__init__()
-        self.transition = transition_sigma
-        self.sharpness = sharpness
-        self.kl_div = nn.KLDivLoss(reduction='batchmean')
+        multiplier = 1.0
 
-    def forward(self,
-                scaling_factors: torch.Tensor,
-                sigma: torch.Tensor):
-        """
-        Args:
-            scaling_factors: (Batch, 2) Output from Scaling_router (Sums to 2).
-                             Index 0 = ViT, Index 1 = U-Net.
-            sigma: (Batch,) Noise levels.
-        """
-        probs = scaling_factors / 2.0
-        sigma_flat = sigma.flatten()
-        log_sigma = torch.log(sigma_flat + 1e-8)
-        target_logits = (log_sigma - math.log(self.transition)) * self.sharpness
-        target_vit_prob = torch.sigmoid(target_logits)
-        target_dist = torch.stack([target_vit_prob, 1.0 - target_vit_prob], dim=1)
-        log_probs = torch.log(probs + 1e-8)
+        # Inverse sqrt decay
+        if self.ref_batches > 0:
+            multiplier /= np.sqrt(max(cur_nimg / (self.ref_batches * self.batch_size), 1))
 
-        return self.kl_div(log_probs, target_dist)
+        # Linear warmup
+        if self.rampup_Mimg > 0:
+            warmup_multiplier = min(cur_nimg / (self.rampup_Mimg * 1e6), 1)
+            multiplier *= warmup_multiplier
 
+        return multiplier
 
-class EDM_LOSS(nn.Module):
-    def __init__(self,
-                 num_experts: int,
-                 sigma_data:float = 0.5,
-                 Unet_bal: float = 0.0005,
-                 vit_bal: float = 0.0005,
-                 z_bal: float = 0.0001,
-                 prior_bal:float = 0.001,
-                 transition_sigma: float = 1.0,
-                 sharpness: float = 2.0
-                 ):
+    def get_last_lr(self):
+        """Returns list of current LRs for all parameter groups"""
+        return self._last_lrs
 
-        super().__init__()
-        self.num_experts = num_experts
-        self.sigma_data = sigma_data
-        self.Unet_lambda = Unet_bal
-        self.vit_lambda = vit_bal
-        self.z_bal = z_bal
-        self.prior_bal = prior_bal
-        self.prior_path_loss = PathPriorLoss(transition_sigma=transition_sigma,
-                                             sharpness=sharpness)
+    def get_lr_multiplier(self):
+        """Returns the current LR multiplier (for logging)"""
+        return self._compute_lr_multiplier(self.cur_nimg)
 
-    def __call__(self,
-                 sigma_vec: torch.Tensor,
-                 x: torch.Tensor,
-                 sigma: torch.Tensor,
-                 out_model: dict[str,torch.Tensor]
-                 )->dict[str,torch.Tensor]:
-
-        lamda = 1
-        #lamda = (sigma_vec ** 2 + self.sigma_data ** 2)/ (sigma_vec * self.sigma_data) ** 2
-        if out_model["log_var"] is None:
-            pure_loss = torch.mean(lamda * ((out_model["denoised"] - x) ** 2))
-        else:
-            log_var = out_model["log_var"].clamp(min=-10, max=10)
-            pure_loss = torch.mean((lamda* ((out_model["denoised"] - x) ** 2)) / log_var.exp() + log_var)
-        pure_loss = pure_loss.clamp(max=50)
-
-        denoising_loss = torch.mean((out_model["denoised"] - x) ** 2)
-        router_loss = (self.Unet_lambda * self.load_balance(out_model["Unet_router_loss"],self.num_experts) + self.vit_lambda * self.load_balance(out_model["vit_router_loss"],self.num_experts)).clamp(max=50)
-        #scaling_loss = (self.prior_bal * self.prior_path_loss(out_model["scaling_net_out"],sigma)).clamp(max=50)
-        z_los = (self.z_bal * self.z_loss(out_model["Unet_raw"]) + self.z_bal * self.z_loss(out_model["vit_raw"])).clamp(max=50)
-        total_loss = (pure_loss + z_los + router_loss ).clamp(max=50) #+ scaling_loss
-
+    def state_dict(self):
+        """For checkpoint saving"""
         return {
-            "loss": total_loss,
-            "denoising": denoising_loss,
-            "balance": router_loss,
-            "z_loss": z_los,
-            "entropy": 0.0,
-            "pure_loss": pure_loss
+            'cur_nimg': self.cur_nimg,
+            'base_lrs': self.base_lrs,
+            '_last_lrs': self._last_lrs,
         }
 
-    @staticmethod
-    def load_balance(gate_probs, num_experts):
-        P = gate_probs.mean(dim=0)
-        return num_experts * torch.sum(P ** 2)
-
-    @staticmethod
-    def entropy_loss(probs):
-        return -torch.mean(torch.sum(probs * torch.log(probs + 1e-8), dim=-1))
-
-    @staticmethod
-    def z_loss(logits):
-        logits = logits.clamp(min=-50, max=50)
-        z = torch.logsumexp(logits, dim=-1) ** 2
-        z = z.clamp(max=100)
-        return torch.mean(z)
+    def load_state_dict(self, state_dict):
+        """For checkpoint loading"""
+        self.cur_nimg = state_dict['cur_nimg']
+        self.base_lrs = state_dict['base_lrs']
+        self._last_lrs = state_dict['_last_lrs']
 
 
 class ZetaScheduler:
-    def __init__(
-            self,
-            total_steps: int,
-            max_zeta: float,
-            min_zeta: float = 0.0,
-            strategy: str = 'cos',
-            alpha: float = 4.0,  # Controls steepness of exponential
-            warmup_ratio: float = 0.05
-    ):
-        """
-        Args:
-            total_steps: Total training steps.
-            max_zeta: Starting value (Exploration).
-            min_zeta: Ending value (Exploitation).
-            strategy: 'cosine' or 'exponential' (your formula).
-            alpha: Decay rate for exponential strategy.
-            warmup_ratio: Percentage of steps (0.0 to 1.0) to hold zeta at max_zeta.
-        """
+    def __init__(self, total_steps: int, max_zeta: float, min_zeta: float = 0.0, strategy: str = 'cos',
+                 alpha: float = 4.0, warmup_ratio: float = 0.05):
         self.total_steps = total_steps
         self.max_zeta = max_zeta
         self.min_zeta = min_zeta
@@ -231,13 +261,15 @@ class MaskGenerator(nn.Module):
             expert_attributes: list,  # List of kernel sizes or patch sizes
             p_mean: float = -0.4,
             p_std: float = 1.0,
-            bandwidth: float = 0.3,
-            max_bandwidth: float = 0.9,
+            bandwidth: float = 0.9,
+            min_bandwidth: float = 0.3,
             min_active: int = 1,
             total_steps: int = 5000,
             step_size: float = 0.1,
             noise_range: tuple = (0.0, 1.0),
             strat_band: str = "step",
+            sigma_min: float = 0.002,
+            sigma_max: float = 80.0
     ):
         """
         Attributes-Aware Mask Generator (Rank-Based).
@@ -245,78 +277,50 @@ class MaskGenerator(nn.Module):
         Ensures equidistant spacing even if attributes are identical.
         """
         super().__init__()
-        self.num_intervals = len(expert_attributes)
         self.strat_band = strat_band
         self.total_steps = total_steps
-        self.max_bw = max_bandwidth
+        self.min_bw = min_bandwidth
         self.step_size = step_size
         self.p_mean = p_mean
         self.p_std = p_std
         self.bandwidth = bandwidth
         self.min_active = min_active
+        self.sigma_min = sigma_min
+        self.sigma_max = sigma_max
 
-        # --- NEW INITIALIZATION LOGIC ---
         attrs = torch.tensor(expert_attributes, dtype=torch.float32)
         num_experts = len(attrs)
-
-        # 1. Get the rank of each expert based on attributes
-        # stable=True ensures that if two experts have the same kernel (e.g., 3, 3),
-        # the one that appears first in the list gets the lower sigma center.
         _, sorted_indices = torch.sort(attrs, stable=True)
-
-        # 2. Create evenly spaced centers from 0.0 to 1.0
-        # Example for 4 experts: [0.00, 0.33, 0.66, 1.00]
-        min_range, max_range = noise_range
-        equidistant_points = torch.linspace(min_range, max_range, steps=num_experts)
-
-        # 3. Map these perfect centers back to the original expert indices
-        # We create a placeholder and scatter the points into the sorted positions
+        self.min_range, self.max_range = noise_range
+        equidistant_points = torch.linspace(self.min_range, self.max_range, steps=num_experts)
         final_centers = torch.zeros_like(attrs)
         final_centers[sorted_indices] = equidistant_points
-
         self.register_buffer('expert_centers', final_centers)
-        # --------------------------------
 
     @torch.no_grad()
-    def __call__(self,
-                 sigma: torch.Tensor,
-                 step: int
-                 ) -> torch.Tensor:
-        """
-        sigma: (Batch,) - Current noise levels
-        Returns mask: (Batch, Num_Experts)
-        """
+    def __call__(self, sigma: torch.Tensor, step: int) -> torch.Tensor:
         device = sigma.device
-        s = sigma.flatten()
-        log_sigma = torch.log(s)
-        sigma_percentile = 0.5 * (1 + torch.erf((log_sigma - self.p_mean) / (self.p_std * np.sqrt(2))))
-        sigma_percentile = sigma_percentile.clamp(0, 1)  # (Batch,)
-
-        # Reshape for broadcasting: (Batch, 1) - (1, Num_Experts)
-        sp_reshaped = sigma_percentile.view(-1, 1)
+        log_sigma = torch.log(sigma.flatten())  # already computed
+        log_min, log_max = math.log(self.sigma_min), math.log(self.sigma_max)  # full range
+        sigma_normalized = (log_sigma - log_min) / (log_max - log_min)
+        sp_reshaped = sigma_normalized.view(-1, 1)
         experts_reshaped = self.expert_centers.to(device).view(1, -1)
-
-        # Calculate distance
         dist = torch.abs(sp_reshaped - experts_reshaped)
-
-        # Dynamic Bandwidth
         current_bw = self.bandwidth_scheduler(step)
         mask = (dist <= current_bw).float()
-
-        # Safety: Ensure min_active experts are always selected
         _, top_indices = torch.topk(-dist, k=self.min_active, dim=-1)
         mask.scatter_(1, top_indices, 1.0)
         return mask
 
     def bandwidth_scheduler(self, step: int) -> float:
         if step >= self.total_steps:
-            return self.max_bw  # Changed from hardcoded 1.0 to max_bw
+            return self.min_bw  # Changed from hardcoded 1.0 to max_bw
 
         if self.strat_band == 'linear':
             prog = step / float(self.total_steps)
-            return self.bandwidth + (self.max_bw - self.bandwidth) * prog
+            return self.bandwidth + (self.min_bw - self.bandwidth) * prog
 
-        elif self.strat_band == 'step':  # Fixed variable name typo (self.strategy -> self.strat_band)
+        elif self.strat_band == 'step':
             # Calculate interval based on total steps / num_intervals (or step_size fraction)
             # Using step_size as a fraction (e.g. 0.1 for 10%)
             interval_size = self.total_steps * self.step_size
@@ -326,6 +330,61 @@ class MaskGenerator(nn.Module):
             total_intervals = int(1.0 / self.step_size)
             progress = min(current_interval / total_intervals, 1.0)
 
-            return self.bandwidth + (self.max_bw - self.bandwidth) * progress
+            return self.bandwidth + (self.min_bw - self.bandwidth) * progress
         else:
             return self.bandwidth
+
+#to be revised against EDM's PostHoc EMA implementation
+class EMA:
+    """
+    Maintains a shadow copy of the model parameters using Exponential Moving Average.
+    Implements the 'Power Function' warmup to prevent zero-bias at the start.
+    """
+
+    def __init__(self,
+                 model,
+                 beta: float=0.999,
+                 warmup_power:float = 2 / 3,
+                 min_warmup_step=0
+                 ):
+        self.beta = beta
+        self.warmup_power = warmup_power
+        self.min_warmup_step = min_warmup_step
+        self.step = 0
+
+        # Create a shadow copy of the model
+        # We turn off gradients for the shadow model to save memory/compute
+        self.ema_model = deepcopy(model)
+        for param in self.ema_model.parameters():
+            param.requires_grad = False
+
+        # Map parameters for fast updates
+        self.source_dict = dict(model.named_parameters())
+        self.ema_dict = dict(self.ema_model.named_parameters())
+
+    def update(self):
+        self.step += 1
+
+        # 1. Calculate the Effective Decay (Power Function Warmup)
+        # This prevents the EMA from staying at 0.0 in the early steps.
+        # Logic: decay starts small (fast updates) and grows to self.beta (slow smoothing).
+        cur_beta = self.beta
+        if self.step < 10000:  # Standard "warmup" period
+            # A simple power-law approximation often used in EDM implementations
+            # Effective beta = 1 - (1/step) roughly
+            cur_beta = min(self.beta, (1 + self.step) / (10 + self.step))
+
+        # 2. Update Shadow Parameters
+        for name, source_param in self.source_dict.items():
+            if name in self.ema_dict:
+                ema_param = self.ema_dict[name]
+
+                # Apply EMA formula: Shadow = Beta * Shadow + (1-Beta) * Current
+                ema_param.data.mul_(cur_beta).add_(source_param.data, alpha=1.0 - cur_beta)
+
+    def copy_to(self, target_model):
+        """Copies the EMA weights into a target model (usually for saving inference)"""
+        m_param = dict(target_model.named_parameters())
+        for name, param in self.ema_dict.items():
+            if name in m_param:
+                m_param[name].data.copy_(param.data)

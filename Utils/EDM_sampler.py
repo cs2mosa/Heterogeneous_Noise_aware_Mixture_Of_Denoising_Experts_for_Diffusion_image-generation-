@@ -1,16 +1,16 @@
+from typing import Optional
+import numpy as np
 import torch.nn as nn
 import torch
-import numpy as np
 
 
 class EDM_Sampler:
     def __init__(self,
                  model: nn.Module,
-                 Guide_net: nn.Module,  # Unconditional Model (or same model with empty text)
                  num_solve_steps: int = 32,
                  sigma_min: float = 0.002,
-                 sigma_max: float = 80,
-                 rho: int = 7,
+                 sigma_max: float = 80.0,
+                 rho: float = 7.0,
                  S_churn: float = 0.0,
                  S_min: float = 0.0,
                  S_max: float = float('inf'),
@@ -19,7 +19,6 @@ class EDM_Sampler:
                  dtype=torch.float32
                  ):
         self.model = model
-        self.gnet = Guide_net
         self.num_steps = num_solve_steps
         self.sigma_min = sigma_min
         self.sigma_max = sigma_max
@@ -36,34 +35,27 @@ class EDM_Sampler:
         """
         Denoise helper that handles Classifier-Free Guidance internally.
         """
-        bs = x.shape[0]
-        num_experts = self.model.num_experts
-        Unet_router_mask = torch.ones((bs, num_experts), device=x.device)
-        vit_router_mask = torch.ones((bs, num_experts), device=x.device)
+
         out_model = self.model(
             x=x,
             sigma=sigma,
             text_emb=text_emb,
-            Unet_router_mask=Unet_router_mask,
-            Vit_router_mask=vit_router_mask,
+            Unet_router_mask=None,
+            Vit_router_mask=None,
             zeta=0,
-            transition_point=transition_mean,
-            softness=softness,
         )
         D_x = out_model["denoised"].to(self.dtype)
         if self.guide == 1.0:
             return D_x
 
         emb_for_guide = uncond_text_emb if uncond_text_emb is not None else text_emb
-        out_guide = self.gnet(
+        out_guide = self.model(
             x=x,
             sigma=sigma,
             text_emb=emb_for_guide,
-            Unet_router_mask=Unet_router_mask,
-            Vit_router_mask=vit_router_mask,
+            Unet_router_mask=None,
+            Vit_router_mask=None,
             zeta=0,
-            transition_point=transition_mean,
-            softness=softness,
         )
         ref_D_x = out_guide["denoised"].to(self.dtype)
 
@@ -72,9 +64,9 @@ class EDM_Sampler:
     @torch.no_grad()
     def sample(self,
                noise: torch.Tensor,
-               text_emb: torch.Tensor,
-               transition_mean:float,
-               softness:float,
+               text_emb: Optional[torch.Tensor] = None,
+               transition_mean:float = 0.5,
+               softness:float = 0.1,
                uncond_text_emb: torch.Tensor = None
                ) -> torch.Tensor:
 

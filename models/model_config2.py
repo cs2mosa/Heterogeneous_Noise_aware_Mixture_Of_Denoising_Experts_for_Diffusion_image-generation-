@@ -1,9 +1,9 @@
 import math
-
+from Utils.utils import boost
 import torch
 import torch.nn as nn
-from models import model_internals as util
-from models import model_components as m
+import model_internals as util
+import model_components as m
 import torch.nn.functional as F
 from typing import Optional ,List,Tuple
 
@@ -14,7 +14,8 @@ def router_to_unet_experts(x: torch.Tensor,
                       time_emb: torch.Tensor,
                       text_emb: torch.Tensor,
                       ) -> torch.Tensor:
-
+    denom = torch.sqrt((out_router**2).sum(dim=-1, keepdim=True) + 1e-8)
+    denom = denom.view(-1, 1, 1, 1)
     if text_emb is not None and text_emb.ndim == 3:
         # Average over the sequence dimension (dim 1)
         text_processed = text_emb.mean(dim=1)
@@ -36,7 +37,7 @@ def router_to_unet_experts(x: torch.Tensor,
         router_weights = router_weights.view(-1, 1, 1, 1)
         output[mask] += out_exp * router_weights
 
-    return output
+    return output / denom
 
 #adding gating MLP network after the attention module with 2 units output and softmax activation -> linear interpolation with the 2 units across the out_unet and Out_VIT
 class HDMOEM (nn.Module):
@@ -134,13 +135,11 @@ class HDMOEM (nn.Module):
                                          out_channels=time_emb_dim,
                                          kernel=())
 
-        self.Unet_router = m.Router(in_channels= self.internal_channels,
-                                    time_dim= time_emb_dim,
+        self.Unet_router = m.Router(time_dim= time_emb_dim,
                                     top_k= top_k,
                                     num_experts= num_experts)
 
-        self.vit_router = m.Router(in_channels=self.internal_channels,
-                                    time_dim=time_emb_dim,
+        self.vit_router = m.Router(time_dim=time_emb_dim,
                                     top_k=top_k,
                                     num_experts= num_experts)
 
@@ -179,14 +178,14 @@ class HDMOEM (nn.Module):
                                                   attn_balance= 0.5,
                                                   is_cross_attn= True)
 
-        self.cross_attn_text = util.MP_Attention(
+        """self.cross_attn_text = util.MP_Attention(
             num_heads=VIT_num_heads,
             emb_dim=self.internal_channels,
             seq_ln=IN_img_resolution ** 2,
             context_dim=text_emb_dim,
-            attn_balance=0.5,
+            attn_balance=0.2,
             is_cross_attn=True
-        )
+        )"""
 
         self.gate1 = util.MP_Conv(in_channels= self.internal_channels * 2,
                                   out_channels=self.internal_channels ,
@@ -196,8 +195,17 @@ class HDMOEM (nn.Module):
                                   out_channels = 2,
                                   kernel=(1,1)
                                   )
-
-        self.output_proj = util.MP_Conv(
+        self.output_proj_vit= util.MP_Conv(
+            in_channels=self.internal_channels,
+            out_channels=IN_in_channels,
+            kernel=(3, 3)
+        )
+        self.output_proj_unet = util.MP_Conv(
+            in_channels=self.internal_channels,
+            out_channels=IN_in_channels,
+            kernel=(3, 3)
+        )
+        self.output_proj_fusion = util.MP_Conv(
             in_channels=self.internal_channels,
             out_channels=IN_in_channels,
             kernel=(3, 3)
@@ -244,17 +252,20 @@ class HDMOEM (nn.Module):
         log_sigma = time_vec * 4
         vit_weight = torch.sigmoid((log_sigma - transition_point) / softness)
         vit_weight = vit_weight.view(-1, 1, 1, 1)
-        scaling_vit = (vit_weight + 1e-2) * 2
-        scaling_unet = ((1.0 - vit_weight) + 1e-2) * 2
+        scaling_vit = vit_weight + 1e-6
+        scaling_unet = 1.0 - vit_weight + 1e-6
+        total_scale = scaling_unet + scaling_vit
+        scaling_vit = scaling_vit / total_scale
+        scaling_unet = scaling_unet / total_scale
         scaling_factors = torch.cat([scaling_vit, scaling_unet], dim=1).view(-1, 2)
-        in_unet_router = scaling_unet * x_feats
-        in_vit_router = scaling_vit * x_feats
-        out_vit_router,Vit_gate_probs,vit_raw = self.vit_router(x = in_vit_router,
+        in_unet_router =  x_feats
+        in_vit_router =  x_feats
+        out_vit_router,Vit_gate_probs,vit_raw = self.vit_router(
                                          time_emb = time_embed,
                                          zeta= zeta,
                                          mask = Vit_router_mask)
 
-        out_unet_router,Unet_gate_probs,Unet_raw = self.Unet_router(x = in_unet_router,
+        out_unet_router,Unet_gate_probs,Unet_raw = self.Unet_router(
                                            time_emb = time_embed,
                                            zeta = zeta,
                                            mask = Unet_router_mask)
@@ -272,7 +283,7 @@ class HDMOEM (nn.Module):
                                            text_emb= text_emb,
                                            out_router=out_vit_router
                                             )
-
+        out_Vit_expert = boost(out_Vit_expert, 5.0)
         out_Unet_flat = out_Unet_expert.flatten(2).transpose(1, 2)
         out_Vit_flat = out_Vit_expert.flatten(2).transpose(1, 2)
 
@@ -281,26 +292,38 @@ class HDMOEM (nn.Module):
                                           gain_s = 1.0,
                                           gain_t = 1.0,
                                          )
-
-        final_feats = self.cross_attn_text(
+        out_final_attn = boost(out_final_attn, 5.0)
+        """final_feats = self.cross_attn_text(
             query=out_final_attn,
             context=text_emb,
             gain_s=1.0, gain_t=1.0
         )
+        final_feats = util.mp_sum(out_final_attn, final_feats, t=self.alpha_txt.clamp(min=0.1, max=0.5).item())
+        """
 
-        final_feats = out_final_attn + self.alpha_txt * (final_feats - out_final_attn)
-
-        out_final_attn_img = final_feats.transpose(1, 2).view(B, self.internal_channels, H, W)
+        out_final_attn_img = out_final_attn.transpose(1, 2).view(B, self.internal_channels, H, W)
         in_gate = util.mp_cat(out_Unet_expert,out_final_attn_img,dim = 1)
         out_gate = self.gate1(in_gate)
         out_gate = self.gate2(util.mp_silu(out_gate))
         out_gate = F.softmax(out_gate,dim = 1)
-        Wx = out_gate[:,0:1]
-        Wa = out_gate[:,1:2]
-        out_gated_attn = Wx * out_Unet_expert + Wa *  out_final_attn_img
-        out = util.mp_sum(out_Unet_expert, out_gated_attn, t=0.5)
-        out = self.output_proj(out)
-        return out, Unet_gate_probs, Unet_raw, Vit_gate_probs, vit_raw,scaling_factors,out_gate
+        Wx = out_gate[:, 0:1]
+        Wa = out_gate[:, 1:2]
+        Wx_suppressed = Wx* 0.3
+
+        vit_out = self.output_proj_vit(out_Vit_expert)
+        vit_out = boost(vit_out, 5.0)
+        unet_out = self.output_proj_unet(out_Unet_expert)
+        unet_out = boost(unet_out, 5.0)
+        fusion_out = self.output_proj_fusion(out_final_attn_img)
+        fusion_out = boost(fusion_out, 5.0)
+
+        w_f = 0.4
+        w_v = scaling_vit * (1 - w_f)
+        w_u = scaling_unet * (1 - w_f)
+        out_raw = (w_v * vit_out) + (w_u * unet_out) + (w_f * fusion_out)
+        mag = torch.sqrt(w_v ** 2 + w_u ** 2 + w_f ** 2 + 1e-8)
+        out = out_raw / mag.detach()
+        return out, Unet_gate_probs, Unet_raw, Vit_gate_probs, vit_raw, scaling_factors, out_gate
 
 
 class preconditioned_HDMOEM(nn.Module):
