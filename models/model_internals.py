@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
-
+import math
 
 def normalize(x: torch.Tensor, dim: Optional[list[int]] = None, eps: float = 1e-4)-> torch.Tensor:
     """
@@ -175,35 +175,62 @@ class MP_Fourier(nn.Module):
         return y.to(x.dtype)
 
 #not used right now but can be applied later
-class Pos_encoding(nn.Module):
-    def __init__(self,
-                 emb_dim:Optional[int] = 512,
-                 freq_emb_dim:Optional[int] = 256,
-                 max_period: Optional[int] = 10000):
+class MP_Pos_encoding_2D(nn.Module):
+    """
+    Magnitude-Preserving 2D Sinusoidal Positional Encoding for Vision Transformers.
+    Generates fixed geometric coordinates so the ViT understands spatial layout
+    without needing millions of images to learn a 2D grid from scratch.
+    """
+
+    def __init__(self, emb_dim: int, seq_ln: int):
         super().__init__()
-        assert freq_emb_dim % 2 == 0
-        self.half_dim = freq_emb_dim // 2
-        self.max_period = max_period
-        self.mlp = nn.Sequential(
-            nn.Linear(in_features= freq_emb_dim,out_features=emb_dim),
-            nn.SiLU(),
-            nn.Linear(in_features=emb_dim,out_features= emb_dim),
-        )
-        expo = -1 * np.log(self.max_period) * torch.arange(start=0, end=self.half_dim,
-                                                           dtype=torch.float32) / self.half_dim
-        freq = torch.exp(expo)
-        self.register_buffer('freq',freq)
+        self.emb_dim = emb_dim
+        self.seq_ln = seq_ln
 
-    def forward(self,
-                time_vec: torch.Tensor
-                )->torch.Tensor:
+        # Calculate grid dimensions (assuming square images)
+        grid_size = int(np.sqrt(seq_ln))
+        assert grid_size * grid_size == seq_ln, "Sequence length must be a perfect square."
 
-        if time_vec.ndim > 1:
-            time_vec = time_vec.flatten()
-        args = time_vec[:,None].float() * self.freq[None]
-        embedding = torch.cat([torch.cos(args),torch.sin(args)],dim = -1)
-        embedding = self.mlp(embedding)
-        return embedding
+        # 1. Create 2D grid coordinates (X and Y)
+        grid_y, grid_x = torch.meshgrid(torch.arange(grid_size), torch.arange(grid_size), indexing='ij')
+        grid_y = grid_y.flatten()
+        grid_x = grid_x.flatten()
+
+        # 2. Calculate frequencies (half of emb_dim is for X, half for Y)
+        # We divide by 4 because each dimension gets Sine and Cosine (4 parts total)
+        dim_half = emb_dim // 4
+        omega = torch.exp(-math.log(10000.0) * torch.arange(dim_half) / dim_half)
+
+        # 3. Apply frequencies to grid
+        emb_y = grid_y[:, None] * omega[None, :]
+        emb_x = grid_x[:, None] * omega[None, :]
+
+        # 4. Generate Sine and Cosine waves
+        emb_y = torch.cat([torch.sin(emb_y), torch.cos(emb_y)], dim=1)
+        emb_x = torch.cat([torch.sin(emb_x), torch.cos(emb_x)], dim=1)
+
+        # 5. Concatenate Y and X embeddings
+        pos_emb = torch.cat([emb_y, emb_x], dim=1)
+
+        # Pad if emb_dim is not perfectly divisible by 4
+        if pos_emb.shape[1] < emb_dim:
+            pad_size = emb_dim - pos_emb.shape[1]
+            pos_emb = torch.cat([pos_emb, torch.zeros(pos_emb.shape[0], pad_size)], dim=1)
+
+        # 6. Apply Magnitude Preserving Normalization
+        # This is CRITICAL. It forces the variance to 1.0 so mp_sum doesn't break.
+        pos_emb = normalize(pos_emb)
+
+        # Register as a non-learnable fixed buffer of shape (1, seq_ln, emb_dim)
+        self.register_buffer('pos_emb', pos_emb.unsqueeze(0))
+
+    def forward(self, x: torch.Tensor, t: float = 0.5) -> torch.Tensor:
+        """
+        Blends the input sequence with the 2D positional embeddings using mp_sum.
+        """
+        # Ensure the buffer is cast to the correct dtype (e.g., float16/float32) dynamically
+        pe = self.pos_emb.to(x.dtype)
+        return mp_sum(x, pe, t=t)
 
 #magnitude preserving convolution layer as in EDM2 paper
 class MP_Conv(nn.Module):
@@ -468,17 +495,11 @@ class PooledCrossAttn(nn.Module):
     ):
         super().__init__()
         self.pool_size = pool_size
-        pool_seq = pool_size * pool_size    # number of tokens after pooling
-
-        # Align channels to be divisible by num_heads (MP_Attention requirement)
+        pool_seq = pool_size * pool_size
         assert channels % num_heads == 0, (
             f"PooledCrossAttn: channels ({channels}) must be divisible "
             f"by num_heads ({num_heads})."
         )
-
-        # MP cross-attention on the pooled token sequences.
-        # query  = pooled UNet features  (B, P², C)
-        # context = pooled ViT features  (B, P², C)
         self.cross_attn = MP_Attention(
             num_heads    = num_heads,
             emb_dim      = channels,
@@ -488,14 +509,11 @@ class PooledCrossAttn(nn.Module):
             is_cross_attn= True,
         )
 
-        # 1×1 projection applied *after* upsampling back to (B, C, H, W).
-        # Zero-initialised → module is a no-op at step 0.
         self.out_proj = MP_Conv(
             in_channels  = channels,
             out_channels = channels,
             kernel       = (1, 1),
         )
-        # Zero-init the weight tensor so the module starts silent.
         nn.init.constant_(self.out_proj.weights, 0.0)
 
     def forward(
@@ -510,26 +528,16 @@ class PooledCrossAttn(nn.Module):
         """
         B, C, H, W = unet_feat.shape
         P = self.pool_size
-
-        # ── 1. Pool both branches to P×P ─────────────────────────────────────
-        # adaptive_avg_pool2d handles any H×W gracefully.
-        unet_pooled = F.adaptive_avg_pool2d(unet_feat, (P, P))   # (B, C, P, P)
-        vit_pooled  = F.adaptive_avg_pool2d(vit_feat,  (P, P))   # (B, C, P, P)
-
-        # Flatten spatial → sequence: (B, P², C)
+        unet_pooled = F.adaptive_avg_pool2d(unet_feat, (P, P)) * P # (B, C, P, P)
+        vit_pooled  = F.adaptive_avg_pool2d(vit_feat,  (P, P)) * P  # (B, C, P, P)
         unet_seq = unet_pooled.flatten(2).transpose(1, 2)
         vit_seq  = vit_pooled.flatten(2).transpose(1, 2)
-
-        # ── 2. Cross-attention: UNet queries ViT ─────────────────────────────
-        # attn_out shape: (B, P², C)  — residual included inside MP_Attention
         attn_out = self.cross_attn(
             query   = unet_seq,
             context = vit_seq,
             gain_s  = 1.0,
             gain_t  = 1.0,
         )                                                          # (B, P², C)
-
-        # ── 3. Reshape back to spatial and upsample to full resolution ────────
         attn_spatial = attn_out.transpose(1, 2).view(B, C, P, P) # (B, C, P, P)
         attn_full    = F.interpolate(
             attn_spatial,
@@ -537,11 +545,5 @@ class PooledCrossAttn(nn.Module):
             mode  = 'bilinear',
             align_corners = False,
         )                                                          # (B, C, H, W)
-
-        # ── 4. Project and gate ───────────────────────────────────────────────
-        # Reshape to 2D for MP_Conv in linear mode, then back.
         correction = self.out_proj(attn_full)                     # (B, C, H, W)
-
-        # gate_strength peaks at 0.25 at transition σ, is 0 at extremes.
-        # Multiplying here ensures the correction is always a small perturbation.
         return correction * gate_strength

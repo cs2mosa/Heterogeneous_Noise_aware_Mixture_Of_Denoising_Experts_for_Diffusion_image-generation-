@@ -86,7 +86,6 @@ class Router(nn.Module):
             nn.SiLU(),
             nn.Dropout(dropout),
             m.MP_Conv(in_channels=time_dim, out_channels=num_experts, kernel=()),
-            nn.SiLU()
         )
         self.k = top_k
 
@@ -536,7 +535,7 @@ class Vit_expert(nn.Module):
     Attributes:
         patch (nn.Conv2d): Tokenizer layer (Image -> Patches).
         map_txt (MP_Conv, optional): Projector to align text embedding dimensions with time embeddings.
-        pos_emb (nn.Parameter): Learnable absolute positional embeddings added to the sequence.
+        pos_encoder (nn.Parameter): Learnable absolute positional embeddings added to the sequence.
         diffit (nn.ModuleList): Stack of `Vit_block` transformer layers.
         unpatch_proj (MP_Conv): Linear projection to expand channels for PixelShuffle.
         unpatch (nn.PixelShuffle): Reconstructs spatial resolution from channel depth.
@@ -585,7 +584,7 @@ class Vit_expert(nn.Module):
         self.emb_dim = emb_dim
         self.patch = m.MP_Conv(in_channels=in_channels + 1,out_channels=emb_dim,kernel=(patch_size,patch_size),stride=patch_size)
         self.map_txt = m.MP_Conv(in_channels=text_dim,out_channels=time_dim,kernel=()) if text_dim != time_dim and text_dim != 0 else None
-        self.pos_emb = nn.Parameter(torch.randn(1,seq_ln,emb_dim)*0.02)
+        self.pos_encoder = m.MP_Pos_encoding_2D(emb_dim=emb_dim, seq_ln=seq_ln)
         self.diffit = nn.ModuleList()
         for i in range(num_blocks):
             self.diffit.append(Vit_block(num_heads= num_heads,
@@ -635,7 +634,7 @@ class Vit_expert(nn.Module):
         batch,c,h_patch,w_patch = x.shape
         assert h_patch*w_patch == self.seq_ln, f"Sequence length mismatch: Got {h_patch * w_patch}, expected {self.seq_ln}, shape: {x.shape}"
         x = x.flatten(2).transpose(1, 2)
-        x = m.mp_sum(x, self.pos_emb, t=self.pos_emb_balance)
+        x = self.pos_encoder(x, t=self.pos_emb_balance)
         if text_emb is not None:
             if self.map_txt is not None:
                 #shape transforms to -> (batch, text_emb_size) for the linear layer if ndims = 3

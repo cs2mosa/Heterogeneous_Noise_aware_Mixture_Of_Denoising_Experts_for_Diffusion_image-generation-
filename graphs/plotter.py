@@ -17,7 +17,7 @@ from scipy.ndimage import gaussian_filter1d
 from typing import Optional
 import warnings
 
-from Utils.config import model_configs
+from Utils.configs import model_configs
 
 warnings.filterwarnings('ignore')
 
@@ -499,7 +499,7 @@ if __name__ == "__main__":
     # Assuming standard paths based on configs
     run = "hdmoem_flower102_v1"  # example
 
-    plotter = Plotter(run_name="test_run")
+    plotter = Plotter2(run_name="test_run")
 
     # You can point these to your actual log files
     plotter.plot_training_overview(r"C:\Users\Maha Mamdouh\PycharmProjects\Heterogeneous-MOE-for-Diffusion-models\Utils\logs\hdmoem_flower102_v1_training.jsonl")

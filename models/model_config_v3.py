@@ -145,12 +145,6 @@ class HDMOEM_v3(nn.Module):
         self.out_fourier2 = MP_Conv(in_channels=time_emb_dim * 2,
                                    out_channels=time_emb_dim,     kernel=())
 
-        # ── 3. [v3-NEW] Time-conditioned input projection gain ────────────────
-        #
-        # Maps time_emb → a per-channel gain offset applied to x_feats.
-        # Zero-initialised weight → gain = 0 at step 0 → total feature gain = 1.
-        # The network learns noise-level-appropriate feature amplitudes without
-        # a separate scaling_net module.
         self.input_time_proj = MP_Conv(
             in_channels  = time_emb_dim,
             out_channels = internal_channels,
@@ -225,25 +219,12 @@ class HDMOEM_v3(nn.Module):
         )
         nn.init.xavier_normal_(self.output_proj_vit.weight)
 
-        # ── 8. [v3-NEW] Learned blend gate residual ───────────────────────────
-        #
-        # The sigmoid prior encodes the trajectory decomposition hypothesis.
-        # blend_residual learns *additive corrections* on top of the prior:
-        #     w_vit = sigmoid(x_prior + blend_residual(time_emb))
-        #
-        # Zero-init of the final layer → residual = 0 at step 0 → v3 begins
-        # with exactly the same blend gate as v2.
         self.blend_residual = nn.Sequential(
             MP_Conv(in_channels=time_emb_dim, out_channels=time_emb_dim // 2, kernel=()),
-            # mp_silu applied manually in forward (Sequential doesn't hold functions)
             MP_Conv(in_channels=time_emb_dim // 2, out_channels=1, kernel=()),
         )
         nn.init.constant_(self.blend_residual[-1].weights, 0.0)
 
-        # ── 9. [v3-NEW] Transition-zone pooled cross-attention ────────────────
-        #
-        # Requires internal_channels to be divisible by VIT_num_heads.
-        # If not, we silently disable the module (warn the user).
         if internal_channels % VIT_num_heads == 0:
             self.pooled_cross_attn = PooledCrossAttn(
                 channels     = internal_channels,
@@ -262,9 +243,6 @@ class HDMOEM_v3(nn.Module):
                 f"internal_channels % VIT_num_heads == 0."
             )
 
-        # Final output projection for the cross-attention correction.
-        # Separate from the branch projections so its contribution is independent.
-        # MP_Conv with zero-init → silent at step 0.
         if self._cross_attn_enabled:
             self.output_proj_attn = MP_Conv(
                 in_channels  = internal_channels,
@@ -296,7 +274,9 @@ class HDMOEM_v3(nn.Module):
         learned correction is unbounded but the output is always in (0, 1).
         Applying the correction post-sigmoid would clamp the learning signal.
         """
-        x_prior  = (sigma - self.transition_sigma) / self.transition_sharpness
+        log_sigma = torch.log(sigma + 1e-8)
+        log_transition = math.log(self.transition_sigma)
+        x_prior = (log_sigma - log_transition) / self.transition_sharpness
         x_prior  = x_prior.view(-1, 1, 1, 1)                        # (B,1,1,1)
 
         # blend_residual: time_emb (B, D) → scalar per sample
@@ -344,18 +324,11 @@ class HDMOEM_v3(nn.Module):
         time_embed = self.out_fourier1(x=time_embed)
         time_embed = self.out_fourier2(x=mp_silu(x=time_embed))   # (B, time_emb_dim)
 
-        # ── Step 2: Input projection with time-conditioned gain ───────────────
-        #
-        # x_feats = normalize(input_proj(x) * (1 + time_gain))
-        #
-        # At step 0: input_time_proj weights = 0 → time_gain = 0 → x_feats unchanged.
-        # As training proceeds: gains encode σ-appropriate feature amplitudes.
         x_feats   = self.input_proj(x)                              # (B, C, H, W)
         time_gain = self.input_time_proj(time_embed)                # (B, C)
         time_gain = time_gain.view(-1, self.internal_channels, 1, 1)
         x_feats   = normalize(x_feats) * (1.0 + time_gain)      # magnitude-safe
 
-        # ── Step 3: Route to experts ──────────────────────────────────────────
         out_vit_router,  Vit_probs,  Vit_raw  = self.vit_router(
             time_emb=time_embed, zeta=zeta, mask=Vit_router_mask)
         out_unet_router, Unet_probs, Unet_raw = self.Unet_router(
@@ -370,28 +343,15 @@ class HDMOEM_v3(nn.Module):
             time_emb=time_embed, text_emb=text_emb,
         )                                                            # (B, C, H, W)
 
-        # ── Step 4: Project to output space ───────────────────────────────────
         unet_out = self.output_proj_unet(out_Unet_expert)           # (B, C_in, H, W)
         vit_out  = self.output_proj_vit(out_Vit_expert)             # (B, C_in, H, W)
-
-        # ── Step 5: Learned blend weights ─────────────────────────────────────
-        #
-        # Reconstruct σ from c_noise:  c_noise = log(σ)/4  →  σ = exp(4 × c_noise)
         sigma_reconstructed = torch.exp(4.0 * time_vec)             # (B,)
         w_vit, w_unet, gate_strength = self.compute_blend_weights(
             sigma    = sigma_reconstructed,
             time_emb = time_embed,
         )                         # each (B, 1, 1, 1)
-
-        # ── Step 6: Transition-zone pooled cross-attention ────────────────────
-        #
-        # Operates on the *pre-projection* expert features so the cross-attention
-        # module can access the full internal_channels representation.
-        # The correction is projected to output space by output_proj_attn.
         attn_correction = torch.zeros_like(unet_out)
         if self._cross_attn_enabled:
-            # gate_strength must match the feature spatial shape, not output shape
-            # gate_strength is (B,1,1,1) which broadcasts correctly to (B,C,H,W)
             raw_correction = self.pooled_cross_attn(
                 unet_feat    = out_Unet_expert,    # (B, C, H, W)
                 vit_feat     = out_Vit_expert,     # (B, C, H, W)
@@ -399,12 +359,6 @@ class HDMOEM_v3(nn.Module):
             )                                                        # (B, C, H, W)
             attn_correction = self.output_proj_attn(raw_correction)  # (B, C_in, H, W)
 
-        # ── Step 7: Final blend ───────────────────────────────────────────────
-        #
-        # out = w_vit × vit_out + w_unet × unet_out + attn_correction
-        #
-        # attn_correction is already scaled by gate_strength inside PooledCrossAttn,
-        # so it is automatically zero at σ extremes.
         out = w_vit * vit_out + w_unet * unet_out + attn_correction
 
         return {

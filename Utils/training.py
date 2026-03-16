@@ -81,7 +81,7 @@ def training_HDMOE(model_config: dict[str, Any],
         attn_pool_balance=model_configs['attn_pool_balance']
     ).to(model_config["device"])
 
-    _ = register_gradient_scalers(model)
+    #_ = register_gradient_scalers(model)
     special_params = set()
     special_params.update(model.net.Unet_experts.parameters())
     special_params.update(model.net.VIT_experts.parameters())
@@ -89,6 +89,8 @@ def training_HDMOE(model_config: dict[str, Any],
     special_params.update(model.net.Unet_router.parameters())
     special_params.update(model.net.output_proj_vit.parameters())
     special_params.update(model.net.output_proj_unet.parameters())
+    special_params.update(model.net.blend_residual.parameters())
+    special_params.update(model.net.pooled_cross_attn.parameters())
 
     default_params = [p for p in model.parameters() if p not in special_params]
 
@@ -99,6 +101,8 @@ def training_HDMOE(model_config: dict[str, Any],
         {'params': model.net.Unet_router.parameters(), 'lr': Optim_config['lr_router']},
         {'params': model.net.output_proj_vit.parameters(), 'lr': Optim_config['lr_out_proj_vit']},
         {'params': model.net.output_proj_unet.parameters(), 'lr': Optim_config['lr_out_proj_unet']},
+        {'params': model.net.blend_residual.parameters(), 'lr': Optim_config['lr_blend_residual']},
+        {'params': model.net.pooled_cross_attn.parameters(), 'lr': Optim_config['lr_pooled_attn']},
         {'params': default_params, 'lr': Optim_config['LR_DEFAULT']}  # <--- THE MISSING LINK
     ],
         betas=Optim_config['betas'],
