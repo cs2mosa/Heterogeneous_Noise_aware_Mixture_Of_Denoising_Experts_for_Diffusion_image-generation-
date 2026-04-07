@@ -77,7 +77,11 @@ def training_HDMOE(model_config: dict[str, Any],
         transition_sigma=model_configs['transition_sigma'],
         transition_sharpness=model_configs['transition_sharpness'],
         pool_size=model_configs['pool_size'],
-        attn_pool_balance=model_configs['attn_pool_balance']
+        attn_pool_balance=model_configs['attn_pool_balance'],
+        p_mean=mask_config['p_mean'],
+        p_std=mask_config['p_std'],
+        sigma_min=model_config['sigma_min'],
+        sigma_max=model_config['sigma_max']
     ).to(model_config["device"])
 
     special_params = set()

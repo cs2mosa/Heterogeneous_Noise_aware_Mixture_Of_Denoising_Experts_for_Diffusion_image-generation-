@@ -125,6 +125,10 @@ class HDMOEM_v3(nn.Module):
         transition_sharpness: float                  = 1.5,
         pool_size:            int                    = 4,
         attn_pool_balance:    float                  = 0.5,
+        p_mean: float = -0.2,
+        p_std: float = 1.2,
+        sigma_min: float = 0.002,
+        sigma_max: float = 80
     ):
         super().__init__()
         self.internal_channels = internal_channels
@@ -151,26 +155,23 @@ class HDMOEM_v3(nn.Module):
             kernel       = (),
         )
         nn.init.constant_(self.input_time_proj.weights, 0.0)
-
-        global_sigma_min = 0.002
-        global_sigma_max = 80.0
         
         # 💥 SWAPPED: U-Net is now fenced to HIGH NOISE
         self.Unet_router = ParametricTrajectoryRouter(
             num_experts=num_experts, 
             min_sigma=transition_sigma, 
-            max_sigma=global_sigma_max,
-            p_mean=-0.2,   # MUST MATCH CONFIG
-            p_std=1.2      # MUST MATCH CONFIG  
+            max_sigma=sigma_max,
+            p_mean=p_mean,   # MUST MATCH CONFIG
+            p_std=p_std      # MUST MATCH CONFIG
         )
         
         # 💥 SWAPPED: ViT is now fenced to LOW NOISE
         self.vit_router = ParametricTrajectoryRouter(
             num_experts=num_experts, 
-            min_sigma=global_sigma_min, 
+            min_sigma=sigma_min,
             max_sigma=transition_sigma,
-            p_mean=-0.2,   # MUST MATCH CONFIG
-            p_std=1.2      # MUST MATCH CONFIG
+            p_mean=p_mean,   # MUST MATCH CONFIG
+            p_std=p_std     # MUST MATCH CONFIG
         )
 
         if Unet_concat_balance is None:
@@ -433,6 +434,10 @@ class preconditioned_HDMOEM_v3(nn.Module):
         # ── v3-only ──────────────────────────────────────────────────────────
         pool_size:             int             = 4,
         attn_pool_balance:     float           = 0.5,
+        p_mean: float = -0.2,
+        p_std: float = 1.2,
+        sigma_min: float = 0.002,
+        sigma_max: float = 80
     ):
         super().__init__()
         self.sigma_data       = sigma_data
@@ -468,6 +473,10 @@ class preconditioned_HDMOEM_v3(nn.Module):
             transition_sharpness  = transition_sharpness,
             pool_size             = pool_size,
             attn_pool_balance     = attn_pool_balance,
+            p_mean = p_mean,
+            p_std = p_std,
+            sigma_min = sigma_min,
+            sigma_max = sigma_max
         )
 
     def forward(
