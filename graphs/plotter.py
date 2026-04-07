@@ -11,12 +11,11 @@ import pandas as pd
 import numpy as np
 import os
 import json
-from tqdm import tqdm
 from matplotlib.gridspec import GridSpec
 from scipy.ndimage import gaussian_filter1d
 from typing import Optional
 import warnings
-
+import math
 from Utils.configs import model_configs
 
 warnings.filterwarnings('ignore')
@@ -380,96 +379,88 @@ class Plotter2:
     # =========================================================
     # 5. EXPERT LANDSCAPE (Inference based, using Configs)
     # =========================================================
-    def visualize_expert_landscape(self, model, device='cuda', num_points=100):
+    def visualize_expert_landscape(self, model, device='cuda', num_points=500):
         """
-        Runs a forward pass on Routers ONLY (lightweight) to visualize activation landscape.
-        Uses dimensions from configs.py to avoid shape errors.
+        Runs a batched forward pass on Parametric Routers to visualize
+        the Gaussian RBF activation landscape.
         """
-        print("Generating Expert Landscape Heatmap...")
-        try:
-            from models.model_internals import mp_silu  # Ensure import works or define fallback
-        except ImportError:
-            mp_silu = torch.nn.SiLU()
-
+        print("Generating Expert Landscape Visualization...")
         model.eval()
 
-        # Load Dimensions from Config
-        emb_dim = model_configs.get('time_emb_dim', 128)
-        num_experts = model_configs.get('num_experts', 2)
-
-        # Generate Sigma Spectrum
-        sigma_min = model_configs.get('sigma_min', 0.002)
-        sigma_max = model_configs.get('sigma_max', 80)
-        sigmas = torch.logspace(np.log10(sigma_min), np.log10(sigma_max), num_points).to(device)
-
-        unet_activations = []
-        vit_activations = []
-
-        # Handle unwrapping
+        # Handle unwrapping of DDP or EMA models
         net = model.net if hasattr(model, 'net') else model
         net = net.module if hasattr(net, 'module') else net
 
+        num_experts = model_configs.get('num_experts', 2)
+        sigma_min = model_configs.get('sigma_min', 0.002)
+        sigma_max = model_configs.get('sigma_max', 80.0)
+
+        # 1. Generate a smooth logarithmic spectrum of sigma values
+        sigmas = torch.logspace(math.log10(sigma_min), math.log10(sigma_max), num_points).to(device)
+
+        # 2. Extract Log Sigma for the Parametric Router
+        # Shape: (num_points, 1)
+        log_sigmas = torch.log(sigmas).view(-1, 1)
+
+        # 3. Batched Forward Pass (No Fourier needed anymore!)
         with torch.no_grad():
-            for sigma in tqdm(sigmas, desc="Scanning landscape"):
-                # Replicate exact embedding logic from model
-                c_noise = sigma.flatten().log() / 4
+            # Returns: sparse_weights, probs, logits
+            _, unet_probs, _ = net.Unet_router(log_sigma=log_sigmas, mask=None, zeta=0.0)
+            _, vit_probs, _ = net.vit_router(log_sigma=log_sigmas, mask=None, zeta=0.0)
 
-                # We need to construct the embedding.
-                # Assuming net.Fourier_emb and net.out_fourier1/2 exist
-                emb = net.Fourier_emb(c_noise)
-                emb = net.out_fourier1(emb)
-                time_emb = net.out_fourier2(mp_silu(emb))  # [1, time_emb_dim]
+        # Move to CPU for plotting
+        unet_act = unet_probs.cpu().numpy()  # Shape: (num_points, num_experts)
+        vit_act = vit_probs.cpu().numpy()  # Shape: (num_points, num_experts)
+        sigmas_np = sigmas.cpu().numpy()
 
-                # Check config match
-                if time_emb.shape[-1] != emb_dim:
-                    # In case config and loaded model mismatch
-                    pass
+        # 4. Plotting (Research-Grade Line Plots to view Gaussian intersections)
+        fig, axes = plt.subplots(2, 1, figsize=(12, 10), sharex=True)
 
-                    # Pass to routers
-                # Note: Routers expect time_emb.
-                # Some implementations might require 'x' or 'mask', passing None if supported
+        colors = ['#E07B39', '#4A90D9', '#2ECC71', '#9B59B6']  # Expandable if you use >2 experts
 
-                try:
-                    # Try calling with keywords based on typical implementation
-                    _, unet_probs, _ = net.Unet_router(time_emb=time_emb, mask=None, zeta=0.0)
-                    _, vit_probs, _ = net.vit_router(time_emb=time_emb, mask=None, zeta=0.0)
-                except TypeError:
-                    # Fallback for different signatures
-                    _, unet_probs, _ = net.Unet_router(time_emb)
-                    _, vit_probs, _ = net.vit_router(time_emb)
+        # UNet Router Plot
+        for i in range(num_experts):
+            axes[0].plot(sigmas_np, unet_act[:, i], label=f'UNet Expert {i}',
+                         color=colors[i % len(colors)], linewidth=2.5)
+            # Fill under the curve for better readability
+            axes[0].fill_between(sigmas_np, 0, unet_act[:, i], color=colors[i % len(colors)], alpha=0.2)
 
-                unet_activations.append(unet_probs.cpu().numpy()[0])
-                vit_activations.append(vit_probs.cpu().numpy()[0])
+        axes[0].set_title('UNet Router: Temporal Expert Specialization (High-Noise Fenced)', fontsize=14,
+                          fontweight='bold')
+        axes[0].set_ylabel('Routing Probability', fontsize=12)
+        axes[0].set_ylim(0, 1.05)
+        axes[0].grid(True, which="both", ls="--", alpha=0.5)
+        axes[0].legend(loc='upper right')
 
-        # Plot
-        U_act = np.stack(unet_activations).T
-        V_act = np.stack(vit_activations).T
+        # ViT Router Plot
+        for i in range(num_experts):
+            axes[1].plot(sigmas_np, vit_act[:, i], label=f'ViT Expert {i}',
+                         color=colors[i % len(colors)], linewidth=2.5)
+            axes[1].fill_between(sigmas_np, 0, vit_act[:, i], color=colors[i % len(colors)], alpha=0.2)
 
-        fig, ax = plt.subplots(2, 1, figsize=(12, 10))
+        axes[1].set_title('ViT Router: Temporal Expert Specialization (Low-Noise Fenced)', fontsize=14,
+                          fontweight='bold')
+        axes[1].set_ylabel('Routing Probability', fontsize=12)
+        axes[1].set_xlabel('Noise Level (\u03c3)', fontsize=12)
+        axes[1].set_ylim(0, 1.05)
+        axes[1].grid(True, which="both", ls="--", alpha=0.5)
+        axes[1].legend(loc='upper right')
 
-        # UNet
-        im1 = ax[0].imshow(U_act, aspect='auto', cmap='plasma', vmin=0, vmax=1,
-                           extent=[sigma_min, sigma_max, num_experts - 0.5, -0.5])
-        ax[0].set_xscale('log')
-        ax[0].set_title('UNet Expert Activation vs Noise (Log Scale)')
-        ax[0].set_ylabel('Expert ID')
-        ax[0].set_yticks(range(num_experts))
-        plt.colorbar(im1, ax=ax[0], label='Prob')
+        # Apply true Log Scale to the shared X-axis
+        plt.xscale('log')
+        plt.xlim(sigma_min, sigma_max)
 
-        # ViT
-        im2 = ax[1].imshow(V_act, aspect='auto', cmap='viridis', vmin=0, vmax=1,
-                           extent=[sigma_min, sigma_max, num_experts - 0.5, -0.5])
-        ax[1].set_xscale('log')
-        ax[1].set_title('ViT Expert Activation vs Noise (Log Scale)')
-        ax[1].set_ylabel('Expert ID')
-        ax[1].set_xlabel('Noise Level (Sigma)')
-        ax[1].set_yticks(range(num_experts))
-        plt.colorbar(im2, ax=ax[1], label='Prob')
+        # Invert X-axis (Optional, but standard for Diffusion as generation goes High -> Low sigma)
+        plt.gca().invert_xaxis()
 
         plt.tight_layout()
-        plt.savefig(f"{self.output_dir}/05_expert_landscape.png")
-        print(f"✓ Saved: 05_expert_landscape.png")
 
+        # Ensure output directory exists (adapt to your exact class paths)
+        out_path = f"{self.out_dir}/05_expert_landscape.png" if hasattr(self, 'out_dir') else "05_expert_landscape.png"
+        plt.savefig(out_path, dpi=300)
+        plt.close(fig)
+
+        print(f"✓ Saved: {out_path}")
     # =========================================================
     # UTILS
     # =========================================================

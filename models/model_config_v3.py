@@ -6,7 +6,7 @@ from models.model_internals import (
     MP_Conv, MP_Fourier, PooledCrossAttn,
     mp_silu, normalize,
 )
-from models.model_components import Router, Unet_expert, Vit_expert
+from models.model_components import ParametricTrajectoryRouter, Unet_expert, Vit_expert
 
 def router_to_experts(
     x:          torch.Tensor,      # (B, C, H, W)
@@ -152,10 +152,26 @@ class HDMOEM_v3(nn.Module):
         )
         nn.init.constant_(self.input_time_proj.weights, 0.0)
 
-        self.Unet_router = Router(time_dim=time_emb_dim, top_k=top_k,
-                                  num_experts=num_experts)
-        self.vit_router  = Router(time_dim=time_emb_dim, top_k=top_k,
-                                  num_experts=num_experts)
+        global_sigma_min = 0.002
+        global_sigma_max = 80.0
+        
+        # 💥 SWAPPED: U-Net is now fenced to HIGH NOISE
+        self.Unet_router = ParametricTrajectoryRouter(
+            num_experts=num_experts, 
+            min_sigma=transition_sigma, 
+            max_sigma=global_sigma_max,
+            p_mean=-0.2,   # MUST MATCH CONFIG
+            p_std=1.2      # MUST MATCH CONFIG  
+        )
+        
+        # 💥 SWAPPED: ViT is now fenced to LOW NOISE
+        self.vit_router = ParametricTrajectoryRouter(
+            num_experts=num_experts, 
+            min_sigma=global_sigma_min, 
+            max_sigma=transition_sigma,
+            p_mean=-0.2,   # MUST MATCH CONFIG
+            p_std=1.2      # MUST MATCH CONFIG
+        )
 
         if Unet_concat_balance is None:
             balances = [0.5] * num_experts
@@ -202,22 +218,21 @@ class HDMOEM_v3(nn.Module):
             for i in range(num_experts)
         ])
 
+        self.output_proj_vit = nn.Conv2d(
+            in_channels  = internal_channels,
+            out_channels = IN_in_channels,
+            kernel_size  = 1,
+            padding      = 0,
+        )
         self.output_proj_unet = nn.Conv2d(
             in_channels  = internal_channels,
             out_channels = IN_in_channels,
             kernel_size  = 3,
             padding      = 1,
         )
-        nn.init.constant_(self.output_proj_unet.weight, 0.0)
-        nn.init.constant_(self.output_proj_unet.bias,   0.0)
-
-        self.output_proj_vit = nn.Conv2d(
-            in_channels  = internal_channels,
-            out_channels = IN_in_channels,
-            kernel_size  = 5,
-            padding      = 2,
-        )
-        nn.init.xavier_normal_(self.output_proj_vit.weight)
+        nn.init.xavier_normal_(self.output_proj_unet.weight)
+        nn.init.constant_(self.output_proj_vit.weight, 0.0)
+        nn.init.constant_(self.output_proj_vit.bias,   0.0)
 
         self.blend_residual = nn.Sequential(
             MP_Conv(in_channels=time_emb_dim, out_channels=time_emb_dim // 2, kernel=()),
@@ -252,43 +267,27 @@ class HDMOEM_v3(nn.Module):
             nn.init.constant_(self.output_proj_attn.weights, 0.0)
 
     def compute_blend_weights(
-        self,
-        sigma:    torch.Tensor,    # (B,) — *reconstructed* σ values
-        time_emb: torch.Tensor,    # (B, time_emb_dim) — for learned residual
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """
-        Compute trajectory-decomposed blend weights with learned residual.
-
-        Returns:
-            w_vit         (B, 1, 1, 1): ViT branch weight ∈ (0, 1).
-            w_unet        (B, 1, 1, 1): UNet branch weight = 1 − w_vit.
-            gate_strength (B, 1, 1, 1): Transition zone gate = w_vit × w_unet.
-                                         ∈ [0, 0.25], peaks at σ = transition_sigma.
-
-        Design:
-            x_prior   = (σ − σ_t) / sharpness          # physics-motivated prior
-            residual  = blend_residual(time_emb)        # learned correction, zero at init
-            w_vit     = sigmoid(x_prior + residual)     # final gate
-
-        The residual is applied in the *logit* space of the sigmoid so the
-        learned correction is unbounded but the output is always in (0, 1).
-        Applying the correction post-sigmoid would clamp the learning signal.
-        """
+            self,
+            sigma:    torch.Tensor,    # (B,) — *reconstructed* σ values
+            time_emb: torch.Tensor,    # (B, time_emb_dim) — for learned residual
+        ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+            
         log_sigma = torch.log(sigma + 1e-8)
         log_transition = math.log(self.transition_sigma)
-        x_prior = (log_sigma - log_transition) / self.transition_sharpness
+        
+        # FIX: We want ViT at LOW noise (sigma < transition_sigma) -> w_vit -> 1
+        # When sigma < transition_sigma, (log_transition - log_sigma) is POSITIVE.
+        x_prior = (log_transition - log_sigma) / self.transition_sharpness
         x_prior  = x_prior.view(-1, 1, 1, 1)                        # (B,1,1,1)
 
-        # blend_residual: time_emb (B, D) → scalar per sample
-        # Intermediate MP_Conv uses 2D (linear) mode; apply mp_silu between layers.
-        h        = self.blend_residual[0](time_emb)                  # (B, D/2)
+        h        = self.blend_residual[0](time_emb)                  
         h        = mp_silu(h)
-        residual = self.blend_residual[1](h).view(-1, 1, 1, 1)       # (B,1,1,1)
+        residual = self.blend_residual[1](h).view(-1, 1, 1, 1)       
 
+        # w_vit -> 1 at low noise, w_unet -> 1 at high noise
         w_vit    = torch.sigmoid(x_prior + residual)
         w_unet   = 1.0 - w_vit
 
-        # gate_strength: product of both weights, maximum at the transition point.
         gate_strength = w_vit * w_unet                               # ∈ [0, 0.25]
 
         return w_vit, w_unet, gate_strength
@@ -329,20 +328,25 @@ class HDMOEM_v3(nn.Module):
         time_gain = time_gain.view(-1, self.internal_channels, 1, 1)
         x_feats   = normalize(x_feats) * (1.0 + time_gain)      # magnitude-safe
 
-        out_vit_router,  Vit_probs,  Vit_raw  = self.vit_router(
-            time_emb=time_embed, zeta=zeta, mask=Vit_router_mask)
-        out_unet_router, Unet_probs, Unet_raw = self.Unet_router(
-            time_emb=time_embed, zeta=zeta, mask=Unet_router_mask)
+        # Extract the pure 1D log_sigma scalar
+        log_sigma = time_vec.view(-1, 1) * 4.0 
 
+        out_vit_router,  Vit_probs,  Vit_raw  = self.vit_router(
+            log_sigma=log_sigma, zeta=zeta, mask=Vit_router_mask)
+        out_unet_router, Unet_probs, Unet_raw = self.Unet_router(
+            log_sigma=log_sigma, zeta=zeta, mask=Unet_router_mask)
+
+        # Apply the first output (out_unet_router / out_vit_router) to the experts
         out_Unet_expert = router_to_experts(
             x=x_feats, experts=self.Unet_experts, out_router=out_unet_router,
             time_emb=time_embed, text_emb=text_emb,
-        )                                                            # (B, C, H, W)
+        )
+        
         out_Vit_expert = router_to_experts(
             x=x_feats, experts=self.VIT_experts, out_router=out_vit_router,
             time_emb=time_embed, text_emb=text_emb,
-        )                                                            # (B, C, H, W)
-
+        )
+        
         unet_out = self.output_proj_unet(out_Unet_expert)           # (B, C_in, H, W)
         vit_out  = self.output_proj_vit(out_Vit_expert)             # (B, C_in, H, W)
         sigma_reconstructed = torch.exp(4.0 * time_vec)             # (B,)

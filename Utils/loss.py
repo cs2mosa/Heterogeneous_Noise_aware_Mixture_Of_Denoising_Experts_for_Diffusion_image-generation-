@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 import torchvision.transforms.functional as TF
-
+import math
 
 # 1. Helper Function
 def laplacian_decomposition(image, kernel_size=9, sigma=1.5):
@@ -26,9 +26,9 @@ def laplacian_decomposition(image, kernel_size=9, sigma=1.5):
 class PathPriorLoss(nn.Module):
     def __init__(self,
                  expert_centers: torch.Tensor,
-                 p_mean: float = 0.0,
-                 p_std: float = 1.4,
-                 sharpness: float = 5.0):
+                 p_mean: float = -0.4,  # IMPORTANT: Must match sampling p_mean
+                 p_std: float = 1.0,    # IMPORTANT: Must match sampling p_std
+                 sharpness: float = 25.0):
         super().__init__()
         self.register_buffer('expert_centers', expert_centers)
         self.p_mean = p_mean
@@ -38,13 +38,16 @@ class PathPriorLoss(nn.Module):
 
     def forward(self, gate_probs: torch.Tensor, sigma: torch.Tensor):
         device = sigma.device
-        s = sigma.flatten()
-        log_sigma = torch.log(s + 1e-8)
-        sigma_percentile = 0.5 * (1 + torch.erf((log_sigma - self.p_mean) / (self.p_std * np.sqrt(2))))
+        log_sigma = torch.log(sigma.flatten().clamp(min=1e-8))
+        
+        # THE FIX: Mathematically identical to MaskGenerator's CDF projection
+        sigma_percentile = 0.5 * (1.0 + torch.erf((log_sigma - self.p_mean) / (self.p_std * math.sqrt(2))))
         sigma_percentile = sigma_percentile.clamp(0.001, 0.999).view(-1, 1)
+
         dist_sq = (sigma_percentile - self.expert_centers.to(device).view(1, -1)) ** 2
         target_logits = -dist_sq * self.sharpness
         target_dist = F.softmax(target_logits, dim=-1)
+        
         log_probs = torch.log(gate_probs + 1e-8)
         return self.kl_div(log_probs, target_dist)
 
@@ -94,10 +97,16 @@ class EDM_LOSS_NOD(nn.Module):
         )
 
     def _compute_trajectory_masks(self, sigma: torch.Tensor):
-        # We assume overlap width roughly correlates to the region of interest
+        # U-Net targets High Noise (> transition)
+        # ViT targets Low Noise (< transition)
         sigma_flat = sigma.flatten()
-        unet_mask = sigma_flat < (self.transition_sigma + self.overlap_width)
-        vit_mask = sigma_flat > (self.transition_sigma - self.overlap_width)
+        
+        # Active when sigma is ABOVE the transition boundary (minus overlap)
+        unet_mask = sigma_flat > (self.transition_sigma - self.overlap_width)
+        
+        # Active when sigma is BELOW the transition boundary (plus overlap)
+        vit_mask = sigma_flat < (self.transition_sigma + self.overlap_width)
+        
         return unet_mask, vit_mask
 
     def __call__(self,
@@ -183,8 +192,8 @@ class EDM_LOSS_NOD(nn.Module):
 
         return {
             "loss": total_loss,
-            "loss_texture": unet_loss,
-            "loss_structure": vit_loss,
+            "loss_texture": vit_loss,       # ViT is now doing Low-Noise Textures
+            "loss_structure": unet_loss,
             "denoising": denoising_loss,
             "balance": router_loss,
             "z_loss": z_loss,

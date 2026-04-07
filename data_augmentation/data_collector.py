@@ -27,3 +27,41 @@ def get_dataloader(cfg):
         pin_memory=True,
         persistent_workers=True
     )
+
+def get_dataloader_path(model_config: dict, data_dir: str = "/kaggle/input/YOUR_DATASET_FOLDER"):
+    """
+    High-Performance Dataloader for Large-Scale Diffusion Training.
+    Outputs: float32 tensors in the range[-1.0, 1.0]
+    """
+    # 1. Image Preprocessing Pipeline
+    transform = transforms.Compose([
+        # Resize the shortest edge to 256, then take a perfect center square
+        transforms.Resize(model_config["data_img_res"], interpolation=transforms.InterpolationMode.BILINEAR),
+        transforms.CenterCrop(model_config["data_img_res"]),
+
+        # Convert to Tensor (scales[0, 255] integer pixels to [0.0, 1.0] floats)
+        transforms.ToTensor(),
+
+        # Shift to [-1.0, 1.0] (Crucial for VAE inputs)
+        transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
+    ])
+
+    # 2. Dataset Setup
+    # Assumes your data is inside a folder structure like: data_dir/class_name/image.jpg
+    # If there are no subfolders, put the images in one subfolder inside data_dir!
+    dataset = datasets.ImageFolder(root=data_dir, transform=transform)
+
+    print(f"Dataset Loaded: {len(dataset)} images found.")
+
+    # 3. High-Throughput DataLoader
+    dataloader = DataLoader(
+        dataset,
+        batch_size=model_config["batch_size"],
+        shuffle=True,  # Randomize the trajectory
+        num_workers=4,  # Kaggle generally handles 2 to 4 workers optimally
+        pin_memory=True,  # Speeds up CPU-to-GPU transfer
+        drop_last=True,  # Ensures every batch is exactly batch_size (prevents shape errors)
+        prefetch_factor=2  # Pre-loads the next 2 batches in the background
+    )
+
+    return dataloader

@@ -10,6 +10,77 @@ from graphs.plotter import Plotter2
 from Utils.configs import model_configs as model_config
 import os
 
+def debug_trajectory_sampler(
+        model,
+        vae,
+        device,
+        output_dir="./pipeline_test",
+        num_steps=50,
+        sigma_min=0.002,
+        sigma_max=80.0,
+        rho=7.0
+):
+    """
+    Simulates the EDM sampling trajectory and saves the model's
+    clean image prediction (D_x) at every step.
+    """
+    out_path = Path(output_dir) / "trajectory_frames"
+    out_path.mkdir(parents=True, exist_ok=True)
+
+    # 1. EDM Time Schedule
+    step_indices = torch.arange(num_steps, dtype=torch.float32, device=device)
+    t_steps = (sigma_max ** (1 / rho) + step_indices / (num_steps - 1) * (
+                sigma_min ** (1 / rho) - sigma_max ** (1 / rho))) ** rho
+    t_steps = torch.cat([t_steps, torch.zeros_like(t_steps[:1])])  # Add t=0 at the end
+
+    # 2. Initial Pure Noise
+    x = torch.randn(1, 4, 32, 32, device=device) * t_steps[0]
+
+    vae.init(device)
+    model.eval()
+
+    print("\n[DEBUG] Generating trajectory frames...")
+
+    for i in range(num_steps):
+        t_cur = t_steps[i]
+        t_next = t_steps[i + 1]
+
+        sigma_tensor = torch.full((1, 1, 1, 1), t_cur.item(), device=device)
+        dummy_mask = torch.ones((1, model.net.num_experts), device=device)
+
+        with torch.no_grad():
+            # Get model prediction
+            out = model(
+                x=x,
+                sigma=sigma_tensor,
+                text_emb=None,
+                Unet_router_mask=dummy_mask,
+                Vit_router_mask=dummy_mask,
+                zeta=0.0
+            )
+            denoised_latent = out["denoised"]
+
+            # --- VISUALIZATION: Decode D_x ---
+            # We decode what the model THINKS the clean image is at this step
+            decoded_img = vae.decode(denoised_latent)
+            if decoded_img.dtype == torch.uint8:
+                decoded_img = decoded_img.float() / 255.0
+            else:
+                decoded_img = decoded_img.clamp(0, 1)
+
+            # Save the frame
+            filename = out_path / f"frame_{i:02d}_sigma_{t_cur.item():.2f}.png"
+            save_image(decoded_img, filename)
+
+        # Euler Integration Step
+        d_i = (x - denoised_latent) / t_cur
+        x = x + (t_next - t_cur) * d_i
+
+    print(f"  ✓ Saved {num_steps} frames to {out_path}")
+    print(f"  ✓ Open the folder and view them in order to watch the network 'think'.")
+
+    return x
+
 def test_diffusion_pipeline(
         model,
         vae,
@@ -410,7 +481,7 @@ def sample_and_save(model_configs):
 
     # 2. Load Weights
     # TODO: Update this path to match your actual checkpoint location relative to the script
-    checkpoint_path = r"C:\Users\Maha Mamdouh\PycharmProjects\Heterogeneous-MOE-for-Diffusion-models\Utils\ckpt_9000.pt"
+    checkpoint_path = r"C:\Users\Maha Mamdouh\PycharmProjects\Heterogeneous-MOE-for-Diffusion-models\Utils\ckpt_113000.pt"
 
     print(f"Loading weights from {checkpoint_path}...")
     if os.path.exists(checkpoint_path):
@@ -418,9 +489,16 @@ def sample_and_save(model_configs):
         modeli.load_state_dict(ckeck['ema_model_state_dict'])
     else:
         print(f"WARNING: Checkpoint not found at {checkpoint_path}")
+        total_params_vit = sum(p.numel() for p in modeli.net.VIT_experts.parameters())
+        total_params_unet = sum(p.numel() for p in modeli.net.Unet_experts.parameters())
+        print(f"Trainable Parameters_vit: {total_params_vit / 1e6:.2f}M")
+        print(f"Trainable Parameters_unet: {total_params_unet / 1e6:.2f}M")
+        return
 
     modeli.eval()
-
+    # Calculate total parameters
+    total_params = sum(p.numel() for p in modeli.parameters())
+    print(f"Trainable Parameters: {total_params / 1e6:.2f}M")
     # 3. Setup Sampler
     vae = StabilityVAE(batch_size=model_config["batch_size"],
                        raw_mean=model_config['raw_mean'],
@@ -433,10 +511,15 @@ def sample_and_save(model_configs):
     SAMPLER = EDM_Sampler(
         modeli,
         guidance=1.0,
-        num_solve_steps=100,  # or use a value from configs if available
+        num_solve_steps=70,  # or use a value from configs if available
         sigma_min=model_configs['sigma_min'],
         sigma_max=model_configs['sigma_max'],
-        rho=7.0
+        rho=7.0,
+        # --- ENABLE THERMODYNAMIC SHARPENING (LANGEVIN SDE) ---
+        S_churn=5.0,             # Injects noise to break the "watercolor" smoothing
+        S_min=0.01,               # Start injecting noise at mid-low frequencies
+        S_max=1.0,                # Stop injecting noise at the lowest frequencies
+        S_noise=1.001             # Slight noise inflation to compensate for discretization error
     )
 
     # 4. Generate Noise
@@ -462,7 +545,7 @@ def sample_and_save(model_configs):
     images_normalized = images_normalized.clamp(0, 1)
 
     # using an absolute path on current os for testing, needs to be changed
-    test_img_path = r"C:\Users\Maha Mamdouh\PycharmProjects\Heterogeneous-MOE-for-Diffusion-models\Utils\data\flowers-102\jpg\image_00001.jpg"
+    test_img_path = r"C:\Users\Maha Mamdouh\PycharmProjects\Heterogeneous-MOE-for-Diffusion-models\Utils\00001.jpg"
 
     # Check if test image exists before running test
     if os.path.exists(test_img_path):
@@ -472,8 +555,15 @@ def sample_and_save(model_configs):
             test_image_path=test_img_path,
             device=device,
             num_sampling_steps=50,
+            sigma_test= 1.0
             # Pass explicit config values to test function if needed,
             # otherwise it defaults to model_configs inside the function
+        )
+        debug_trajectory_sampler(
+            model=modeli,
+            vae=vae,
+            device=model_config['device'],
+            num_steps= 100
         )
     else:
         print(f"Skipping pipeline test: Image not found at {test_img_path}")

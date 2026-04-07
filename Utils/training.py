@@ -3,8 +3,7 @@ import torch
 from typing import Any
 from models.model_config_v3 import preconditioned_HDMOEM_v3
 from loss import EDM_LOSS_NOD
-from utils import sample_sigma_hybrid, ZetaScheduler, MaskGenerator, Lr_Scheduler, save_checkpoint, EMA, \
-    register_gradient_scalers
+from utils import sample_sigma_hybrid, ZetaScheduler, MaskGenerator, Lr_Scheduler, save_checkpoint, EMA
 from VAE_CLIP import StabilityVAE
 from configs import model_configs, mask_configs, zeta_configs, loss_configs, optim_configs
 from graphs.logger2 import Logger
@@ -59,8 +58,8 @@ def training_HDMOE(model_config: dict[str, Any],
         num_experts=model_config["num_experts"],
         top_k=model_config["top_k"],
         Fourier_bandwidth=model_config["fourier_bandwidth"],
-        VIT_num_blocks=model_config['VIT_num_blocks'],  # Shallow ViT for demo
-        VIT_patch_sizes=model_config['VIT_patch_sizes'],  # 4x4 patches for 32x32 img
+        VIT_num_blocks=model_config['VIT_num_blocks'],
+        VIT_patch_sizes=model_config['VIT_patch_sizes'],
         VIT_num_groups=model_config['VIT_num_groups'],
         VIT_num_heads=model_config['VIT_num_heads'],
         VIT_emb_size=model_config['VIT_emb_size'],
@@ -68,7 +67,7 @@ def training_HDMOE(model_config: dict[str, Any],
         VIT_pos_emb_balance=model_config['VIT_pos_emb_balances'],
         Unet_num_blocks=model_config['Unet_num_blocks'],
         Unet_channel_mult=model_config['Unet_channel_mult'],
-        Unet_channel_mult_emb=model_config['Unet_channel_mult_emb'],  # 2 levels for 32x32 -> 16->8
+        Unet_channel_mult_emb=model_config['Unet_channel_mult_emb'],
         Unet_kernel_sizes=model_config['Unet_kernel_sizes'],
         Unet_model_channels=model_config['Unet_model_channels'],
         Unet_label_balance=model_config['Unet_label_balance'],
@@ -81,7 +80,6 @@ def training_HDMOE(model_config: dict[str, Any],
         attn_pool_balance=model_configs['attn_pool_balance']
     ).to(model_config["device"])
 
-    #_ = register_gradient_scalers(model)
     special_params = set()
     special_params.update(model.net.Unet_experts.parameters())
     special_params.update(model.net.VIT_experts.parameters())
@@ -103,7 +101,7 @@ def training_HDMOE(model_config: dict[str, Any],
         {'params': model.net.output_proj_unet.parameters(), 'lr': Optim_config['lr_out_proj_unet']},
         {'params': model.net.blend_residual.parameters(), 'lr': Optim_config['lr_blend_residual']},
         {'params': model.net.pooled_cross_attn.parameters(), 'lr': Optim_config['lr_pooled_attn']},
-        {'params': default_params, 'lr': Optim_config['LR_DEFAULT']}  # <--- THE MISSING LINK
+        {'params': default_params, 'lr': Optim_config['LR_DEFAULT']}
     ],
         betas=Optim_config['betas'],
         weight_decay=Optim_config['weight_decay'],
@@ -363,5 +361,5 @@ if __name__ == '__main__':
                    loss_configs,
                    mask_configs,
                    zeta_configs,
-                   #resume_path=r"/kaggle/input/datasets/mosa1r/hdmoe-checkpoints/ckpt_26000.pt"
+                   resume_path=r"./ckpt_26000.pt"
                    )

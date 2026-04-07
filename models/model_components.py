@@ -3,7 +3,89 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import models.model_internals as m
+import math
 
+class ParametricTrajectoryRouter(nn.Module):
+    """
+    Parametric Radial Basis Function (RBF) Router for Temporal Diffusion MoE.
+    
+    Instead of using an MLP which struggles to isolate 1D continuous regions,
+    this router explicitly models each expert as a Gaussian distribution over
+    the Cumulative Distribution Function (CDF) of the noise schedule.
+    
+    Physics:
+        Logit_i = -Sharpness_i * (CDF(sigma) - Center_i)^2
+    """
+    def __init__(self,
+                 num_experts: int,
+                 min_sigma: float,
+                 max_sigma: float,
+                 p_mean: float = -0.4, # Must match your training schedule
+                 p_std: float = 1.0,   # Must match your training schedule
+                 init_sharpness: float = 25.0):
+        super().__init__()
+        self.num_experts = num_experts
+        self.p_mean = p_mean
+        self.p_std = p_std
+        
+        # 1. Initialize Centers evenly in Log-Space
+        log_min = math.log(min_sigma)
+        log_max = math.log(max_sigma)
+        log_equidistant = torch.linspace(log_min, log_max, steps=num_experts)
+        
+        # 2. Project into CDF Probability Space (Exact match to MaskGenerator & PathPriorLoss)
+        cdf_points = 0.5 * (1.0 + torch.erf((log_equidistant - p_mean) / (p_std * math.sqrt(2))))
+        cdf_points = cdf_points.clamp(0.001, 0.999)
+        
+        # Learnable Centers (mu) and Sharpness (gamma)
+        # We wrap them in nn.Parameter so the optimizer can fine-tune the hand-offs
+        self.centers = nn.Parameter(cdf_points)
+        
+        # Sharpness is learned in log-space to ensure it always remains strictly positive
+        self.log_sharpness = nn.Parameter(torch.full((num_experts,), math.log(init_sharpness)))
+
+    def forward(self, 
+                log_sigma: torch.Tensor, 
+                mask: Optional[torch.Tensor] = None, 
+                zeta: float = 0.0) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Args:
+            zeta:
+            mask:
+            log_sigma: Tensor of shape (B, 1) containing 4.0 * c_noise (which is just log(sigma))
+        Returns:
+            sparse_gate_weights, gate_probs, raw_logits
+        """
+        # 1. Map incoming log_sigma to CDF space
+        sigma_percentile = 0.5 * (1.0 + torch.erf((log_sigma - self.p_mean) / (self.p_std * math.sqrt(2))))
+        sigma_percentile = sigma_percentile.clamp(0.0, 1.0).view(-1, 1) # (B, 1)
+        
+        # 2. Calculate Distances to Expert Centers
+        # (B, 1) - (1, E) -> (B, E)
+        dist_sq = (sigma_percentile - self.centers.view(1, -1)) ** 2
+        
+        # 3. Apply Learnable Sharpness (Gamma)
+        sharpness = torch.exp(self.log_sharpness).view(1, -1)
+        logits = -dist_sq * sharpness
+        
+        # 4. Optional Exploration Noise (Zeta)
+        if self.training and zeta > 0:
+            logits = logits + torch.randn_like(logits) * zeta
+
+        # 5. Apply Hard Fences (if provided via MaskGenerator)
+        if mask is not None:
+            logits = logits.masked_fill(mask == 0, -1e9)
+
+        # 6. Softmax Probabilities
+        gate_probs = F.softmax(logits, dim=-1)
+        
+        # 7. For Trajectory MoE, we typically execute all experts with weight > 0, 
+        # so sparse_gate_weights is just gate_probs. If you strictly want Top-1, you can apply argmax here.
+        # But Soft-Routing during training is usually better for gradients.
+        sparse_gate_weights = gate_probs 
+        
+        return sparse_gate_weights, gate_probs, logits
+    
 class Scaling_router(nn.Module):
     """
     A Residual-Scaling Router.
@@ -66,52 +148,49 @@ class Scaling_router(nn.Module):
 class Router(nn.Module):
     """
     A Pure Noise-Dependent Trajectory Router.
-
-    This module maps the noise conditioning (time_emb) directly to expert selection.
-    It ignores the image content 'x' to ensure routing is a pure function of
-    the ODE trajectory stage.
+    Uses standard Linear layers because classifiers need unbounded weight 
+    magnitudes to achieve high Softmax confidence.
     """
 
     def __init__(self,
-                 time_dim: Optional[int] = 256,  # Input: dimension of noise vector
+                 time_dim: Optional[int] = 256,  
                  top_k: Optional[int] = 1,
                  num_experts: Optional[int] = 4,
                  dropout: Optional[float] = 0.0
                  ):
         super().__init__()
         self.mlp_route = nn.Sequential(
-            m.MP_Conv(in_channels=time_dim, out_channels=time_dim * 2, kernel=()),
+            nn.Linear(time_dim, time_dim * 2),
             nn.SiLU(),
-            m.MP_Conv(in_channels=time_dim * 2, out_channels=time_dim, kernel=()),
+            nn.Linear(time_dim * 2, time_dim),
             nn.SiLU(),
             nn.Dropout(dropout),
-            m.MP_Conv(in_channels=time_dim, out_channels=num_experts, kernel=()),
+            nn.Linear(time_dim, num_experts)
         )
         self.k = top_k
+        nn.init.constant_(self.mlp_route[-1].weight, 0.0)
+        nn.init.constant_(self.mlp_route[-1].bias, 0.0)
 
     def forward(self,
                 time_emb: torch.Tensor,
                 mask: Optional[torch.Tensor] = None,
                 zeta: Optional[float] = 1e-2
                 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """
-        Input:
-            time_emb: [B, time_dim] or [B, 1, time_dim] noise embedding
-        Output:
-            Standard tuple to maintain interface with HDMOEM.
-        """
+        
         if time_emb.ndim == 3:
             time_emb = time_emb.squeeze(1)
 
         logits = self.mlp_route(time_emb)
+        
         if self.training and zeta > 0:
             logits = logits + torch.randn_like(logits) * zeta
 
         if mask is not None:
-            logits = logits.masked_fill(mask == 0, -1e9)  # safer than -inf for softmax
+            logits = logits.masked_fill(mask == 0, -1e9)
 
         gate_probs = F.softmax(logits, dim=-1)
         topk_vals, topk_indices = torch.topk(logits, self.k, dim=-1)
+        
         if self.k == 1:
             gating_weights = torch.ones_like(topk_vals)
         else:
@@ -119,7 +198,6 @@ class Router(nn.Module):
 
         sparse_gate_weights = torch.zeros_like(logits).scatter(-1, topk_indices, gating_weights)
         return sparse_gate_weights, gate_probs, logits
-
 
 class Unet_block(nn.Module):
     """
