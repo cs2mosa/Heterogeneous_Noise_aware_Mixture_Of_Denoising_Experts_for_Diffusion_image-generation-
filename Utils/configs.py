@@ -29,7 +29,7 @@ model_configs = {
     'Unet_num_blocks': 3,
     'Unet_channel_mult': [1, 2, 4],
     'Unet_kernel_sizes': [(3, 3),  (5, 5)],
-    'Unet_model_channels': 64,
+    'Unet_model_channels': 128,
     'Unet_channel_mult_emb': 2,
     'Unet_label_balance': 0.5,
     'Unet_concat_balances': [0.7, 0.3],
