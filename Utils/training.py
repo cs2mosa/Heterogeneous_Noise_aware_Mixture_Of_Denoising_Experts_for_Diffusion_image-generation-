@@ -7,7 +7,7 @@ from utils import sample_sigma_hybrid, ZetaScheduler, MaskGenerator, Lr_Schedule
 from VAE_CLIP import StabilityVAE
 from configs import model_configs, mask_configs, zeta_configs, loss_configs, optim_configs
 from graphs.logger2 import Logger
-from data_augmentation.data_collector import get_dataloader
+from data_augmentation.data_collector import get_dataloader_path
 from glob import glob
 
 
@@ -18,7 +18,7 @@ def training_HDMOE(model_config: dict[str, Any],
                    zeta_config: dict[str, Any],
                    resume_path: str = None
                    ):
-    dataloader = get_dataloader(model_config)
+    dataloader = get_dataloader_path(model_config,data_dir=model_config["data_dir"])
     data_iter = iter(dataloader)
     logger = Logger(
         log_dir="./logs",
