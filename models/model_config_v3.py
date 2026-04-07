@@ -231,7 +231,8 @@ class HDMOEM_v3(nn.Module):
             kernel_size  = 3,
             padding      = 1,
         )
-        nn.init.xavier_normal_(self.output_proj_unet.weight)
+        nn.init.constant_(self.output_proj_unet.weight, 0.0)
+        nn.init.constant_(self.output_proj_unet.bias,   0.0)
         nn.init.constant_(self.output_proj_vit.weight, 0.0)
         nn.init.constant_(self.output_proj_vit.bias,   0.0)
 
