@@ -17,7 +17,7 @@ model_configs = {
     'fourier_bandwidth': 0.9,
 
     # --- ViT Settings ---
-    'VIT_num_blocks': 10,
+    'VIT_num_blocks': 12,
     'VIT_patch_sizes': [1, 1],
     'VIT_num_groups': 4,
     'VIT_num_heads': 12,
@@ -26,7 +26,7 @@ model_configs = {
     'VIT_emb_balances': [0.4, 0.4],
 
     # --- U-Net Settings ---
-    'Unet_num_blocks': 3,
+    'Unet_num_blocks': 2,
     'Unet_channel_mult': [1, 2, 4],
     'Unet_kernel_sizes': [(3, 3),  (5, 5)],
     'Unet_model_channels': 128,
@@ -35,7 +35,7 @@ model_configs = {
     'Unet_concat_balances': [0.7, 0.3],
 
     # --- v3 Cross-Attention ---
-    'pool_size': 8,
+    'pool_size': 16,
     'attn_pool_balance': 0.5,
 
     # --- Physics & Data ---
