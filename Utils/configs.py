@@ -17,7 +17,7 @@ model_configs = {
     'fourier_bandwidth': 0.9,
 
     # --- ViT Settings ---
-    'VIT_num_blocks': 12,
+    'VIT_num_blocks': 10,
     'VIT_patch_sizes': [1, 1],
     'VIT_num_groups': 4,
     'VIT_num_heads': 12,
@@ -26,7 +26,7 @@ model_configs = {
     'VIT_emb_balances': [0.4, 0.4],
 
     # --- U-Net Settings ---
-    'Unet_num_blocks': 2,
+    'Unet_num_blocks': 3,
     'Unet_channel_mult': [1, 2, 4],
     'Unet_kernel_sizes': [(3, 3),  (5, 5)],
     'Unet_model_channels': 128,
@@ -41,8 +41,8 @@ model_configs = {
     # --- Physics & Data ---
     'sigma_data': 0.8,
     'mean_data': 0.0,
-    'raw_mean': (0.566, -0.886, 1.47, -0.413),
-    'raw_std':  (5.215, 5.469, 4.044, 3.988),
+    'raw_mean': (0.566, -0.886, 1.47, -0.413),# for LHQ dataset only , needs to be changed for other datasets
+    'raw_std':  (5.215, 5.469, 4.044, 3.988),# for LHQ dataset only , needs to be changed for other datasets
     'log_var_channels': 32,
     'batch_size': 128,
     'total_steps': 200000,
@@ -50,11 +50,11 @@ model_configs = {
     'sigma_max': 80,
     "fixed_prompt": "a photo of a flower",
     'extreme_prob': 0.2,
-    'transition_sigma': 2.5,  #log_scale 
-    'transition_sharpness': 0.8,
+    'transition_sigma': 1.0,  #log_scale
+    'transition_sharpness': 0.3,
 
     # --- EMA ---
-    'ema_beta': 0.9999,
+    'ema_beta': 0.999,
     'ema_warmup_power': 2 / 3,
     'ema_min_warmup_step': 40000
 }
@@ -66,9 +66,9 @@ loss_configs = {
     'sharpness': 25,
     'laplacian_kernel': 9,
     'laplacian_std': 1.0,
-    'transition_sigma': 2.5,
-    'transition_sharpness': 0.8,
-    'overlap_width': 0.8,
+    'transition_sigma': 1.0,  #log_scale
+    'transition_sharpness': 0.3,
+    'overlap_width': 0.8, #deprecated
     'alpha_blend': 0.6,
     'alpha_unet': 0.2,   
     'alpha_vit': 0.2,
@@ -79,12 +79,12 @@ optim_configs = {
     'lr_unet': 50e-4,         
     'lr_vit': 80e-4,         
     'lr_router': 10e-4,
-    'lr_out_proj_vit': 5e-5,
-    'lr_out_proj_unet': 5e-5,
+    'lr_out_proj_vit': 5e-4,
+    'lr_out_proj_unet': 5e-4,
     'lr_blend_residual': 10e-4,
     'lr_pooled_attn': 10e-4,
     'ref_batches': 70e3,
-    'rampup_Mimg': 0.8,
+    'rampup_Mimg': 1.0,
     'betas': (0.9, 0.99),
     'weight_decay': 0.0,  
     'eps': 1e-8 
@@ -95,15 +95,15 @@ mask_configs = {
     'vit_attr': [1, 1],
     'p_mean': -0.2,
     'p_std': 1.2,
-    'max_BW_u': 0.15,   # U-Net occupies 18% of CDF. Start at 15% radius.
-    'min_BW_u': 0.05,   # Shrink to 5% for strict high-noise specialization
-    'max_BW_v': 0.60,   # ViT occupies 82% of CDF. Start at 60% radius.
-    'min_BW_v': 0.25,   # Shrink to 25% for strict low-noise specialization
+    'max_BW_u': 0.40,
+    'min_BW_u': 0.19,
+    'max_BW_v': 0.70,
+    'min_BW_v': 0.32,
     'min_active': 1,
     'step_size': 0.1,
     'strat_band': 'linear',
-    'unet_noise_range': (2.5, 80.0),
-    'vit_noise_range':  (0.002, 2.5),
+    'unet_noise_range': (1.0, 80.0),
+    'vit_noise_range': (0.002, 1.0),
     'total_steps': 100000,
 }
 zeta_configs = {

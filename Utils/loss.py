@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
 import torchvision.transforms.functional as TF
 import math
 
@@ -27,7 +26,7 @@ class PathPriorLoss(nn.Module):
     def __init__(self,
                  expert_centers: torch.Tensor,
                  p_mean: float = -0.4,  # IMPORTANT: Must match sampling p_mean
-                 p_std: float = 1.0,    # IMPORTANT: Must match sampling p_std
+                 p_std: float = 1.0,  # IMPORTANT: Must match sampling p_std
                  sharpness: float = 25.0):
         super().__init__()
         self.register_buffer('expert_centers', expert_centers)
@@ -135,26 +134,16 @@ class EDM_LOSS_NOD(nn.Module):
             log_var = out_model["log_var"].clamp(min=-10, max=10)
             pure_loss = torch.mean((weight * (diff_blend ** 2)) / log_var.exp() + log_var)
 
-        # 4. UNet Branch Loss (Masked Reduction)
-        # We weight the error by 'wx_unet'. This means as the model naturally transitions
-        # away from UNet, we reduce supervision, preventing "Teacher Forcing" on noise.
-        m_unet = unet_mask.view(-1, 1, 1, 1).to(dtype=out_model['unet_denoised'].dtype)
+        # 4. UNet Branch Loss (C_infinity Smooth Decay)
+        # We no longer use a Boolean mask.
+        # As sigma -> 0, wx_unet smoothly approaches 0.0, automatically scaling the gradient to zero.
         unet_sq_error = (out_model['unet_denoised'] - x) ** 2
+        unet_loss = torch.mean(weight * wx_unet * unet_sq_error)
 
-        # Weight = EDM_Weight * Blend_Weight * Mask
-        weighted_err_unet = weight * wx_unet * unet_sq_error * m_unet
-
-        num_active_elements_u = m_unet.sum() * x.shape[1] * x.shape[2] * x.shape[3]
-        unet_loss = weighted_err_unet.sum() / (num_active_elements_u + 1e-6)
-
-        # 5. ViT Branch Loss (Masked Reduction)
-        m_vit = vit_mask.view(-1, 1, 1, 1).to(dtype=out_model['vit_denoised'].dtype)
+        # 5. ViT Branch Loss (C_infinity Smooth Decay)
+        # As sigma -> 80, wx_vit smoothly approaches 0.0.
         vit_sq_error = (out_model['vit_denoised'] - x) ** 2
-
-        weighted_err_vit = weight * wx_vit * vit_sq_error * m_vit
-
-        num_active_elements_v = m_vit.sum() * x.shape[1] * x.shape[2] * x.shape[3]
-        vit_loss = weighted_err_vit.sum() / (num_active_elements_v + 1e-6)
+        vit_loss = torch.mean(weight * wx_vit * vit_sq_error)
 
         # 6. Total Loss Aggregation
         trajectory_loss = (

@@ -2,11 +2,11 @@ import math
 from typing import Optional, List, Tuple
 import torch
 import torch.nn as nn
-from model_internals import (
+from models.model_internals import (
     MP_Conv, MP_Fourier, PooledCrossAttn,
     mp_silu, normalize,
 )
-from model_components import ParametricTrajectoryRouter, Unet_expert, Vit_expert
+from models.model_components import ParametricTrajectoryRouter, Unet_expert, Vit_expert
 
 def router_to_experts(
     x:          torch.Tensor,      # (B, C, H, W)
@@ -125,6 +125,10 @@ class HDMOEM_v3(nn.Module):
         transition_sharpness: float                  = 1.5,
         pool_size:            int                    = 4,
         attn_pool_balance:    float                  = 0.5,
+        p_mean:               float                  = -0.4,
+        p_std:                float                  = 1.2,
+        sigma_min:            float                  = 0.002,
+        sigma_max:            float                  = 80
     ):
         super().__init__()
         self.internal_channels = internal_channels
@@ -152,25 +156,20 @@ class HDMOEM_v3(nn.Module):
         )
         nn.init.constant_(self.input_time_proj.weights, 0.0)
 
-        global_sigma_min = 0.002
-        global_sigma_max = 80.0
-        
-        # 💥 SWAPPED: U-Net is now fenced to HIGH NOISE
         self.Unet_router = ParametricTrajectoryRouter(
             num_experts=num_experts, 
-            min_sigma=transition_sigma, 
-            max_sigma=global_sigma_max,
-            p_mean=-0.2,   # MUST MATCH CONFIG
-            p_std=1.2      # MUST MATCH CONFIG  
+            min_sigma=transition_sigma,
+            max_sigma=sigma_max,
+            p_mean=p_mean,
+            p_std=p_std
         )
-        
-        # 💥 SWAPPED: ViT is now fenced to LOW NOISE
+
         self.vit_router = ParametricTrajectoryRouter(
             num_experts=num_experts, 
-            min_sigma=global_sigma_min, 
+            min_sigma=sigma_min,
             max_sigma=transition_sigma,
-            p_mean=-0.2,   # MUST MATCH CONFIG
-            p_std=1.2      # MUST MATCH CONFIG
+            p_mean=p_mean,
+            p_std=p_std
         )
 
         if Unet_concat_balance is None:
@@ -352,13 +351,9 @@ class HDMOEM_v3(nn.Module):
         
         ones_v = torch.ones_like(out_Vit_expert[:, :1, :, :])
         out_Vit_biased = torch.cat([out_Vit_expert, ones_v], dim=1)
-        
-        # 2. Get raw MP outputs
-        unet_raw_out = self.output_proj_unet(out_Unet_biased)
-        vit_raw_out  = self.output_proj_vit(out_Vit_biased)
-        # 2. Scale by the learnable gain (broadcasting the scalar to the tensor shape)
-        unet_out = unet_raw_out * self.out_gain_unet.view(1, 1, 1, 1)
-        vit_out  = vit_raw_out * self.out_gain_vit.view(1, 1, 1, 1)        # (B, C_in, H, W)
+
+        unet_out = self.output_proj_unet(out_Unet_biased)
+        vit_out  = self.output_proj_vit(out_Vit_biased)
         
         sigma_reconstructed = torch.exp(4.0 * time_vec)             # (B,)
         w_vit, w_unet, gate_strength = self.compute_blend_weights(
@@ -444,6 +439,10 @@ class preconditioned_HDMOEM_v3(nn.Module):
         # ── v3-only ──────────────────────────────────────────────────────────
         pool_size:             int             = 4,
         attn_pool_balance:     float           = 0.5,
+        p_mean : float = -0.4,
+        p_std : float = 1.2,
+        sigma_min : float = 0.002,
+        sigma_max : float = 80
     ):
         super().__init__()
         self.sigma_data       = sigma_data
@@ -479,6 +478,10 @@ class preconditioned_HDMOEM_v3(nn.Module):
             transition_sharpness  = transition_sharpness,
             pool_size             = pool_size,
             attn_pool_balance     = attn_pool_balance,
+            p_mean                = p_mean,
+            p_std                 = p_std,
+            sigma_min             = sigma_min,
+            sigma_max             = sigma_max
         )
 
     def forward(
