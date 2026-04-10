@@ -9,11 +9,11 @@ from models.model_internals import (
 from models.model_components import ParametricTrajectoryRouter, Unet_expert, Vit_expert
 
 def router_to_experts(
-    x:          torch.Tensor,      # (B, C, H, W)
-    experts:    nn.ModuleList,
-    out_router: torch.Tensor,      # (B, E)  soft routing weights
-    time_emb:   torch.Tensor,      # (B, time_emb_dim)
-    text_emb:   Optional[torch.Tensor],
+        x: torch.Tensor,  # (B, C, H, W)
+        experts: nn.ModuleList,
+        out_router: torch.Tensor,  # (B, E)  soft routing weights
+        time_emb: torch.Tensor,  # (B, time_emb_dim)
+        text_emb: Optional[torch.Tensor],
 ) -> torch.Tensor:
     """
     Weighted sum of expert outputs.
@@ -25,23 +25,23 @@ def router_to_experts(
     denom = torch.clamp(denom, min=0.1).view(-1, 1, 1, 1)
 
     if text_emb is not None and text_emb.ndim == 3:
-        text_processed = text_emb.mean(dim=1)   # (B, text_dim)
+        text_processed = text_emb.mean(dim=1)  # (B, text_dim)
     else:
         text_processed = text_emb
 
     output = torch.zeros_like(x)
 
     for i, expert in enumerate(experts):
-        weights = out_router[:, i]           # (B,)
-        mask    = weights > 1e-3             # skip truly zero-weighted samples
+        weights = out_router[:, i]  # (B,)
+        mask = weights > 1e-3  # skip truly zero-weighted samples
 
         if not mask.any():
             continue
 
         out_exp = expert(
-            x        = x[mask],
-            time_emb = time_emb[mask],
-            text_emb = text_processed[mask] if text_processed is not None else None,
+            x=x[mask],
+            time_emb=time_emb[mask],
+            text_emb=text_processed[mask] if text_processed is not None else None,
         )
         output[mask] += out_exp * weights[mask].view(-1, 1, 1, 1)
 
@@ -185,54 +185,53 @@ class HDMOEM_v3(nn.Module):
 
         self.Unet_experts = nn.ModuleList([
             Unet_expert(
-                img_resolution  = IN_img_resolution,
-                img_channels    = internal_channels,
-                time_emb_dim    = time_emb_dim,
-                text_emb_dim    = text_emb_dim,
-                num_blocks      = Unet_num_blocks,
-                channel_mult    = Unet_channel_mult,
-                kernel_size     = Unet_kernel_sizes[i],
-                label_balance   = Unet_label_balance,
-                concat_balance  = balances[i],
-                model_channels  = Unet_model_channels,
-                channel_mult_emb= Unet_channel_mult_emb,
+                img_resolution=IN_img_resolution,
+                img_channels=internal_channels,
+                time_emb_dim=time_emb_dim,
+                text_emb_dim=text_emb_dim,
+                num_blocks=Unet_num_blocks,
+                channel_mult=Unet_channel_mult,
+                kernel_size=Unet_kernel_sizes[i],
+                label_balance=Unet_label_balance,
+                concat_balance=balances[i],
+                model_channels=Unet_model_channels,
+                channel_mult_emb=Unet_channel_mult_emb,
             )
             for i in range(num_experts)
         ])
 
         self.VIT_experts = nn.ModuleList([
             Vit_expert(
-                num_heads       = VIT_num_heads,
-                num_groups      = VIT_num_groups,
-                in_channels     = internal_channels,
-                seq_ln          = math.ceil(IN_img_resolution / VIT_patch_sizes[i]) ** 2,
-                emb_dim         = VIT_emb_size,
-                num_blocks      = VIT_num_blocks,
-                patch_size      = VIT_patch_sizes[i],
-                text_dim        = text_emb_dim,
-                time_dim        = time_emb_dim,
-                emb_balance     = VIT_emb_balance[i],
-                pos_emb_balance = VIT_pos_emb_balance[i],
+                num_heads=VIT_num_heads,
+                num_groups=VIT_num_groups,
+                in_channels=internal_channels,
+                seq_ln=math.ceil(IN_img_resolution / VIT_patch_sizes[i]) ** 2,
+                emb_dim=VIT_emb_size,
+                num_blocks=VIT_num_blocks,
+                patch_size=VIT_patch_sizes[i],
+                text_dim=text_emb_dim,
+                time_dim=time_emb_dim,
+                emb_balance=VIT_emb_balance[i],
+                pos_emb_balance=VIT_pos_emb_balance[i],
             )
             for i in range(num_experts)
         ])
 
         self.output_proj_vit = MP_Conv(
-            in_channels  = internal_channels+1,
-            out_channels = IN_in_channels,
-            kernel       = (1, 1)  # Preserves spatial independence for textures
+            in_channels=internal_channels + 1,
+            out_channels=IN_in_channels,
+            kernel=(1, 1)  # Preserves spatial independence for textures
         )
         self.output_proj_unet = MP_Conv(
-            in_channels  = internal_channels+1,
-            out_channels = IN_in_channels,
-            kernel       = (3, 3)  # Aggregates spatial structure
+            in_channels=internal_channels + 1,
+            out_channels=IN_in_channels,
+            kernel=(3, 3)  # Aggregates spatial structure
         )
         nn.init.constant_(self.output_proj_unet.weights, 0.0)
         nn.init.constant_(self.output_proj_vit.weights, 0.0)
 
         self.out_gain_vit = nn.Parameter(torch.ones(1) * 0.01)
         self.out_gain_unet = nn.Parameter(torch.ones(1) * 0.01)
-
         self.blend_residual = nn.Sequential(
             MP_Conv(in_channels=time_emb_dim, out_channels=time_emb_dim // 2, kernel=()),
             MP_Conv(in_channels=time_emb_dim // 2, out_channels=1, kernel=()),
@@ -241,14 +240,14 @@ class HDMOEM_v3(nn.Module):
 
         if internal_channels % VIT_num_heads == 0:
             self.pooled_cross_attn = PooledCrossAttn(
-                channels     = internal_channels,
-                num_heads    = VIT_num_heads,
-                pool_size    = pool_size,
-                attn_balance = attn_pool_balance,
+                channels=internal_channels,
+                num_heads=VIT_num_heads,
+                pool_size=pool_size,
+                attn_balance=attn_pool_balance,
             )
             self._cross_attn_enabled = True
         else:
-            self.pooled_cross_attn   = None
+            self.pooled_cross_attn = None
             self._cross_attn_enabled = False
             print(
                 f"[HDMOEM_v3] WARNING: internal_channels ({internal_channels}) "
@@ -259,46 +258,46 @@ class HDMOEM_v3(nn.Module):
 
         if self._cross_attn_enabled:
             self.output_proj_attn = MP_Conv(
-                in_channels  = internal_channels,
-                out_channels = IN_in_channels,
-                kernel       = (1, 1),
+                in_channels=internal_channels,
+                out_channels=IN_in_channels,
+                kernel=(1, 1),
             )
             nn.init.constant_(self.output_proj_attn.weights, 0.0)
 
     def compute_blend_weights(
             self,
-            sigma:    torch.Tensor,    # (B,) — *reconstructed* σ values
-            time_emb: torch.Tensor,    # (B, time_emb_dim) — for learned residual
-        ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-            
+            sigma: torch.Tensor,  # (B,) — *reconstructed* σ values
+            time_emb: torch.Tensor,  # (B, time_emb_dim) — for learned residual
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+
         log_sigma = torch.log(sigma + 1e-8)
         log_transition = math.log(self.transition_sigma)
-        
+
         # FIX: We want ViT at LOW noise (sigma < transition_sigma) -> w_vit -> 1
         # When sigma < transition_sigma, (log_transition - log_sigma) is POSITIVE.
         x_prior = (log_transition - log_sigma) / self.transition_sharpness
-        x_prior  = x_prior.view(-1, 1, 1, 1)                        # (B,1,1,1)
+        x_prior = x_prior.view(-1, 1, 1, 1)  # (B,1,1,1)
 
-        h        = self.blend_residual[0](time_emb)                  
-        h        = mp_silu(h)
-        residual = self.blend_residual[1](h).view(-1, 1, 1, 1)       
+        h = self.blend_residual[0](time_emb)
+        h = mp_silu(h)
+        residual = self.blend_residual[1](h).view(-1, 1, 1, 1)
 
         # w_vit -> 1 at low noise, w_unet -> 1 at high noise
-        w_vit    = torch.sigmoid(x_prior + residual)
-        w_unet   = 1.0 - w_vit
+        w_vit = torch.sigmoid(x_prior + residual)
+        w_unet = 1.0 - w_vit
 
-        gate_strength = w_vit * w_unet                               # ∈ [0, 0.25]
+        gate_strength = w_vit * w_unet  # ∈ [0, 0.25]
 
         return w_vit, w_unet, gate_strength
 
     def forward(
-        self,
-        x:               torch.Tensor,    # (B, C_in, H, W) — preconditioned input
-        time_vec:        torch.Tensor,    # (B,)             — c_noise = log(σ)/4
-        text_emb:        Optional[torch.Tensor],
-        Unet_router_mask: torch.Tensor,   # (B, num_experts)
-        Vit_router_mask:  torch.Tensor,   # (B, num_experts)
-        zeta:             float,
+            self,
+            x: torch.Tensor,  # (B, C_in, H, W) — preconditioned input
+            time_vec: torch.Tensor,  # (B,)             — c_noise = log(σ)/4
+            text_emb: Optional[torch.Tensor],
+            Unet_router_mask: torch.Tensor,  # (B, num_experts)
+            Vit_router_mask: torch.Tensor,  # (B, num_experts)
+            zeta: float,
     ) -> dict:
         """
         Forward pass of HDMOEM v3.
@@ -320,17 +319,17 @@ class HDMOEM_v3(nn.Module):
         # ── Step 1: Time embedding ────────────────────────────────────────────
         time_embed = self.Fourier_emb(x=time_vec)
         time_embed = self.out_fourier1(x=time_embed)
-        time_embed = self.out_fourier2(x=mp_silu(x=time_embed))   # (B, time_emb_dim)
+        time_embed = self.out_fourier2(x=mp_silu(x=time_embed))  # (B, time_emb_dim)
 
-        x_feats   = self.input_proj(x)                              # (B, C, H, W)
-        time_gain = self.input_time_proj(time_embed)                # (B, C)
+        x_feats = self.input_proj(x)  # (B, C, H, W)
+        time_gain = self.input_time_proj(time_embed)  # (B, C)
         time_gain = time_gain.view(-1, self.internal_channels, 1, 1)
-        x_feats   = normalize(x_feats) * (1.0 + time_gain)      # magnitude-safe
+        x_feats = normalize(x_feats) * (1.0 + time_gain)  # magnitude-safe
 
         # Extract the pure 1D log_sigma scalar
-        log_sigma = time_vec.view(-1, 1) * 4.0 
+        log_sigma = time_vec.view(-1, 1) * 4.0
 
-        out_vit_router,  Vit_probs,  Vit_raw  = self.vit_router(
+        out_vit_router, Vit_probs, Vit_raw = self.vit_router(
             log_sigma=log_sigma, zeta=zeta, mask=Vit_router_mask)
         out_unet_router, Unet_probs, Unet_raw = self.Unet_router(
             log_sigma=log_sigma, zeta=zeta, mask=Unet_router_mask)
@@ -340,49 +339,54 @@ class HDMOEM_v3(nn.Module):
             x=x_feats, experts=self.Unet_experts, out_router=out_unet_router,
             time_emb=time_embed, text_emb=text_emb,
         )
-        
+
         out_Vit_expert = router_to_experts(
             x=x_feats, experts=self.VIT_experts, out_router=out_vit_router,
             time_emb=time_embed, text_emb=text_emb,
         )
-        
+
         ones_u = torch.ones_like(out_Unet_expert[:, :1, :, :])
         out_Unet_biased = torch.cat([out_Unet_expert, ones_u], dim=1)
-        
+
         ones_v = torch.ones_like(out_Vit_expert[:, :1, :, :])
         out_Vit_biased = torch.cat([out_Vit_expert, ones_v], dim=1)
 
-        unet_out = self.output_proj_unet(out_Unet_biased)
-        vit_out  = self.output_proj_vit(out_Vit_biased)
-        
-        sigma_reconstructed = torch.exp(4.0 * time_vec)             # (B,)
+        # 2. Get raw MP outputs
+        unet_raw_out = self.output_proj_unet(out_Unet_biased)
+        vit_raw_out = self.output_proj_vit(out_Vit_biased)
+        # 2. Scale by the learnable gain (broadcasting the scalar to the tensor shape)
+        unet_out = unet_raw_out * self.out_gain_unet.view(1, 1, 1, 1)
+        vit_out = vit_raw_out * self.out_gain_vit.view(1, 1, 1, 1)  # (B, C_in, H, W)
+
+        sigma_reconstructed = torch.exp(4.0 * time_vec)  # (B,)
         w_vit, w_unet, gate_strength = self.compute_blend_weights(
-            sigma    = sigma_reconstructed,
-            time_emb = time_embed,
-        )                         # each (B, 1, 1, 1)
+            sigma=sigma_reconstructed,
+            time_emb=time_embed,
+        )  # each (B, 1, 1, 1)
         attn_correction = torch.zeros_like(unet_out)
         if self._cross_attn_enabled:
             raw_correction = self.pooled_cross_attn(
-                unet_feat    = out_Unet_expert,    # (B, C, H, W)
-                vit_feat     = out_Vit_expert,     # (B, C, H, W)
-                gate_strength= gate_strength,      # (B, 1, 1, 1) — already in [0, 0.25]
-            )                                                        # (B, C, H, W)
+                unet_feat=out_Unet_expert,  # (B, C, H, W)
+                vit_feat=out_Vit_expert,  # (B, C, H, W)
+                gate_strength=gate_strength,  # (B, 1, 1, 1) — already in [0, 0.25]
+            )  # (B, C, H, W)
             attn_correction = self.output_proj_attn(raw_correction)  # (B, C_in, H, W)
 
         out = w_vit * vit_out + w_unet * unet_out + attn_correction
 
         return {
-            "out":           out,
-            "vit_out":       vit_out,
-            "unet_out":      unet_out,
-            "w_vit":         w_vit,
-            "w_unet":        w_unet,
+            "out": out,
+            "vit_out": vit_out,
+            "unet_out": unet_out,
+            "w_vit": w_vit,
+            "w_unet": w_unet,
             "gate_strength": gate_strength,
-            "Unet_probs":    Unet_probs,
-            "Unet_raw":      Unet_raw,
-            "Vit_probs":     Vit_probs,
-            "Vit_raw":       Vit_raw,
+            "Unet_probs": Unet_probs,
+            "Unet_raw": Unet_raw,
+            "Vit_probs": Vit_probs,
+            "Vit_raw": Vit_raw,
         }
+
 
 class preconditioned_HDMOEM_v3(nn.Module):
     """
@@ -409,79 +413,71 @@ class preconditioned_HDMOEM_v3(nn.Module):
     """
 
     def __init__(
-        self,
-        IN_in_channels:        int,
-        IN_img_resolution:     int,
-        internal_channels:     int,
-        time_emb_dim:          int,
-        text_emb_dim:          int,
-        num_experts:           int,
-        top_k:                 int,
-        Fourier_bandwidth:     float,
-        VIT_num_blocks:        int,
-        VIT_patch_sizes:       List[int],
-        VIT_num_groups:        int,
-        VIT_num_heads:         int,
-        VIT_emb_size:          int,
-        VIT_pos_emb_balance:   List[float],
-        VIT_emb_balance:       List[float],
-        Unet_num_blocks:       int,
-        Unet_channel_mult:     List[int],
-        Unet_kernel_sizes:     List[Tuple[int, int]],
-        Unet_model_channels:   Optional[int]   = 192,
-        Unet_channel_mult_emb: Optional[int]   = None,
-        Unet_label_balance:    Optional[float] = 0.5,
-        Unet_concat_balance:   Optional[tuple] = None,
-        sigma_data:            Optional[float] = 0.5,
-        log_var_channels:      Optional[int]   = 128,
-        transition_sigma:      float           = 3.0,
-        transition_sharpness:  float           = 1.5,
-        # ── v3-only ──────────────────────────────────────────────────────────
-        pool_size:             int             = 4,
-        attn_pool_balance:     float           = 0.5,
-        p_mean : float = -0.4,
-        p_std : float = 1.2,
-        sigma_min : float = 0.002,
-        sigma_max : float = 80
+            self,
+            IN_in_channels: int,
+            IN_img_resolution: int,
+            internal_channels: int,
+            time_emb_dim: int,
+            text_emb_dim: int,
+            num_experts: int,
+            top_k: int,
+            Fourier_bandwidth: float,
+            VIT_num_blocks: int,
+            VIT_patch_sizes: List[int],
+            VIT_num_groups: int,
+            VIT_num_heads: int,
+            VIT_emb_size: int,
+            VIT_pos_emb_balance: List[float],
+            VIT_emb_balance: List[float],
+            Unet_num_blocks: int,
+            Unet_channel_mult: List[int],
+            Unet_kernel_sizes: List[Tuple[int, int]],
+            Unet_model_channels: Optional[int] = 192,
+            Unet_channel_mult_emb: Optional[int] = None,
+            Unet_label_balance: Optional[float] = 0.5,
+            Unet_concat_balance: Optional[tuple] = None,
+            sigma_data: Optional[float] = 0.5,
+            log_var_channels: Optional[int] = 128,
+            transition_sigma: float = 3.0,
+            transition_sharpness: float = 1.5,
+            # ── v3-only ──────────────────────────────────────────────────────────
+            pool_size: int = 4,
+            attn_pool_balance: float = 0.5,
     ):
         super().__init__()
-        self.sigma_data       = sigma_data
+        self.sigma_data = sigma_data
         self.log_var_channels = log_var_channels
         self.log_var_fourier = MP_Fourier(num_channels=log_var_channels)
-        self.log_var_linear  = MP_Conv(in_channels=log_var_channels,
-                                       out_channels=1, kernel=())
+        self.log_var_linear = MP_Conv(in_channels=log_var_channels,
+                                      out_channels=1, kernel=())
 
         self.net = HDMOEM_v3(
-            IN_in_channels        = IN_in_channels,
-            IN_img_resolution     = IN_img_resolution,
-            internal_channels     = internal_channels,
-            time_emb_dim          = time_emb_dim,
-            text_emb_dim          = text_emb_dim,
-            num_experts           = num_experts,
-            top_k                 = top_k,
-            Fourier_bandwidth     = Fourier_bandwidth,
-            VIT_num_blocks        = VIT_num_blocks,
-            VIT_patch_sizes       = VIT_patch_sizes,
-            VIT_num_groups        = VIT_num_groups,
-            VIT_num_heads         = VIT_num_heads,
-            VIT_emb_size          = VIT_emb_size,
-            VIT_pos_emb_balance   = VIT_pos_emb_balance,
-            VIT_emb_balance       = VIT_emb_balance,
-            Unet_num_blocks       = Unet_num_blocks,
-            Unet_channel_mult     = Unet_channel_mult,
-            Unet_kernel_sizes     = Unet_kernel_sizes,
-            Unet_model_channels   = Unet_model_channels,
-            Unet_channel_mult_emb = Unet_channel_mult_emb,
-            Unet_label_balance    = Unet_label_balance,
-            Unet_concat_balance   = Unet_concat_balance,
-            transition_sigma      = transition_sigma,
-            transition_sharpness  = transition_sharpness,
-            pool_size             = pool_size,
-            attn_pool_balance     = attn_pool_balance,
-            p_mean                = p_mean,
-            p_std                 = p_std,
-            sigma_min             = sigma_min,
-            sigma_max             = sigma_max
+            IN_in_channels=IN_in_channels,
+            IN_img_resolution=IN_img_resolution,
+            internal_channels=internal_channels,
+            time_emb_dim=time_emb_dim,
+            text_emb_dim=text_emb_dim,
+            num_experts=num_experts,
+            top_k=top_k,
+            Fourier_bandwidth=Fourier_bandwidth,
+            VIT_num_blocks=VIT_num_blocks,
+            VIT_patch_sizes=VIT_patch_sizes,
+            VIT_num_groups=VIT_num_groups,
+            VIT_num_heads=VIT_num_heads,
+            VIT_emb_size=VIT_emb_size,
+            VIT_pos_emb_balance=VIT_pos_emb_balance,
+            VIT_emb_balance=VIT_emb_balance,
+            Unet_num_blocks=Unet_num_blocks,
+            Unet_channel_mult=Unet_channel_mult,
+            Unet_kernel_sizes=Unet_kernel_sizes,
+            Unet_model_channels=Unet_model_channels,
+            Unet_channel_mult_emb=Unet_channel_mult_emb,
+            Unet_label_balance=Unet_label_balance,
+            Unet_concat_balance=Unet_concat_balance,
+            transition_sigma=transition_sigma,
+            transition_sharpness=transition_sharpness,
+            pool_size=pool_size,
+            attn_pool_balance=attn_pool_balance,
         )
 
     def forward(
