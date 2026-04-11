@@ -139,7 +139,8 @@ class HDMOEM_v3(nn.Module):
         self.input_proj = MP_Conv(
             in_channels  = IN_in_channels,
             out_channels = internal_channels,
-            kernel       = (3, 3),
+            kernel       = (1, 1),
+            stride = 1
         )
 
         self.Fourier_emb  = MP_Fourier(num_channels=time_emb_dim // 2,
@@ -443,6 +444,10 @@ class preconditioned_HDMOEM_v3(nn.Module):
             # ── v3-only ──────────────────────────────────────────────────────────
             pool_size: int = 4,
             attn_pool_balance: float = 0.5,
+            p_mean: float = -0.4,
+            p_std: float = 1.2,
+            sigma_min: float = 0.002,
+            sigma_max: float = 80
     ):
         super().__init__()
         self.sigma_data = sigma_data
@@ -478,6 +483,10 @@ class preconditioned_HDMOEM_v3(nn.Module):
             transition_sharpness=transition_sharpness,
             pool_size=pool_size,
             attn_pool_balance=attn_pool_balance,
+            p_mean=p_mean,
+            p_std=p_std,
+            sigma_max=sigma_max,
+            sigma_min=sigma_min
         )
 
     def forward(
