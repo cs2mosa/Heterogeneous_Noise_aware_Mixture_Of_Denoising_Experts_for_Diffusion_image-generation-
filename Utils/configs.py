@@ -3,21 +3,21 @@ import torch
 model_configs = {
     "save_dir": r"./checkpoints",
     "save_dir_stats": r"./logs",
-    "data_dir": "/kaggle/input/datasets/dimensi0n/lhq-1024/dataset", #add your dataset path 
+    "data_dir": "/kaggle/input/datasets/dimensi0n/lhq-1024/dataset",
     'device': "cuda" if torch.cuda.is_available() else "cpu",
-    'dataset_size': 90000, # make sure to match the dataset size 
+    'dataset_size': 90000,
     'img_channels': 4,
     'internal_channels': 192,
     "data_img_res": 256,
-    'img_resolution':32,
-    'time_emb_dim': 128,
-    'text_emb_dim': 0, #add 768 if going with text conditioning
+    'img_resolution': 32,
+    'time_emb_dim': 256,
+    'text_emb_dim': 1152,  # using SigLIP-Large or Qwen2.5-0.5B for text embedding
     'num_experts': 2,
     'top_k': 1,
-    'fourier_bandwidth': 0.9,
+    'fourier_bandwidth': 1.5,  # High-frequency sub-millimeter temporal resolution, can be lowered to 1.2 if needed
 
     # --- ViT Settings ---
-    'VIT_num_blocks': 10,
+    'VIT_num_blocks': 12,
     'VIT_patch_sizes': [1, 1],
     'VIT_num_groups': 4,
     'VIT_num_heads': 12,
@@ -28,14 +28,12 @@ model_configs = {
     # --- U-Net Settings ---
     'Unet_num_blocks': 3,
     'Unet_channel_mult': [1, 2, 4],
-    'Unet_kernel_sizes': [(3, 3),  (5, 5)],
-    'Unet_model_channels': 128,
-    'Unet_channel_mult_emb': 2,
+    'Unet_kernel_sizes': [(3, 3), (5, 5)],
+    'Unet_model_channels': 128,  # Base 128 -> 512 at the Spatial Cross-Attention bottleneck
+    'Unet_channel_mult_emb': 4,
     'Unet_label_balance': 0.5,
     'Unet_concat_balances': [0.7, 0.3],
-
-    # --- v3 Cross-Attention ---
-    'pool_size': 16,
+    'pool_size': 16,  # 4x4 latent pooling blocks
     'attn_pool_balance': 0.5,
 
     # --- Physics & Data ---
