@@ -8,8 +8,8 @@ model_configs = {
     'dataset_size': 90000,
     'img_channels': 4,
     'internal_channels': 192,
-    "data_img_res": 256,
-    'img_resolution': 32,
+    "data_img_res": 256, #512
+    'img_resolution': 32, #64
     'time_emb_dim': 256,
     'text_emb_dim': 1152,  # using SigLIP-Large or Qwen2.5-0.5B for text embedding
     'num_experts': 2,
@@ -18,7 +18,7 @@ model_configs = {
 
     # --- ViT Settings ---
     'VIT_num_blocks': 12,
-    'VIT_patch_sizes': [1, 1],
+    'VIT_patch_sizes': [1, 1], # try [2,2]
     'VIT_num_groups': 4,
     'VIT_num_heads': 12,
     'VIT_emb_size': 768,
@@ -90,7 +90,7 @@ optim_configs = {
 
 mask_configs = {
     'unet_attr': [3, 5],
-    'vit_attr': [1, 1],
+    'vit_attr': [1, 1], #if you tried [2,2] above it has to be the same thing here
     'p_mean': -0.2,
     'p_std': 1.2,
     'max_BW_u': 0.40,
