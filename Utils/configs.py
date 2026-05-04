@@ -14,7 +14,7 @@ model_configs = {
     'text_emb_dim': 1152,  # using SigLIP-Large or Qwen2.5-0.5B for text embedding
     'num_experts': 2,
     'top_k': 1,
-    'fourier_bandwidth': 1.5,  # High-frequency sub-millimeter temporal resolution, can be lowered to 1.2 if needed
+    'fourier_bandwidth': 1.2,  # High-frequency sub-millimeter temporal resolution, can be lowered to 1.2 if needed
 
     # --- ViT Settings ---
     'VIT_num_blocks': 12,
