@@ -364,9 +364,7 @@ class HDMOEM_v3(nn.Module):
             )  # (B, C, H, W)
             attn_correction = self.output_proj_attn(raw_correction)  # (B, C_in, H, W)
 
-        norm = torch.sqrt((1.0 - w_vit)**2 + w_vit**2)
-        out = (w_vit * vit_out + w_unet * unet_out) / norm
-        out += attn_correction
+        out = w_vit * vit_out + w_unet * unet_out + attn_correction
 
         return {
             "out": out,
