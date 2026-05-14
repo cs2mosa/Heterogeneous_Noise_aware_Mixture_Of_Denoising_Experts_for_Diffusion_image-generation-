@@ -205,35 +205,24 @@ class Router(nn.Module):
 
 
 class SpatialCrossAttn(nn.Module):
-    """
-    MP Spatial Cross-Attention.
-    Only applied at the U-Net bottleneck to establish global semantic layout
-    without incurring the O((HW)^2) cost at high resolutions.
-    """
-
-    def __init__(self, channels: int, text_dim: int, num_heads: int = 4, attn_balance: float = 0.5):
+    def __init__(self, channels: int, text_dim: int, seq_ln: int, num_heads: int = 4):
         super().__init__()
+        self.pos_encoder = m.MP_Pos_encoding_2D(emb_dim=channels, seq_ln=seq_ln)
+
         self.attn = m.MP_Attention(
-            num_heads=num_heads,
-            emb_dim=channels,
-            seq_ln=77,  # Fixed CLIP sequence length
-            context_dim=text_dim,
-            attn_balance=attn_balance,
-            is_cross_attn=True
+            num_heads=num_heads, emb_dim=channels, seq_ln=77,
+            context_dim=text_dim, is_cross_attn=True
         )
 
     def forward(self, x: torch.Tensor, text_emb: torch.Tensor) -> torch.Tensor:
         B, C, H, W = x.shape
-        # Flatten spatial grid to sequence: (B, H*W, C)
         x_seq = x.flatten(2).transpose(1, 2)
 
-        # Cross-Attention with unpooled text (B, 77, text_dim)
-        # Residual MP_Sum is handled natively inside MP_Attention
+        # [NEW] Inject spatial coordinates so the Attention knows where it is!
+        x_seq = self.pos_encoder(x_seq, t=0.5)
+
         x_seq = self.attn(query=x_seq, context=text_emb, gain_s=1.0, gain_t=1.0)
-
-        # Reshape back to spatial grid
         return x_seq.transpose(1, 2).view(B, C, H, W)
-
 
 class Unet_block(nn.Module):
     """
@@ -419,11 +408,14 @@ class Unet_expert(nn.Module):
                                                                     resample='keep',
                                                                     kernel=kernel_size)
         # _______________________________________________________________________________________________#
+        bottleneck_res = img_resolution >> (len(channel_mult) - 1)
+        bottleneck_seq_ln = bottleneck_res ** 2
         bottleneck_channels = self.block_channels[-1]
         if text_emb_dim > 0:
             self.bottleneck_attn = SpatialCrossAttn(
                 channels=bottleneck_channels,
                 text_dim=text_emb_dim,
+                seq_ln=bottleneck_seq_ln,
                 num_heads=4
             )
         else:

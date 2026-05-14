@@ -123,7 +123,7 @@ def register_gradient_scalers(model):
                 h = param.register_hook(lambda grad: grad * 1000.0)
                 hooks.append(h)
 
-    print(f"🧲 Registered Gradient Boosters (x100) on {len(hooks)} expert parameters.")
+    print(f"Registered Gradient Boosters (x100) on {len(hooks)} expert parameters.")
     return hooks
 
 class Lr_Scheduler:
@@ -266,7 +266,7 @@ class MaskGenerator(nn.Module):
             min_active: int = 1,
             total_steps: int = 5000,
             step_size: float = 0.1,
-            noise_range: tuple = (0.0, 1.0),
+            noise_range: tuple = (0.002, 80.0), # Example: (2.5, 80.0) for UNet
             strat_band: str = "step",
             sigma_min: float = 0.002,
             sigma_max: float = 80.0
@@ -291,19 +291,32 @@ class MaskGenerator(nn.Module):
         attrs = torch.tensor(expert_attributes, dtype=torch.float32)
         num_experts = len(attrs)
         _, sorted_indices = torch.sort(attrs, stable=True)
-        self.min_range, self.max_range = noise_range
-        equidistant_points = torch.linspace(self.min_range, self.max_range, steps=num_experts)
+        
+        # FIX: Compute equidistant centers in LOG-SPACE
+        min_r, max_r = noise_range
+        log_min_r = math.log(min_r)
+        log_max_r = math.log(max_r)
+        
+        # 1. Distribute linearly in log space
+        log_equidistant = torch.linspace(log_min_r, log_max_r, steps=num_experts)
+        
+        # 2. Map to [0, 1] using the EXACT SAME Log-Normal CDF as PathPriorLoss
+        # This guarantees experts are clustered where data density is highest!
+        cdf_points = 0.5 * (1.0 + torch.erf((log_equidistant - self.p_mean) / (self.p_std * math.sqrt(2))))
+        
         final_centers = torch.zeros_like(attrs)
-        final_centers[sorted_indices] = equidistant_points
+        final_centers[sorted_indices] = cdf_points.clamp(0.001, 0.999)
         self.register_buffer('expert_centers', final_centers)
 
     @torch.no_grad()
     def __call__(self, sigma: torch.Tensor, step: int) -> torch.Tensor:
         device = sigma.device
-        log_sigma = torch.log(sigma.flatten())  # already computed
-        log_min, log_max = math.log(self.sigma_min), math.log(self.sigma_max)  # full range
-        sigma_normalized = (log_sigma - log_min) / (log_max - log_min)
-        sp_reshaped = sigma_normalized.view(-1, 1)
+        log_sigma = torch.log(sigma.flatten().clamp(min=1e-8))
+        
+        # ── THE FIX: Project incoming sigma into the exact same CDF probability space ──
+        sigma_percentile = 0.5 * (1.0 + torch.erf((log_sigma - self.p_mean) / (self.p_std * math.sqrt(2))))
+        sp_reshaped = sigma_percentile.view(-1, 1)
+        
         experts_reshaped = self.expert_centers.to(device).view(1, -1)
         dist = torch.abs(sp_reshaped - experts_reshaped)
         current_bw = self.bandwidth_scheduler(step)
@@ -369,7 +382,7 @@ class EMA:
         # This prevents the EMA from staying at 0.0 in the early steps.
         # Logic: decay starts small (fast updates) and grows to self.beta (slow smoothing).
         cur_beta = self.beta
-        if self.step < 10000:  # Standard "warmup" period
+        if self.step < self.min_warmup_step:  # Standard "warmup" period
             # A simple power-law approximation often used in EDM implementations
             # Effective beta = 1 - (1/step) roughly
             cur_beta = min(self.beta, (1 + self.step) / (10 + self.step))

@@ -482,68 +482,62 @@ class PooledCrossAttn(nn.Module):
     Args:
         channels    : C — number of feature channels (= internal_channels).
         num_heads   : Number of attention heads in MP_Attention.
-        pool_size   : P — spatial size of the pooled grid.  Default 4.
         attn_balance: Residual blend factor inside MP_Attention.
     """
 
     def __init__(
-        self,
-        channels:     int,
-        num_heads:    int,
-        pool_size:    int   = 4,
-        attn_balance: float = 0.5,
+            self,
+            channels: int,
+            num_heads: int,
+            attn_balance: float = 0.5,
     ):
         super().__init__()
-        self.pool_size = pool_size
-        pool_seq = pool_size * pool_size
-        assert channels % num_heads == 0, (
-            f"PooledCrossAttn: channels ({channels}) must be divisible "
-            f"by num_heads ({num_heads})."
-        )
+
+        assert channels % num_heads == 0, "Channels must be divisible by num_heads."
+
+        # MP cross-attention on the FULL token sequences.
+        # We pass seq_ln=0 because is_cross_attn=True does not use rel_pos_bias.
         self.cross_attn = MP_Attention(
-            num_heads    = num_heads,
-            emb_dim      = channels,
-            seq_ln       = pool_seq,
-            context_dim  = channels,
-            attn_balance = attn_balance,
-            is_cross_attn= True,
+            num_heads=num_heads,
+            emb_dim=channels,
+            seq_ln=0,
+            context_dim=channels,
+            attn_balance=attn_balance,
+            is_cross_attn=True,
         )
 
         self.out_proj = MP_Conv(
-            in_channels  = channels,
-            out_channels = channels,
-            kernel       = (1, 1),
+            in_channels=channels,
+            out_channels=channels,
+            kernel=(1, 1),
         )
         nn.init.constant_(self.out_proj.weights, 0.0)
 
     def forward(
-        self,
-        unet_feat:    torch.Tensor,    # (B, C, H, W)  — UNet branch features
-        vit_feat:     torch.Tensor,    # (B, C, H, W)  — ViT  branch features
-        gate_strength: torch.Tensor,   # (B, 1, 1, 1)  — w_vit × w_unet ∈ [0, 0.25]
+            self,
+            unet_feat: torch.Tensor,  # (B, C, H, W)
+            vit_feat: torch.Tensor,  # (B, C, H, W)
+            gate_strength: torch.Tensor,  # (B, 1, 1, 1)
     ) -> torch.Tensor:
-        """
-        Returns an additive correction tensor of shape (B, C, H, W).
-        The correction is scaled by gate_strength so it vanishes at σ extremes.
-        """
         B, C, H, W = unet_feat.shape
-        P = self.pool_size
-        unet_pooled = F.adaptive_avg_pool2d(unet_feat, (P, P)) * P # (B, C, P, P)
-        vit_pooled  = F.adaptive_avg_pool2d(vit_feat,  (P, P)) * P  # (B, C, P, P)
-        unet_seq = unet_pooled.flatten(2).transpose(1, 2)
-        vit_seq  = vit_pooled.flatten(2).transpose(1, 2)
+
+        # 1. Flatten to Exact Sequence (No Lossy Pooling!) -> (B, H*W, C)
+        unet_seq = unet_feat.flatten(2).transpose(1, 2)
+        vit_seq = vit_feat.flatten(2).transpose(1, 2)
+
+        # 2. Cross-attention: ViT queries U-Net at 1:1 Pixel Resolution
+        # FlashAttention handles the (H*W)^2 matrix natively in SRAM
         attn_out = self.cross_attn(
-            query   = unet_seq,
-            context = vit_seq,
-            gain_s  = 1.0,
-            gain_t  = 1.0,
-        )                                                          # (B, P², C)
-        attn_spatial = attn_out.transpose(1, 2).view(B, C, P, P) # (B, C, P, P)
-        attn_full    = F.interpolate(
-            attn_spatial,
-            size  = (H, W),
-            mode  = 'bilinear',
-            align_corners = False,
-        )                                                          # (B, C, H, W)
-        correction = self.out_proj(attn_full)                     # (B, C, H, W)
+            query=vit_seq,
+            context=unet_seq,
+            gain_s=1.0,
+            gain_t=1.0,
+        )
+
+        # 3. Reshape directly back to spatial grid
+        attn_full = attn_out.transpose(1, 2).view(B, C, H, W)
+
+        # 4. Project and gate
+        correction = self.out_proj(attn_full)
+
         return correction * gate_strength

@@ -237,7 +237,7 @@ class HDMOEM_v3(nn.Module):
             self.pooled_cross_attn = PooledCrossAttn(
                 channels=internal_channels,
                 num_heads=VIT_num_heads,
-                pool_size=pool_size,
+                #pool_size=pool_size,
                 attn_balance=attn_pool_balance,
             )
             self._cross_attn_enabled = True
@@ -364,7 +364,9 @@ class HDMOEM_v3(nn.Module):
             )  # (B, C, H, W)
             attn_correction = self.output_proj_attn(raw_correction)  # (B, C_in, H, W)
 
-        out = w_vit * vit_out + w_unet * unet_out + attn_correction
+        norm = torch.sqrt((1.0 - w_vit)**2 + w_vit**2)
+        out = (w_vit * vit_out + w_unet * unet_out) / norm
+        out += attn_correction
 
         return {
             "out": out,
