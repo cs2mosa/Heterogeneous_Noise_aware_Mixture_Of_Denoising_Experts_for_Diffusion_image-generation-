@@ -18,7 +18,7 @@ model_configs = {
 
     # --- ViT Settings ---
     'VIT_num_blocks': 10,
-    'VIT_patch_sizes': [2, 2], # try [2,2]
+    'VIT_patch_sizes': [1, 1], # try [2,2]
     'VIT_num_groups': 4,
     'VIT_num_heads': 12,
     'VIT_emb_size': 768,
@@ -90,18 +90,19 @@ optim_configs = {
 
 mask_configs = {
     'unet_attr': [3, 5],
-    'vit_attr': [2, 2], #if you tried [2,2] above it has to be the same thing here
+    'vit_attr': [1, 1],
     'p_mean': -0.2,
     'p_std': 1.2,
-    'max_BW_u': 0.40,
-    'min_BW_u': 0.19,
-    'max_BW_v': 0.70,
-    'min_BW_v': 0.32,
+    # [CRITICAL FIX] Branch-specific CDF bandwidths
+    'max_BW_u': 0.15,   # U-Net occupies 18% of CDF. Start at 15% radius.
+    'min_BW_u': 0.05,   # Shrink to 5% for strict high-noise specialization
+    'max_BW_v': 0.60,   # ViT occupies 82% of CDF. Start at 60% radius.
+    'min_BW_v': 0.25,   # Shrink to 25% for strict low-noise specialization
     'min_active': 1,
     'step_size': 0.1,
     'strat_band': 'linear',
-    'unet_noise_range': (1.0, 80.0),
-    'vit_noise_range': (0.002, 1.0),
+    'unet_noise_range': (2.5, 80.0),
+    'vit_noise_range':  (0.002, 2.5),
     'total_steps': 100000,
 }
 zeta_configs = {
