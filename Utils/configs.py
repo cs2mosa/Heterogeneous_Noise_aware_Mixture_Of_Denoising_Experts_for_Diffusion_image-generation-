@@ -48,7 +48,7 @@ model_configs = {
     'sigma_max': 80,
     "fixed_prompt": "a photo of a flower",
     'extreme_prob': 0.2,
-    'transition_sigma': 1.0,  #log_scale
+    'transition_sigma': 2.5,  #log_scale
     'transition_sharpness': 0.3,
 
     # --- EMA ---
@@ -64,7 +64,7 @@ loss_configs = {
     'sharpness': 25,
     'laplacian_kernel': 9,
     'laplacian_std': 1.0,
-    'transition_sigma': 1.0,  #log_scale
+    'transition_sigma': 2.5,  #log_scale
     'transition_sharpness': 0.3,
     'overlap_width': 0.8, #deprecated
     'alpha_blend': 0.6,
