@@ -3,6 +3,91 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import models.model_internals as m
+import math
+
+
+class ParametricTrajectoryRouter(nn.Module):
+    """
+    Parametric Radial Basis Function (RBF) Router for Temporal Diffusion MoE.
+
+    Instead of using an MLP which struggles to isolate 1D continuous regions,
+    this router explicitly models each expert as a Gaussian distribution over
+    the Cumulative Distribution Function (CDF) of the noise schedule.
+
+    Physics:
+        Logit_i = -Sharpness_i * (CDF(sigma) - Center_i)^2
+    """
+
+    def __init__(self,
+                 num_experts: int,
+                 min_sigma: float,
+                 max_sigma: float,
+                 p_mean: float = -0.4,  # Must match your training schedule
+                 p_std: float = 1.0,  # Must match your training schedule
+                 init_sharpness: float = 25.0):
+        super().__init__()
+        self.num_experts = num_experts
+        self.p_mean = p_mean
+        self.p_std = p_std
+
+        # 1. Initialize Centers evenly in Log-Space
+        log_min = math.log(min_sigma)
+        log_max = math.log(max_sigma)
+        log_equidistant = torch.linspace(log_min, log_max, steps=num_experts)
+
+        # 2. Project into CDF Probability Space (Exact match to MaskGenerator & PathPriorLoss)
+        cdf_points = 0.5 * (1.0 + torch.erf((log_equidistant - p_mean) / (p_std * math.sqrt(2))))
+        cdf_points = cdf_points.clamp(0.001, 0.999)
+
+        # Learnable Centers (mu) and Sharpness (gamma)
+        # We wrap them in nn.Parameter so the optimizer can fine-tune the hand-offs
+        self.centers = nn.Parameter(cdf_points)
+
+        # Sharpness is learned in log-space to ensure it always remains strictly positive
+        self.log_sharpness = nn.Parameter(torch.full((num_experts,), math.log(init_sharpness)))
+
+    def forward(self,
+                log_sigma: torch.Tensor,
+                mask: Optional[torch.Tensor] = None,
+                zeta: float = 0.0) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Args:
+            zeta:
+            mask:
+            log_sigma: Tensor of shape (B, 1) containing 4.0 * c_noise (which is just log(sigma))
+        Returns:
+            sparse_gate_weights, gate_probs, raw_logits
+        """
+        # 1. Map incoming log_sigma to CDF space
+        sigma_percentile = 0.5 * (1.0 + torch.erf((log_sigma - self.p_mean) / (self.p_std * math.sqrt(2))))
+        sigma_percentile = sigma_percentile.clamp(0.0, 1.0).view(-1, 1)  # (B, 1)
+
+        # 2. Calculate Distances to Expert Centers
+        # (B, 1) - (1, E) -> (B, E)
+        dist_sq = (sigma_percentile - self.centers.view(1, -1)) ** 2
+
+        # 3. Apply Learnable Sharpness (Gamma)
+        sharpness = torch.exp(self.log_sharpness).view(1, -1)
+        logits = -dist_sq * sharpness
+
+        # 4. Optional Exploration Noise (Zeta)
+        if self.training and zeta > 0:
+            logits = logits + torch.randn_like(logits) * zeta
+
+        # 5. Apply Hard Fences (if provided via MaskGenerator)
+        if mask is not None:
+            logits = logits.masked_fill(mask == 0, -1e9)
+
+        # 6. Softmax Probabilities
+        gate_probs = F.softmax(logits, dim=-1)
+
+        # 7. For Trajectory MoE, we typically execute all experts with weight > 0,
+        # so sparse_gate_weights is just gate_probs. If you strictly want Top-1, you can apply argmax here.
+        # But Soft-Routing during training is usually better for gradients.
+        sparse_gate_weights = gate_probs
+
+        return sparse_gate_weights, gate_probs, logits
+
 
 class Scaling_router(nn.Module):
     """
@@ -63,55 +148,53 @@ class Scaling_router(nn.Module):
         # 4. Safety Clamp (Prevent negative scaling if range > 1.0)
         return scaling_output.clamp(min=0.01)
 
+
 class Router(nn.Module):
     """
     A Pure Noise-Dependent Trajectory Router.
-
-    This module maps the noise conditioning (time_emb) directly to expert selection.
-    It ignores the image content 'x' to ensure routing is a pure function of
-    the ODE trajectory stage.
+    Uses standard Linear layers because classifiers need unbounded weight
+    magnitudes to achieve high Softmax confidence.
     """
 
     def __init__(self,
-                 time_dim: Optional[int] = 256,  # Input: dimension of noise vector
+                 time_dim: Optional[int] = 256,
                  top_k: Optional[int] = 1,
                  num_experts: Optional[int] = 4,
                  dropout: Optional[float] = 0.0
                  ):
         super().__init__()
         self.mlp_route = nn.Sequential(
-            m.MP_Conv(in_channels=time_dim, out_channels=time_dim * 2, kernel=()),
+            nn.Linear(time_dim, time_dim * 2),
             nn.SiLU(),
-            m.MP_Conv(in_channels=time_dim * 2, out_channels=time_dim, kernel=()),
+            nn.Linear(time_dim * 2, time_dim),
             nn.SiLU(),
             nn.Dropout(dropout),
-            m.MP_Conv(in_channels=time_dim, out_channels=num_experts, kernel=()),
+            nn.Linear(time_dim, num_experts)
         )
         self.k = top_k
+        nn.init.constant_(self.mlp_route[-1].weight, 0.0)
+        nn.init.constant_(self.mlp_route[-1].bias, 0.0)
 
     def forward(self,
                 time_emb: torch.Tensor,
                 mask: Optional[torch.Tensor] = None,
                 zeta: Optional[float] = 1e-2
                 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """
-        Input:
-            time_emb: [B, time_dim] or [B, 1, time_dim] noise embedding
-        Output:
-            Standard tuple to maintain interface with HDMOEM.
-        """
+
         if time_emb.ndim == 3:
             time_emb = time_emb.squeeze(1)
 
         logits = self.mlp_route(time_emb)
+
         if self.training and zeta > 0:
             logits = logits + torch.randn_like(logits) * zeta
 
         if mask is not None:
-            logits = logits.masked_fill(mask == 0, -1e9)  # safer than -inf for softmax
+            logits = logits.masked_fill(mask == 0, -1e9)
 
         gate_probs = F.softmax(logits, dim=-1)
         topk_vals, topk_indices = torch.topk(logits, self.k, dim=-1)
+
         if self.k == 1:
             gating_weights = torch.ones_like(topk_vals)
         else:
@@ -121,22 +204,43 @@ class Router(nn.Module):
         return sparse_gate_weights, gate_probs, logits
 
 
+class SpatialCrossAttn(nn.Module):
+    def __init__(self, channels: int, text_dim: int, seq_ln: int, num_heads: int = 4):
+        super().__init__()
+        self.pos_encoder = m.MP_Pos_encoding_2D(emb_dim=channels, seq_ln=seq_ln)
+
+        self.attn = m.MP_Attention(
+            num_heads=num_heads, emb_dim=channels, seq_ln=77,
+            context_dim=text_dim, is_cross_attn=True
+        )
+
+    def forward(self, x: torch.Tensor, text_emb: torch.Tensor) -> torch.Tensor:
+        B, C, H, W = x.shape
+        x_seq = x.flatten(2).transpose(1, 2)
+
+        # [NEW] Inject spatial coordinates so the Attention knows where it is!
+        x_seq = self.pos_encoder(x_seq, t=0.5)
+
+        x_seq = self.attn(query=x_seq, context=text_emb, gain_s=1.0, gain_t=1.0)
+        return x_seq.transpose(1, 2).view(B, C, H, W)
+
 class Unet_block(nn.Module):
     """
     the building block of the Unet experts in the Unet pathway , according to Nvidia's paper
         Note: we made the kernel size a variable input to enforce architectural differences between each expert in the Unet path
     """
+
     def __init__(self,
-                 in_channels     : int ,
-                 out_channels    : int ,
-                 kernel          : tuple,
-                 emb_size        : int ,
-                 resample        : Optional[str] = 'keep',
-                 Type            : Optional[str] = 'enc',
+                 in_channels: int,
+                 out_channels: int,
+                 kernel: tuple,
+                 emb_size: int,
+                 resample: Optional[str] = 'keep',
+                 Type: Optional[str] = 'enc',
                  residual_balance: Optional[float] = 0.5,
-                 Dropout         : Optional[float] = 0.0,
-                 emb_gain        : Optional[float] = 1.0,
-                 conv_gain       : Optional[float] = 1.0
+                 Dropout: Optional[float] = 0.0,
+                 emb_gain: Optional[float] = 1.0,
+                 conv_gain: Optional[float] = 1.0
                  ):
         """
         Args:
@@ -157,22 +261,25 @@ class Unet_block(nn.Module):
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.emb_size = emb_size
-        self.residual_balance= residual_balance
+        self.residual_balance = residual_balance
         self.type = Type
         self.resample = resample
         self.kernel = kernel
-        self.dropout =  Dropout
+        self.dropout = Dropout
         self.emb_gain = emb_gain
         self.conv_gain1 = conv_gain
         self.conv_gain2 = conv_gain
-        self.conv_skip = m.MP_Conv(in_channels = in_channels, out_channels=out_channels,kernel=(1, 1)) if in_channels != out_channels else None
-        self.emb_layer = m.MP_Conv(in_channels = emb_size, out_channels = out_channels,kernel=())
-        self.conv_res1 = m.MP_Conv(in_channels = out_channels if self.type == 'enc' else in_channels, out_channels= out_channels, kernel=self.kernel)
-        self.conv_res2 = m.MP_Conv(in_channels = out_channels, out_channels= out_channels, kernel=self.kernel)
+        self.conv_skip = m.MP_Conv(in_channels=in_channels, out_channels=out_channels,
+                                   kernel=(1, 1)) if in_channels != out_channels else None
+        self.emb_layer = m.MP_Conv(in_channels=emb_size, out_channels=out_channels, kernel=())
+        self.conv_res1 = m.MP_Conv(in_channels=out_channels if self.type == 'enc' else in_channels,
+                                   out_channels=out_channels, kernel=self.kernel)
+        self.conv_res2 = m.MP_Conv(in_channels=out_channels, out_channels=out_channels, kernel=self.kernel)
         nn.init.constant_(self.conv_res2.weights, 0.0)
+
     def forward(self,
-                x        :torch.Tensor,
-                embedding:torch.Tensor
+                x: torch.Tensor,
+                embedding: torch.Tensor
                 ) -> torch.Tensor:
         """
         the forward method of the Unet block
@@ -182,29 +289,30 @@ class Unet_block(nn.Module):
                 Note: concatenation with the skip connection must be done in the Full Unet class
             :return: processed output tensor of dimensions -> (batch , out_channels, new_height, new_width)
         """
-        embedding = 1 + self.emb_layer(embedding,gain = self.emb_gain)
-        #up for decoders : down for encoders
+        embedding = 1 + self.emb_layer(embedding, gain=self.emb_gain)
+        # up for decoders : down for encoders
         x = m.resample(x, mode=self.resample)
         if self.type == 'enc':
             if self.conv_skip is not None:
                 x = self.conv_skip(x)
-            x = m.normalize(x,dim = [1])
+            x = m.normalize(x, dim=[1])
 
-        main_branch = self.conv_res1(m.mp_silu(x),gain = self.conv_gain1)
-        #embedding dimensions (batch,embedding_size) -> (batch, intermediate_channels,1,1) for broadcasting
+        main_branch = self.conv_res1(m.mp_silu(x), gain=self.conv_gain1)
+        # embedding dimensions (batch,embedding_size) -> (batch, intermediate_channels,1,1) for broadcasting
         main_branch = main_branch * embedding.unsqueeze(2).unsqueeze(3).to(x.dtype)
-        main_branch = m.normalize(main_branch)#ensure magnitude preservation
+        main_branch = m.normalize(main_branch)  # ensure magnitude preservation
         main_branch = m.mp_silu(main_branch)
-        #dropout only in training mode
+        # dropout only in training mode
         """if self.training and self.dropout != 0:
             main_branch = F.dropout(main_branch, p= self.dropout)"""
 
-        main_branch = self.conv_res2(main_branch,gain = self.conv_gain2)
-        #conv_skip for decoders in the residual branch
-        if self.type == 'dec' and self.conv_skip is not None :
+        main_branch = self.conv_res2(main_branch, gain=self.conv_gain2)
+        # conv_skip for decoders in the residual branch
+        if self.type == 'dec' and self.conv_skip is not None:
             x = self.conv_skip(x)
 
-        return m.mp_sum(x,main_branch,t = self.residual_balance)
+        return m.mp_sum(x, main_branch, t=self.residual_balance)
+
 
 class Unet_expert(nn.Module):
     """
@@ -226,24 +334,24 @@ class Unet_expert(nn.Module):
 
     Attributes:
         map_noise (MP_Conv): Projector for time embeddings.
-        map_text (MP_Conv, optional): Projector for text embeddings.
         encoders (nn.ModuleDict): Dictionary of encoder blocks (Conv, Downsample, ResBlocks).
         decoders (nn.ModuleDict): Dictionary of decoder blocks (Upsample, ResBlocks).
         out_conv (MP_Conv): Final projection layer to image space.
         #out_gain (nn.Parameter): Learnable scalar gain for the final output.
     """
+
     def __init__(self,
-                 img_resolution  : int,
-                 img_channels    : int,
-                 time_emb_dim    : int,
-                 text_emb_dim    : int,
-                 channel_mult    : list,
-                 model_channels  : Optional[int] = 192,
+                 img_resolution: int,
+                 img_channels: int,
+                 time_emb_dim: int,
+                 text_emb_dim: int,
+                 channel_mult: list,
+                 model_channels: Optional[int] = 192,
                  channel_mult_emb: Optional[int] = None,
-                 num_blocks      : Optional[int] = 3,
-                 kernel_size     : Optional[tuple] = (3, 3),
-                 label_balance   : Optional[float] = 0.5,
-                 concat_balance  : Optional[float] = 0.5,
+                 num_blocks: Optional[int] = 3,
+                 kernel_size: Optional[tuple] = (3, 3),
+                 label_balance: Optional[float] = 0.5,
+                 concat_balance: Optional[float] = 0.5,
                  ):
         """
         Initializes the U-Net Expert.
@@ -270,81 +378,92 @@ class Unet_expert(nn.Module):
         self.emb_size = model_channels * channel_mult_emb if channel_mult_emb is not None else max(self.block_channels)
         self.label_balance = label_balance
         self.concat_balance = concat_balance
-        #self.out_gain = nn.Parameter(torch.ones([]) * 0.02)
         self.map_noise = m.MP_Conv(in_channels=time_emb_dim, out_channels=self.emb_size, kernel=())
-        self.map_text = m.MP_Conv(in_channels=text_emb_dim, out_channels=self.emb_size, kernel=()) if text_emb_dim > 0 else None
         self.encoders = nn.ModuleDict()
         self.out_channels = img_channels + 1
         # _______________________________________________________________________________________________#
-        for level , channel in enumerate(self.block_channels):
+        for level, channel in enumerate(self.block_channels):
             res = img_resolution >> level
             if level == 0:
                 in_channel = self.out_channels
                 self.out_channels = channel
-                self.encoders[f'{res}x{res}_conv'] = m.MP_Conv(in_channels= in_channel,
-                                                               out_channels= self.out_channels,
-                                                               kernel= kernel_size)
+                self.encoders[f'{res}x{res}_conv'] = m.MP_Conv(in_channels=in_channel,
+                                                               out_channels=self.out_channels,
+                                                               kernel=kernel_size)
             else:
-                self.encoders[f'{res}x{res}_down'] = Unet_block(in_channels= self.out_channels,
+                self.encoders[f'{res}x{res}_down'] = Unet_block(in_channels=self.out_channels,
                                                                 out_channels=self.out_channels,
                                                                 kernel=kernel_size,
                                                                 Type='enc',
-                                                                resample= 'down',
-                                                                emb_size= self.emb_size
+                                                                resample='down',
+                                                                emb_size=self.emb_size
                                                                 )
             for i in range(num_blocks):
                 in_channel = self.out_channels
                 self.out_channels = channel
                 self.encoders[f'{res}x{res}_block{i}'] = Unet_block(in_channels=in_channel,
-                                                                    out_channels= self.out_channels,
-                                                                    emb_size= self.emb_size,
-                                                                    Type= 'enc',
+                                                                    out_channels=self.out_channels,
+                                                                    emb_size=self.emb_size,
+                                                                    Type='enc',
                                                                     resample='keep',
-                                                                    kernel= kernel_size)
-        #_______________________________________________________________________________________________#
+                                                                    kernel=kernel_size)
+        # _______________________________________________________________________________________________#
+        bottleneck_res = img_resolution >> (len(channel_mult) - 1)
+        bottleneck_seq_ln = bottleneck_res ** 2
+        bottleneck_channels = self.block_channels[-1]
+        if text_emb_dim > 0:
+            self.bottleneck_attn = SpatialCrossAttn(
+                channels=bottleneck_channels,
+                text_dim=text_emb_dim,
+                seq_ln=bottleneck_seq_ln,
+                num_heads=4
+            )
+        else:
+            self.bottleneck_attn = None
+
         self.decoders = nn.ModuleDict()
         skips = [block.out_channels for name, block in self.encoders.items()]
         for level, channel in reversed(list(enumerate(self.block_channels))):
             res = img_resolution >> level
             if level == len(self.block_channels) - 1:
                 self.decoders[f'{res}x{res}_in0'] = Unet_block(in_channels=self.out_channels,
-                                                                    out_channels= self.out_channels,
-                                                                    emb_size= self.emb_size,
-                                                                    Type= 'dec',
-                                                                    resample='keep',
-                                                                    kernel= kernel_size)
-
-                self.decoders[f'{res}x{res}_in1'] = Unet_block(in_channels=self.out_channels,
-                                                                out_channels=self.out_channels,
-                                                                emb_size=self.emb_size,
-                                                                Type='dec',
-                                                                resample='keep',
-                                                                kernel=kernel_size)
-            else:
-                self.decoders[f'{res}x{res}_up'] = Unet_block(in_channels=self.out_channels,
-                                                                out_channels=self.out_channels,
-                                                                emb_size=self.emb_size,
-                                                                Type='dec',
-                                                                resample='up',
-                                                                kernel=kernel_size)
-
-            for i in range (num_blocks + 1):
-                in_channel = self.out_channels + skips.pop()
-                self.out_channels = channel
-                self.decoders[f'{res}x{res}_block{i}'] = Unet_block(in_channels=in_channel,
                                                                out_channels=self.out_channels,
                                                                emb_size=self.emb_size,
                                                                Type='dec',
                                                                resample='keep',
                                                                kernel=kernel_size)
+
+                self.decoders[f'{res}x{res}_in1'] = Unet_block(in_channels=self.out_channels,
+                                                               out_channels=self.out_channels,
+                                                               emb_size=self.emb_size,
+                                                               Type='dec',
+                                                               resample='keep',
+                                                               kernel=kernel_size)
+            else:
+                self.decoders[f'{res}x{res}_up'] = Unet_block(in_channels=self.out_channels,
+                                                              out_channels=self.out_channels,
+                                                              emb_size=self.emb_size,
+                                                              Type='dec',
+                                                              resample='up',
+                                                              kernel=kernel_size)
+
+            for i in range(num_blocks + 1):
+                in_channel = self.out_channels + skips.pop()
+                self.out_channels = channel
+                self.decoders[f'{res}x{res}_block{i}'] = Unet_block(in_channels=in_channel,
+                                                                    out_channels=self.out_channels,
+                                                                    emb_size=self.emb_size,
+                                                                    Type='dec',
+                                                                    resample='keep',
+                                                                    kernel=kernel_size)
         # _______________________________________________________________________________________________#
         self.out_conv = m.MP_Conv(in_channels=self.out_channels, out_channels=img_channels, kernel=kernel_size)
 
     def forward(self,
-                x        : torch.Tensor ,
-                time_emb : torch.Tensor ,
-                text_emb :torch.Tensor
-                )-> torch.Tensor:
+                x: torch.Tensor,
+                time_emb: torch.Tensor,
+                text_emb: torch.Tensor
+                ) -> torch.Tensor:
         """
         Forward pass of the U-Net.
 
@@ -358,14 +477,6 @@ class Unet_expert(nn.Module):
                           Shape (Batch, img_channels, H, W).
         """
         emb = self.map_noise(time_emb)
-        if self.map_text is not None and text_emb is not None:
-            # txt_emb Shape transforms to -> (batch,text_emb_dim) if ndims = 3
-            if text_emb.ndim == 3:
-                text_emb = text_emb.mean(dim=1)
-
-            txt = self.map_text(text_emb)
-            emb = m.mp_sum(emb,txt,t = self.label_balance)
-
         emb = m.mp_silu(emb)
         x = torch.cat([x, torch.ones_like(x[:, :1])], dim=1)
         skips = []
@@ -376,6 +487,10 @@ class Unet_expert(nn.Module):
                 x = block(x, embedding=emb)
             skips.append(x)
 
+        if self.bottleneck_attn is not None and text_emb is not None:
+            # text_emb is shaped (B, 77, 768)
+            x = self.bottleneck_attn(x, text_emb)
+
         for name, block in self.decoders.items():
             if 'block' in name:
                 skip_x = skips.pop()
@@ -385,6 +500,7 @@ class Unet_expert(nn.Module):
 
         x = self.out_conv(x, gain=1.0)
         return x
+
 
 class Vit_block(nn.Module):
     """
@@ -407,18 +523,20 @@ class Vit_block(nn.Module):
         skip_proj (MP_Conv, optional): Linear projection for the residual connection
                                        if input_dim != emb_dim.
     """
+
     def __init__(self,
-                 num_heads    : int ,
-                 num_groups   : int,
-                 num_channels : int ,
-                 seq_ln       : int ,
-                 emb_dim      : int ,
-                 resample     : Optional[str] = 'keep',
-                 time_dim     : Optional[int] = 0 ,
-                 res_balance  : Optional[float] = 0.5 ,
-                 attn_balance : Optional[float] = 0.5 ,
-                 gain_s       : Optional[float] = 1.0,
-                 gain_t       : Optional[float] = 1.0,
+                 num_heads: int,
+                 num_groups: int,
+                 num_channels: int,
+                 seq_ln: int,
+                 emb_dim: int,
+                 text_dim: int,
+                 resample: Optional[str] = 'keep',
+                 time_dim: Optional[int] = 0,
+                 res_balance: Optional[float] = 0.5,
+                 attn_balance: Optional[float] = 0.5,
+                 gain_s: Optional[float] = 1.0,
+                 gain_t: Optional[float] = 1.0,
                  ):
         """
        Initializes the ViT Block.
@@ -441,22 +559,26 @@ class Vit_block(nn.Module):
         self.gain_t = gain_t
         self.emb_dim = emb_dim
         self.resample = resample
-        #self.GN = nn.GroupNorm(num_groups=num_groups, num_channels=num_channels)
-        #instead of conv 3X3 we use linear layer before the block
+
+        self.cross_attn = m.MP_Attention(
+            num_heads=num_heads, emb_dim=emb_dim, seq_ln=77,  # CLIP seq_len
+            context_dim=text_dim, attn_balance=attn_balance, is_cross_attn=True
+        ) if text_dim > 0 else None
+
         self.skip_proj = m.MP_Conv(num_channels, emb_dim, kernel=()) if num_channels != emb_dim else None
-        self.linear1 = m.MP_Conv(num_channels,emb_dim,kernel = ())
-        #self.norm1 = nn.LayerNorm(emb_dim)
-        #self.norm2 = nn.LayerNorm(emb_dim)
-        self.TMSA = m.MP_Attention(num_heads= num_heads, emb_dim= emb_dim ,seq_ln= seq_ln ,time_dim= time_dim, attn_balance= attn_balance)
-        #MLP used after the TMSA attention
-        self.linear2 = m.MP_Conv(emb_dim,emb_dim*4,kernel = ())
-        self.linear3 = m.MP_Conv(emb_dim*4,emb_dim,kernel = ())
+        self.linear1 = m.MP_Conv(num_channels, emb_dim, kernel=(3, 3))
+        self.TMSA = m.MP_Attention(num_heads=num_heads, emb_dim=emb_dim, seq_ln=seq_ln, time_dim=time_dim,
+                                   attn_balance=attn_balance)
+        # MLP used after the TMSA attention
+        self.linear2 = m.MP_Conv(emb_dim, emb_dim * 4, kernel=())
+        self.linear3 = m.MP_Conv(emb_dim * 4, emb_dim, kernel=())
         nn.init.constant_(self.linear3.weights, 0.0)
         nn.init.constant_(self.TMSA.out_proj.weights, 0.0)
 
     def forward(self,
-                x             : torch.Tensor,
-                time_embedding: Optional[torch.Tensor] = None
+                x: torch.Tensor,
+                time_embedding: Optional[torch.Tensor] = None,
+                text_embedding: Optional[torch.Tensor] = None
                 ) -> torch.Tensor:
         """
         Forward pass of the block.
@@ -468,6 +590,7 @@ class Vit_block(nn.Module):
         4. Final Skip Connection (Projecting original input if necessary).
 
         Args:
+            text_embedding:
             x (torch.Tensor): Input sequence tensor.
                               Shape: (Batch, Seq_Len, Input_Channels)
             time_embedding (torch.Tensor, optional): Time step embedding vector added with the label embedding vector.
@@ -479,35 +602,41 @@ class Vit_block(nn.Module):
         """
         x = m.resample(x, mode=self.resample)
         batch_size, seq_ln, input_channels = x.shape
-        res_main = x
-        #linear projection instead of conv 3X3 in the paper DIFFIT
+        res_main = x  # SHAPE: (B, Seq, C_in)
         x = x.transpose(1, 2)
-        x = m.mp_silu(m.normalize(x=x,dim=[1]))
-        x = x.transpose(1, 2)
-        x = x.reshape(batch_size * seq_ln, input_channels)
-        x = self.linear1(x, gain=self.gain_s)
-
-        #core tmsa block
-        res_attn = x
-        y = m.normalize(x)
-        y = y.reshape(batch_size, seq_ln, self.emb_dim)
+        x = m.mp_silu(m.normalize(x=x, dim=[1]))
+        spatial_dim = int(math.sqrt(seq_ln))
+        assert spatial_dim * spatial_dim == seq_ln, "Sequence length must be a perfect square."
+        x_spatial = x.view(batch_size, input_channels, spatial_dim, spatial_dim)
+        x_spatial = self.linear1(x_spatial, gain=self.gain_s)  # SHAPE: (B, Emb, H, W)
+        x = x_spatial.flatten(2).transpose(1, 2)  # SHAPE: (B, Seq, Emb)
+        res_attn = x  # 3D
+        y = x.reshape(batch_size * seq_ln, self.emb_dim)
+        y = m.normalize(y)
+        y = y.reshape(batch_size, seq_ln, self.emb_dim)  # Back to 3D
 
         if time_embedding is not None and time_embedding.ndim == 2:
             time_embedding = time_embedding[:, None, :]  # (B, 1, C)
 
         y = self.TMSA(y, time_embedding=time_embedding, gain_s=self.gain_s, gain_t=self.gain_t)
+
+        if self.cross_attn is not None and text_embedding is not None:
+            # MP_Attention handles the residual summation internally.
+            y = self.cross_attn(query=y, context=text_embedding, gain_s=self.gain_s, gain_t=self.gain_t)
+
         y = y.reshape(batch_size * seq_ln, self.emb_dim)
-        y = m.mp_sum(y, res_attn, t=self.res_balance)
-        x = m.normalize(y)
+        y = m.mp_sum(y, res_attn.reshape(batch_size * seq_ln, self.emb_dim), t=self.res_balance)
+
+        res_mlp = y  # 3D
+        x = y.reshape(batch_size * seq_ln, self.emb_dim)
+        x = m.normalize(x)
         x = m.mp_silu(self.linear2(x, gain=self.gain_s))
         x = self.linear3(x, gain=self.gain_s)
-        x = m.mp_sum(x, y, t=self.res_balance)
 
-        # Reshape back to 3D
-        x = x.reshape(batch_size, seq_ln, self.emb_dim)
-
+        x = m.mp_sum(x, res_mlp, t=self.res_balance)
+        x = x.reshape(batch_size, seq_ln, self.emb_dim)  # Back to 3D
         if self.skip_proj is not None:
-            # project original residual to emb_dim (MP_Conv in linear mode)
+            # Project original residual to emb_dim (MP_Conv linear mode requires 2D)
             res_proj = res_main.reshape(batch_size * seq_ln, input_channels)
             res_proj = self.skip_proj(res_proj, gain=self.gain_s)
             res_proj = res_proj.reshape(batch_size, seq_ln, self.emb_dim)
@@ -515,6 +644,7 @@ class Vit_block(nn.Module):
         else:
             # Dimensions match. Add Skip Connection.
             return m.mp_sum(res_main, x, t=self.res_balance)
+
 
 class Vit_expert(nn.Module):
     """
@@ -534,28 +664,28 @@ class Vit_expert(nn.Module):
 
     Attributes:
         patch (nn.Conv2d): Tokenizer layer (Image -> Patches).
-        map_txt (MP_Conv, optional): Projector to align text embedding dimensions with time embeddings.
         pos_encoder (nn.Parameter): Learnable absolute positional embeddings added to the sequence.
         diffit (nn.ModuleList): Stack of `Vit_block` transformer layers.
         unpatch_proj (MP_Conv): Linear projection to expand channels for PixelShuffle.
         unpatch (nn.PixelShuffle): Reconstructs spatial resolution from channel depth.
     """
+
     def __init__(self,
-                 num_heads   : int,
-                 num_groups  : int,
-                 in_channels : int,
-                 seq_ln      : int,
-                 emb_dim     : int,
-                 num_blocks  : int,
-                 patch_size  : int,
-                 time_dim    : Optional[int] = 0,
-                 text_dim    : Optional[int] = 0,
-                 res_balance : Optional[float] = 0.5 ,
-                 attn_balance: Optional[float] = 0.5 ,
-                 emb_balance : Optional[float] = 0.5,
+                 num_heads: int,
+                 num_groups: int,
+                 in_channels: int,
+                 seq_ln: int,
+                 emb_dim: int,
+                 num_blocks: int,
+                 patch_size: int,
+                 time_dim: Optional[int] = 0,
+                 text_dim: Optional[int] = 0,
+                 res_balance: Optional[float] = 0.5,
+                 attn_balance: Optional[float] = 0.5,
+                 emb_balance: Optional[float] = 0.5,
                  pos_emb_balance: Optional[float] = 0.5,
-                 gain_s      : Optional[float] = 1.0,
-                 gain_t      : Optional[float] = 1.0,
+                 gain_s: Optional[float] = 1.0,
+                 gain_t: Optional[float] = 1.0,
                  ):
         """
         Initializes the ViT Expert.
@@ -582,31 +712,32 @@ class Vit_expert(nn.Module):
         self.emb_balance = emb_balance
         self.pos_emb_balance = pos_emb_balance
         self.emb_dim = emb_dim
-        self.patch = m.MP_Conv(in_channels=in_channels + 1,out_channels=emb_dim,kernel=(patch_size,patch_size),stride=patch_size)
-        self.map_txt = m.MP_Conv(in_channels=text_dim,out_channels=time_dim,kernel=()) if text_dim != time_dim and text_dim != 0 else None
+        self.patch = m.MP_Conv(in_channels=in_channels + 1, out_channels=emb_dim, kernel=(patch_size, patch_size),
+                               stride=patch_size)
         self.pos_encoder = m.MP_Pos_encoding_2D(emb_dim=emb_dim, seq_ln=seq_ln)
         self.diffit = nn.ModuleList()
         for i in range(num_blocks):
-            self.diffit.append(Vit_block(num_heads= num_heads,
-                                       num_groups=num_groups,
-                                       num_channels=emb_dim,
-                                       seq_ln=seq_ln,emb_dim=emb_dim,
-                                       resample='keep',
-                                       time_dim= time_dim,
-                                       res_balance=res_balance,
-                                       attn_balance=attn_balance,
-                                       gain_s=gain_s,
-                                       gain_t=gain_t))
+            self.diffit.append(Vit_block(num_heads=num_heads,
+                                         num_groups=num_groups,
+                                         num_channels=emb_dim,
+                                         seq_ln=seq_ln, emb_dim=emb_dim,
+                                         resample='keep',
+                                         time_dim=time_dim,
+                                         res_balance=res_balance,
+                                         attn_balance=attn_balance,
+                                         gain_s=gain_s,
+                                         gain_t=gain_t,
+                                         text_dim=text_dim))
 
-        #self.norm = nn.LayerNorm(emb_dim)
-        self.unpatch_proj = m.MP_Conv(in_channels= emb_dim,out_channels=in_channels*(patch_size**2),kernel=())
+        # self.norm = nn.LayerNorm(emb_dim)
+        self.unpatch_proj = m.MP_Conv(in_channels=emb_dim, out_channels=in_channels * (patch_size ** 2), kernel=())
         self.unpatch = nn.PixelShuffle(upscale_factor=patch_size)
 
     def forward(self,
-                x       : torch.Tensor,
+                x: torch.Tensor,
                 time_emb: torch.Tensor = None,
                 text_emb: Optional[torch.Tensor] = None
-                )->torch.Tensor:
+                ) -> torch.Tensor:
         """
         Forward pass of the ViT Expert.
 
@@ -620,7 +751,7 @@ class Vit_expert(nn.Module):
         """
         # Store original dimensions
         x = torch.cat([x, torch.ones_like(x[:, :1])], dim=1)
-        batch, in_channels, orig_h, orig_w = x.shape
+        batch, _, orig_h, orig_w = x.shape
         patch_size = self.patch.kernel[0]
 
         # Calculate and apply padding
@@ -631,22 +762,13 @@ class Vit_expert(nn.Module):
             x = F.pad(x, (0, pad_w, 0, pad_h), mode='constant', value=0)
 
         x = self.patch(x)
-        batch,c,h_patch,w_patch = x.shape
-        assert h_patch*w_patch == self.seq_ln, f"Sequence length mismatch: Got {h_patch * w_patch}, expected {self.seq_ln}, shape: {x.shape}"
+        batch, _, h_patch, w_patch = x.shape
+        assert h_patch * w_patch == self.seq_ln, f"Sequence length mismatch: Got {h_patch * w_patch}, expected {self.seq_ln}, shape: {x.shape}"
         x = x.flatten(2).transpose(1, 2)
         x = self.pos_encoder(x, t=self.pos_emb_balance)
-        if text_emb is not None:
-            if self.map_txt is not None:
-                #shape transforms to -> (batch, text_emb_size) for the linear layer if ndims = 3
-                if text_emb.ndim == 3:
-                    text_emb = text_emb.mean(dim = 1)
-
-                text_emb = self.map_txt(text_emb)
-
-            time_emb = m.mp_sum(a=time_emb, b=text_emb, t=self.emb_balance)
 
         for block in self.diffit:
-            x = block(x,time_embedding = time_emb)
+            x = block(x, time_embedding=time_emb, text_embedding=text_emb)
 
         x = m.normalize(x)
         x = x.reshape(batch * self.seq_ln, self.emb_dim)
@@ -654,7 +776,7 @@ class Vit_expert(nn.Module):
 
         c_expanded = x.shape[-1]
         x = x.reshape(batch, self.seq_ln, c_expanded)
-        x = x.transpose(1, 2).view(batch, c_expanded, h_patch,w_patch)
+        x = x.transpose(1, 2).view(batch, c_expanded, h_patch, w_patch)
         x = self.unpatch(x)
         # Crop back to original size
         if pad_h > 0 or pad_w > 0:

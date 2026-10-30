@@ -1,9 +1,8 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
 import torchvision.transforms.functional as TF
-
+import math
 
 # 1. Helper Function
 def laplacian_decomposition(image, kernel_size=9, sigma=1.5):
@@ -26,9 +25,9 @@ def laplacian_decomposition(image, kernel_size=9, sigma=1.5):
 class PathPriorLoss(nn.Module):
     def __init__(self,
                  expert_centers: torch.Tensor,
-                 p_mean: float = 0.0,
-                 p_std: float = 1.4,
-                 sharpness: float = 5.0):
+                 p_mean: float = -0.4,  # IMPORTANT: Must match sampling p_mean
+                 p_std: float = 1.0,  # IMPORTANT: Must match sampling p_std
+                 sharpness: float = 25.0):
         super().__init__()
         self.register_buffer('expert_centers', expert_centers)
         self.p_mean = p_mean
@@ -38,13 +37,16 @@ class PathPriorLoss(nn.Module):
 
     def forward(self, gate_probs: torch.Tensor, sigma: torch.Tensor):
         device = sigma.device
-        s = sigma.flatten()
-        log_sigma = torch.log(s + 1e-8)
-        sigma_percentile = 0.5 * (1 + torch.erf((log_sigma - self.p_mean) / (self.p_std * np.sqrt(2))))
+        log_sigma = torch.log(sigma.flatten().clamp(min=1e-8))
+        
+        # THE FIX: Mathematically identical to MaskGenerator's CDF projection
+        sigma_percentile = 0.5 * (1.0 + torch.erf((log_sigma - self.p_mean) / (self.p_std * math.sqrt(2))))
         sigma_percentile = sigma_percentile.clamp(0.001, 0.999).view(-1, 1)
+
         dist_sq = (sigma_percentile - self.expert_centers.to(device).view(1, -1)) ** 2
         target_logits = -dist_sq * self.sharpness
         target_dist = F.softmax(target_logits, dim=-1)
+        
         log_probs = torch.log(gate_probs + 1e-8)
         return self.kl_div(log_probs, target_dist)
 
@@ -93,13 +95,6 @@ class EDM_LOSS_NOD(nn.Module):
             sharpness=sharpness
         )
 
-    def _compute_trajectory_masks(self, sigma: torch.Tensor):
-        # We assume overlap width roughly correlates to the region of interest
-        sigma_flat = sigma.flatten()
-        unet_mask = sigma_flat < (self.transition_sigma + self.overlap_width)
-        vit_mask = sigma_flat > (self.transition_sigma - self.overlap_width)
-        return unet_mask, vit_mask
-
     def __call__(self,
                  x: torch.Tensor,
                  noisy_x: torch.Tensor,
@@ -126,26 +121,16 @@ class EDM_LOSS_NOD(nn.Module):
             log_var = out_model["log_var"].clamp(min=-10, max=10)
             pure_loss = torch.mean((weight * (diff_blend ** 2)) / log_var.exp() + log_var)
 
-        # 4. UNet Branch Loss (Masked Reduction)
-        # We weight the error by 'wx_unet'. This means as the model naturally transitions
-        # away from UNet, we reduce supervision, preventing "Teacher Forcing" on noise.
-        m_unet = unet_mask.view(-1, 1, 1, 1).to(dtype=out_model['unet_denoised'].dtype)
+        # 4. UNet Branch Loss (C_infinity Smooth Decay)
+        # We no longer use a Boolean mask.
+        # As sigma -> 0, wx_unet smoothly approaches 0.0, automatically scaling the gradient to zero.
         unet_sq_error = (out_model['unet_denoised'] - x) ** 2
+        unet_loss = torch.mean(weight * wx_unet * unet_sq_error)
 
-        # Weight = EDM_Weight * Blend_Weight * Mask
-        weighted_err_unet = weight * wx_unet * unet_sq_error * m_unet
-
-        num_active_elements_u = m_unet.sum() * x.shape[1] * x.shape[2] * x.shape[3]
-        unet_loss = weighted_err_unet.sum() / (num_active_elements_u + 1e-6)
-
-        # 5. ViT Branch Loss (Masked Reduction)
-        m_vit = vit_mask.view(-1, 1, 1, 1).to(dtype=out_model['vit_denoised'].dtype)
+        # 5. ViT Branch Loss (C_infinity Smooth Decay)
+        # As sigma -> 80, wx_vit smoothly approaches 0.0.
         vit_sq_error = (out_model['vit_denoised'] - x) ** 2
-
-        weighted_err_vit = weight * wx_vit * vit_sq_error * m_vit
-
-        num_active_elements_v = m_vit.sum() * x.shape[1] * x.shape[2] * x.shape[3]
-        vit_loss = weighted_err_vit.sum() / (num_active_elements_v + 1e-6)
+        vit_loss = torch.mean(weight * wx_vit * vit_sq_error)
 
         # 6. Total Loss Aggregation
         trajectory_loss = (
@@ -183,8 +168,8 @@ class EDM_LOSS_NOD(nn.Module):
 
         return {
             "loss": total_loss,
-            "loss_texture": unet_loss,
-            "loss_structure": vit_loss,
+            "loss_texture": vit_loss,       # ViT is now doing Low-Noise Textures
+            "loss_structure": unet_loss,
             "denoising": denoising_loss,
             "balance": router_loss,
             "z_loss": z_loss,
