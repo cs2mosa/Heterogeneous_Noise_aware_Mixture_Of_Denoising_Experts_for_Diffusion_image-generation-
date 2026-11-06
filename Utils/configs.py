@@ -49,7 +49,7 @@ model_configs = {
     "fixed_prompt": "a photo of a flower",
     'extreme_prob': 0.2,
     'transition_sigma': 2.5,  #log_scale
-    'transition_sharpness': 0.3,
+    'transition_sharpness': 0.8,  # Fix 5: widened from 0.3 for smoother ODE handoff
 
     # --- EMA ---
     'ema_beta': 0.999,
@@ -65,7 +65,7 @@ loss_configs = {
     'laplacian_kernel': 9,
     'laplacian_std': 1.0,
     'transition_sigma': 2.5,  #log_scale
-    'transition_sharpness': 0.3,
+    'transition_sharpness': 0.8,  # Fix 5: widened from 0.3 for smoother ODE handoff
     'overlap_width': 0.8, #deprecated
     'alpha_blend': 0.6,
     'alpha_unet': 0.2,

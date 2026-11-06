@@ -2,6 +2,7 @@ import math
 from typing import Optional, List, Tuple
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from models.model_internals import (
     MP_Conv, MP_Fourier, PooledCrossAttn,
     mp_silu, normalize,
@@ -21,8 +22,9 @@ def router_to_experts(
     Denominator is clamped to 0.1 so a sparse router that only activates
     a subset of experts on a given sample never divides by near-zero.
     """
-    denom = out_router.sum(dim=-1, keepdim=True)
-    denom = torch.clamp(denom, min=0.1).view(-1, 1, 1, 1)
+    # Fix 1b: ℓ2 normalization for variance preservation (restoring v2 behavior)
+    denom = torch.sqrt((out_router**2).sum(dim=-1, keepdim=True) + 1e-8)
+    denom = denom.view(-1, 1, 1, 1)
     text_processed = text_emb
     output = torch.zeros_like(x)
 
@@ -149,14 +151,17 @@ class HDMOEM_v3(nn.Module):
             out_channels = internal_channels,
             kernel       = (),
         )
-        nn.init.constant_(self.input_time_proj.weights, 0.0)
+        # Fix 3: scalar gate instead of zero-init weights
+        self.time_proj_gate = nn.Parameter(torch.zeros(1))
 
         self.Unet_router = ParametricTrajectoryRouter(
             num_experts=num_experts, 
             min_sigma=transition_sigma,
             max_sigma=sigma_max,
             p_mean=p_mean,
-            p_std=p_std
+            p_std=p_std,
+            sigma_min=sigma_min,
+            sigma_max=sigma_max,
         )
 
         self.vit_router = ParametricTrajectoryRouter(
@@ -164,7 +169,9 @@ class HDMOEM_v3(nn.Module):
             min_sigma=sigma_min,
             max_sigma=transition_sigma,
             p_mean=p_mean,
-            p_std=p_std
+            p_std=p_std,
+            sigma_min=sigma_min,
+            sigma_max=sigma_max,
         )
 
         if Unet_concat_balance is None:
@@ -222,8 +229,9 @@ class HDMOEM_v3(nn.Module):
             out_channels=IN_in_channels,
             kernel=(3, 3)  # Aggregates spatial structure
         )
-        nn.init.constant_(self.output_proj_unet.weights, 0.0)
-        nn.init.constant_(self.output_proj_vit.weights, 0.0)
+        # Fix 3: scalar gates instead of zero-init weights
+        self.unet_proj_gate = nn.Parameter(torch.zeros(1))
+        self.vit_proj_gate = nn.Parameter(torch.zeros(1))
 
         self.out_gain_vit = nn.Parameter(torch.ones(1) * 0.01)
         self.out_gain_unet = nn.Parameter(torch.ones(1) * 0.01)
@@ -231,13 +239,15 @@ class HDMOEM_v3(nn.Module):
             MP_Conv(in_channels=time_emb_dim, out_channels=time_emb_dim // 2, kernel=()),
             MP_Conv(in_channels=time_emb_dim // 2, out_channels=1, kernel=()),
         )
-        nn.init.constant_(self.blend_residual[-1].weights, 0.0)
+        # Fix 3: scalar gate instead of zero-init weights
+        self.blend_gate = nn.Parameter(torch.zeros(1))
 
         if internal_channels % VIT_num_heads == 0:
             self.pooled_cross_attn = PooledCrossAttn(
                 channels=internal_channels,
                 num_heads=VIT_num_heads,
-                #pool_size=pool_size,
+                img_resolution=IN_img_resolution,  # Fix 6: spatial anchoring
+                pool_size=pool_size,                # Fix 6c: pooled K/V
                 attn_balance=attn_pool_balance,
             )
             self._cross_attn_enabled = True
@@ -257,7 +267,9 @@ class HDMOEM_v3(nn.Module):
                 out_channels=IN_in_channels,
                 kernel=(1, 1),
             )
-            nn.init.constant_(self.output_proj_attn.weights, 0.0)
+            # Note: no scalar gate here — PooledCrossAttn.out_proj_gate already
+            # provides the single zero-init gate for this branch (Fix 3).
+            # Adding a second gate here would recreate the deadlock.
 
     def compute_blend_weights(
             self,
@@ -275,7 +287,7 @@ class HDMOEM_v3(nn.Module):
 
         h = self.blend_residual[0](time_emb)
         h = mp_silu(h)
-        raw_res = self.blend_residual[1](h).view(-1, 1, 1, 1)
+        raw_res = (self.blend_residual[1](h) * self.blend_gate).view(-1, 1, 1, 1)
         bounded_residual = torch.tanh(raw_res) * 1.5
         w_vit = torch.sigmoid(x_prior + bounded_residual)
         w_unet = 1.0 - w_vit
@@ -314,7 +326,7 @@ class HDMOEM_v3(nn.Module):
         time_embed = self.out_fourier2(x=mp_silu(x=time_embed))  # (B, time_emb_dim)
 
         x_feats = self.input_proj(x)  # (B, C, H, W)
-        time_gain = self.input_time_proj(time_embed)  # (B, C)
+        time_gain = self.input_time_proj(time_embed) * self.time_proj_gate  # (B, C)
         time_gain = time_gain.view(-1, self.internal_channels, 1, 1)
         x_feats = normalize(x_feats) * (1.0 + time_gain)  # magnitude-safe
 
@@ -344,9 +356,9 @@ class HDMOEM_v3(nn.Module):
         out_Vit_biased = torch.cat([out_Vit_expert, ones_v], dim=1)
 
         # 2. Get raw MP outputs
-        unet_raw_out = self.output_proj_unet(out_Unet_biased)
-        vit_raw_out = self.output_proj_vit(out_Vit_biased)
-        # 2. Scale by the learnable gain (broadcasting the scalar to the tensor shape)
+        unet_raw_out = self.output_proj_unet(out_Unet_biased) * self.unet_proj_gate
+        vit_raw_out = self.output_proj_vit(out_Vit_biased) * self.vit_proj_gate
+        # Scale by the learnable gain (broadcasting the scalar to the tensor shape)
         unet_out = unet_raw_out * self.out_gain_unet.view(1, 1, 1, 1)
         vit_out = vit_raw_out * self.out_gain_vit.view(1, 1, 1, 1)  # (B, C_in, H, W)
 
@@ -364,7 +376,15 @@ class HDMOEM_v3(nn.Module):
             )  # (B, C, H, W)
             attn_correction = self.output_proj_attn(raw_correction)  # (B, C_in, H, W)
 
-        out = w_vit * vit_out + w_unet * unet_out + attn_correction
+        # Fix 1: Variance-preserving spherical blend
+        # Compute stop-gradient cosine similarity between branches
+        with torch.no_grad():
+            rho = F.cosine_similarity(
+                vit_out.flatten(1), unet_out.flatten(1), dim=1
+            ).view(-1, 1, 1, 1).clamp(-1.0, 1.0)
+        Z_sq = w_vit**2 + w_unet**2 + 2 * rho * w_vit * w_unet
+        Z = torch.sqrt(Z_sq.clamp(min=1e-6))
+        out = (w_vit * vit_out + w_unet * unet_out) / Z + attn_correction
 
         return {
             "out": out,

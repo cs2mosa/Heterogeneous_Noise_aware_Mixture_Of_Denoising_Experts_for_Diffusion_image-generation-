@@ -292,20 +292,16 @@ class MaskGenerator(nn.Module):
         num_experts = len(attrs)
         _, sorted_indices = torch.sort(attrs, stable=True)
         
-        # FIX: Compute equidistant centers in LOG-SPACE
+        # Fix 4: Use mixture-CDF quantile seeding instead of pure Gaussian CDF
+        from Utils.cdf_utils import branch_local_quantile_centers
         min_r, max_r = noise_range
-        log_min_r = math.log(min_r)
-        log_max_r = math.log(max_r)
-        
-        # 1. Distribute linearly in log space
-        log_equidistant = torch.linspace(log_min_r, log_max_r, steps=num_experts)
-        
-        # 2. Map to [0, 1] using the EXACT SAME Log-Normal CDF as PathPriorLoss
-        # This guarantees experts are clustered where data density is highest!
-        cdf_points = 0.5 * (1.0 + torch.erf((log_equidistant - self.p_mean) / (self.p_std * math.sqrt(2))))
+        cdf_points = branch_local_quantile_centers(
+            num_experts, min_r, max_r,
+            self.p_mean, self.p_std, self.sigma_min, self.sigma_max,
+        )
         
         final_centers = torch.zeros_like(attrs)
-        final_centers[sorted_indices] = cdf_points.clamp(0.001, 0.999)
+        final_centers[sorted_indices] = cdf_points
         self.register_buffer('expert_centers', final_centers)
 
     @torch.no_grad()
@@ -313,8 +309,12 @@ class MaskGenerator(nn.Module):
         device = sigma.device
         log_sigma = torch.log(sigma.flatten().clamp(min=1e-8))
         
-        # ── THE FIX: Project incoming sigma into the exact same CDF probability space ──
-        sigma_percentile = 0.5 * (1.0 + torch.erf((log_sigma - self.p_mean) / (self.p_std * math.sqrt(2))))
+        # Fix 4: Use mixture CDF to match quantile-seeded centers
+        from Utils.cdf_utils import mixture_cdf
+        sigma_percentile = mixture_cdf(
+            log_sigma, self.p_mean, self.p_std,
+            math.log(self.sigma_min), math.log(self.sigma_max),
+        )
         sp_reshaped = sigma_percentile.view(-1, 1)
         
         experts_reshaped = self.expert_centers.to(device).view(1, -1)

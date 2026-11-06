@@ -489,20 +489,29 @@ class PooledCrossAttn(nn.Module):
             self,
             channels: int,
             num_heads: int,
+            img_resolution: int = 64,
+            pool_size: int = 16,
             attn_balance: float = 0.5,
     ):
         super().__init__()
 
         assert channels % num_heads == 0, "Channels must be divisible by num_heads."
 
-        # MP cross-attention on the FULL token sequences.
-        # We pass seq_ln=0 because is_cross_attn=True does not use rel_pos_bias.
+        self.pool_size = pool_size
+        seq_ln = img_resolution * img_resolution
+        pool_seq = pool_size * pool_size
+
+        # Fix 6a: Positional encodings for spatial anchoring
+        self.pos_enc_q = MP_Pos_encoding_2D(emb_dim=channels, seq_ln=seq_ln)
+        self.pos_enc_kv = MP_Pos_encoding_2D(emb_dim=channels, seq_ln=pool_seq)
+
+        # Fix 6b: Pure cross-attention (attn_balance=1.0), no query self-echo
         self.cross_attn = MP_Attention(
             num_heads=num_heads,
             emb_dim=channels,
             seq_ln=0,
             context_dim=channels,
-            attn_balance=attn_balance,
+            attn_balance=1.0,
             is_cross_attn=True,
         )
 
@@ -511,7 +520,9 @@ class PooledCrossAttn(nn.Module):
             out_channels=channels,
             kernel=(1, 1),
         )
-        nn.init.constant_(self.out_proj.weights, 0.0)
+        # Fix 3: Keep weights on the unit sphere (default init).
+        # Gate output with a learnable scalar initialized to 0 instead.
+        self.out_proj_gate = nn.Parameter(torch.zeros(1))
 
     def forward(
             self,
@@ -521,12 +532,17 @@ class PooledCrossAttn(nn.Module):
     ) -> torch.Tensor:
         B, C, H, W = unet_feat.shape
 
-        # 1. Flatten to Exact Sequence (No Lossy Pooling!) -> (B, H*W, C)
-        unet_seq = unet_feat.flatten(2).transpose(1, 2)
-        vit_seq = vit_feat.flatten(2).transpose(1, 2)
+        # 1. Query: flatten ViT features to sequence and add positional encoding
+        vit_seq = vit_feat.flatten(2).transpose(1, 2)  # (B, H*W, C)
+        vit_seq = self.pos_enc_q(vit_seq, t=0.3)       # Fix 6a: spatial anchoring
 
-        # 2. Cross-attention: ViT queries U-Net at 1:1 Pixel Resolution
-        # FlashAttention handles the (H*W)^2 matrix natively in SRAM
+        # 2. K/V: Pool U-Net features to fixed grid, then flatten + pos encode
+        # Fix 6c: Reduces cost from O((HW)^2) to O(HW * pool_size^2)
+        unet_pooled = F.adaptive_avg_pool2d(unet_feat, self.pool_size)  # (B, C, P, P)
+        unet_seq = unet_pooled.flatten(2).transpose(1, 2)  # (B, P*P, C)
+        unet_seq = self.pos_enc_kv(unet_seq, t=0.3)   # Fix 6a: spatial anchoring
+
+        # 3. Cross-attention: ViT queries pooled U-Net
         attn_out = self.cross_attn(
             query=vit_seq,
             context=unet_seq,
@@ -534,10 +550,10 @@ class PooledCrossAttn(nn.Module):
             gain_t=1.0,
         )
 
-        # 3. Reshape directly back to spatial grid
+        # 4. Reshape directly back to spatial grid
         attn_full = attn_out.transpose(1, 2).view(B, C, H, W)
 
-        # 4. Project and gate
-        correction = self.out_proj(attn_full)
+        # 5. Project and gate
+        correction = self.out_proj(attn_full) * self.out_proj_gate
 
         return correction * gate_strength

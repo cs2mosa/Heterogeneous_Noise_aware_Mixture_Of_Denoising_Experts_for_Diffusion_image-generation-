@@ -24,20 +24,24 @@ class ParametricTrajectoryRouter(nn.Module):
                  max_sigma: float,
                  p_mean: float = -0.4,  # Must match your training schedule
                  p_std: float = 1.0,  # Must match your training schedule
-                 init_sharpness: float = 25.0):
+                 init_sharpness: float = 25.0,
+                 sigma_min: float = 0.002,
+                 sigma_max: float = 80.0,
+                 alpha_ext: float = 0.2):
         super().__init__()
         self.num_experts = num_experts
         self.p_mean = p_mean
         self.p_std = p_std
+        self.sigma_min = sigma_min
+        self.sigma_max = sigma_max
+        self.alpha_ext = alpha_ext
 
-        # 1. Initialize Centers evenly in Log-Space
-        log_min = math.log(min_sigma)
-        log_max = math.log(max_sigma)
-        log_equidistant = torch.linspace(log_min, log_max, steps=num_experts)
-
-        # 2. Project into CDF Probability Space (Exact match to MaskGenerator & PathPriorLoss)
-        cdf_points = 0.5 * (1.0 + torch.erf((log_equidistant - p_mean) / (p_std * math.sqrt(2))))
-        cdf_points = cdf_points.clamp(0.001, 0.999)
+        # Fix 4: Use mixture-CDF quantile seeding instead of log-equidistant + pure Gaussian CDF
+        from Utils.cdf_utils import branch_local_quantile_centers
+        cdf_points = branch_local_quantile_centers(
+            num_experts, min_sigma, max_sigma,
+            p_mean, p_std, sigma_min, sigma_max, alpha_ext,
+        )
 
         # Learnable Centers (mu) and Sharpness (gamma)
         # We wrap them in nn.Parameter so the optimizer can fine-tune the hand-offs
@@ -58,9 +62,13 @@ class ParametricTrajectoryRouter(nn.Module):
         Returns:
             sparse_gate_weights, gate_probs, raw_logits
         """
-        # 1. Map incoming log_sigma to CDF space
-        sigma_percentile = 0.5 * (1.0 + torch.erf((log_sigma - self.p_mean) / (self.p_std * math.sqrt(2))))
-        sigma_percentile = sigma_percentile.clamp(0.0, 1.0).view(-1, 1)  # (B, 1)
+        # 1. Map incoming log_sigma to mixture-CDF space (Fix 4)
+        from Utils.cdf_utils import mixture_cdf
+        sigma_percentile = mixture_cdf(
+            log_sigma, self.p_mean, self.p_std,
+            math.log(self.sigma_min), math.log(self.sigma_max), self.alpha_ext,
+        )
+        sigma_percentile = sigma_percentile.view(-1, 1)  # (B, 1)
 
         # 2. Calculate Distances to Expert Centers
         # (B, 1) - (1, E) -> (B, E)

@@ -27,21 +27,30 @@ class PathPriorLoss(nn.Module):
                  expert_centers: torch.Tensor,
                  p_mean: float = -0.4,  # IMPORTANT: Must match sampling p_mean
                  p_std: float = 1.0,  # IMPORTANT: Must match sampling p_std
-                 sharpness: float = 25.0):
+                 sharpness: float = 25.0,
+                 sigma_min: float = 0.002,
+                 sigma_max: float = 80.0,
+                 alpha_ext: float = 0.2):
         super().__init__()
         self.register_buffer('expert_centers', expert_centers)
         self.p_mean = p_mean
         self.p_std = p_std
         self.sharpness = sharpness
+        self.sigma_min = sigma_min
+        self.sigma_max = sigma_max
+        self.alpha_ext = alpha_ext
         self.kl_div = nn.KLDivLoss(reduction='batchmean')
 
     def forward(self, gate_probs: torch.Tensor, sigma: torch.Tensor):
         device = sigma.device
         log_sigma = torch.log(sigma.flatten().clamp(min=1e-8))
         
-        # THE FIX: Mathematically identical to MaskGenerator's CDF projection
-        sigma_percentile = 0.5 * (1.0 + torch.erf((log_sigma - self.p_mean) / (self.p_std * math.sqrt(2))))
-        sigma_percentile = sigma_percentile.clamp(0.001, 0.999).view(-1, 1)
+        # Fix 4: Use mixture CDF to match router and mask
+        from Utils.cdf_utils import mixture_cdf
+        sigma_percentile = mixture_cdf(
+            log_sigma, self.p_mean, self.p_std,
+            math.log(self.sigma_min), math.log(self.sigma_max), self.alpha_ext,
+        ).view(-1, 1)
 
         dist_sq = (sigma_percentile - self.expert_centers.to(device).view(1, -1)) ** 2
         target_logits = -dist_sq * self.sharpness
@@ -68,6 +77,8 @@ class EDM_LOSS_NOD(nn.Module):
                  alpha_blend: float = 0.2,
                  alpha_unet: float = 0.4,
                  alpha_vit: float = 0.4,
+                 lap_kernel: int = 9,
+                 lap_sigma: float = 1.5,
                  ):
         super().__init__()
         self.num_experts = num_experts
@@ -83,6 +94,10 @@ class EDM_LOSS_NOD(nn.Module):
         self.alpha_blend = alpha_blend
         self.alpha_unet = alpha_unet
         self.alpha_vit = alpha_vit
+
+        # Fix 2: Frequency decomposition parameters for orthogonal branch losses
+        self.lap_kernel = lap_kernel
+        self.lap_sigma = lap_sigma
 
         self.prior_path_loss_vit = PathPriorLoss(
             p_mean=p_mean, p_std=p_std,
@@ -106,31 +121,33 @@ class EDM_LOSS_NOD(nn.Module):
         sigma = sigma.reshape(-1, 1, 1, 1)
         weight = (sigma ** 2 + self.sigma_data ** 2) / (sigma * self.sigma_data) ** 2
 
-        # 2. Trajectory Decomposition Setup
-        unet_mask, vit_mask = self._compute_trajectory_masks(sigma)
-
         # This ensures Loss exactly matches Model behavior
         wx_vit = out_model['w_vit']  # (B, 1, 1, 1)
         wx_unet = out_model['w_unet']  # (B, 1, 1, 1)
 
+        # Fix 2: Consistent uncertainty weighting for ALL terms
+        if out_model["log_var"] is not None:
+            log_var = out_model["log_var"].clamp(min=-10, max=10)
+            uncertainty_scale = 1.0 / log_var.exp()
+        else:
+            log_var = None
+            uncertainty_scale = 1.0
+
         # 3. Global Blend Loss (The "Truth")
         diff_blend = out_model["denoised"] - x
-        if out_model["log_var"] is None:
-            pure_loss = torch.mean(weight * (diff_blend ** 2))
-        else:
-            log_var = out_model["log_var"].clamp(min=-10, max=10)
-            pure_loss = torch.mean((weight * (diff_blend ** 2)) / log_var.exp() + log_var)
+        pure_loss = torch.mean(weight * uncertainty_scale * (diff_blend ** 2))
+        if log_var is not None:
+            pure_loss = pure_loss + torch.mean(log_var)
 
-        # 4. UNet Branch Loss (C_infinity Smooth Decay)
-        # We no longer use a Boolean mask.
-        # As sigma -> 0, wx_unet smoothly approaches 0.0, automatically scaling the gradient to zero.
-        unet_sq_error = (out_model['unet_denoised'] - x) ** 2
-        unet_loss = torch.mean(weight * wx_unet * unet_sq_error)
+        # 4. UNet Branch Loss — LOW-FREQUENCY projection only (Fix 2)
+        unet_residual = out_model['unet_denoised'] - x
+        unet_low, _ = laplacian_decomposition(unet_residual, self.lap_kernel, self.lap_sigma)
+        unet_loss = torch.mean(weight * uncertainty_scale * wx_unet * (unet_low ** 2))
 
-        # 5. ViT Branch Loss (C_infinity Smooth Decay)
-        # As sigma -> 80, wx_vit smoothly approaches 0.0.
-        vit_sq_error = (out_model['vit_denoised'] - x) ** 2
-        vit_loss = torch.mean(weight * wx_vit * vit_sq_error)
+        # 5. ViT Branch Loss — HIGH-FREQUENCY projection only (Fix 2)
+        vit_residual = out_model['vit_denoised'] - x
+        _, vit_high = laplacian_decomposition(vit_residual, self.lap_kernel, self.lap_sigma)
+        vit_loss = torch.mean(weight * uncertainty_scale * wx_vit * (vit_high ** 2))
 
         # 6. Total Loss Aggregation
         trajectory_loss = (
@@ -175,10 +192,6 @@ class EDM_LOSS_NOD(nn.Module):
             "z_loss": z_loss,
             "entropy": scaling_loss,
             "pure_loss": pure_loss,
-            # NEW: Statistics for monitoring
-            "unet_training_samples": unet_mask.sum().item(),
-            "vit_training_samples": vit_mask.sum().item(),
-            "overlap_samples": (unet_mask & vit_mask).sum().item(),
         }
     @staticmethod
     def load_balance(gate_probs, num_experts):
