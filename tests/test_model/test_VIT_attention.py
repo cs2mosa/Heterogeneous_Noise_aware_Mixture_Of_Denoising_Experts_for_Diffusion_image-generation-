@@ -124,7 +124,7 @@ class TestVITAttention(unittest.TestCase):
         out = model_static(x, gain_s=1.0, gain_t=0.0, time_embedding=None)
 
         self.assertEqual(out.shape, (self.batch_size, self.seq_len, self.emb_dim))
-        self.assertIsNone(model_static.q_time)
+        self.assertFalse(hasattr(model_static, 'q_time'))
 
     def test_ca_asymmetric_shapes(self):
         """CA: Query (Image) and Context (Text) have different lengths."""
@@ -161,10 +161,10 @@ class TestVITAttention(unittest.TestCase):
         """CA: Ensure self.k_time and rel_pos_bias are None in Cross Mode."""
         model = m.MP_Attention(self.H, self.D, self.seq_img, time_dim=self.T_dim,
                              context_dim=self.d_ctx, is_cross_attn=True)
-        self.assertIsNone(model.rel_pos_bias)
-        self.assertIsNone(model.k_time)
-        self.assertIsNone(model.v_time)
-        self.assertIsNotNone(model.q_time)  # Q time must exist
+        self.assertFalse(hasattr(model, 'rel_pos_bias'))
+        self.assertFalse(hasattr(model, 'k_time'))
+        self.assertFalse(hasattr(model, 'v_time'))
+        self.assertTrue(hasattr(model, 'q_time'))  # Q time must exist
 
 if __name__ == '__main__':
     unittest.main()

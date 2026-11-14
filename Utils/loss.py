@@ -1,24 +1,34 @@
+import math
+from typing import Optional
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import torchvision.transforms.functional as TF
-import math
+
+try:
+    from Utils.cdf_utils import branch_cdf_bounds, mixture_cdf
+except ImportError:
+    from cdf_utils import branch_cdf_bounds, mixture_cdf
+
 
 # 1. Helper Function
-def laplacian_decomposition(image, kernel_size=9, sigma=1.5):
+def laplacian_decomposition(image: torch.Tensor, kernel_size: int = 9, sigma: float = 1.5):
     """
-    Splits image into Low-Freq (Gaussian) and High-Freq (Laplacian).
+    Splits image into orthogonal Low-Freq and High-Freq components via unitary 2D rFFT
+    so <low_freq, high_freq> == 0 and ||low_freq||^2 + ||high_freq||^2 == ||image||^2.
     """
-    # Ensure kernel_size is odd
-    if kernel_size % 2 == 0: kernel_size += 1
+    del kernel_size
+    h, w = image.shape[-2:]
+    cutoff_sq = math.log(2.0) / (4.0 * (math.pi ** 2) * max(float(sigma), 1e-6) ** 2)
 
-    # Gaussian Blur (Low Freq)
-    # We detach because we don't want to backprop through the target generation
-    low_freq = TF.gaussian_blur(image, kernel_size=[kernel_size, kernel_size], sigma=[sigma, sigma])
+    x_fp32 = image.float().contiguous()
+    fy = torch.fft.fftfreq(h, device=image.device, dtype=torch.float32).view(-1, 1)
+    fx = torch.fft.rfftfreq(w, device=image.device, dtype=torch.float32).view(1, -1)
+    low_mask = ((fy * fy + fx * fx) <= cutoff_sq).to(torch.float32)
 
-    # Laplacian (High Freq / Residual)
+    spectrum = torch.fft.rfft2(x_fp32, norm="ortho")
+    low_freq = torch.fft.irfft2(spectrum * low_mask, s=(h, w), norm="ortho").to(image.dtype)
     high_freq = image - low_freq
-
     return low_freq, high_freq
 
 
@@ -30,7 +40,8 @@ class PathPriorLoss(nn.Module):
                  sharpness: float = 25.0,
                  sigma_min: float = 0.002,
                  sigma_max: float = 80.0,
-                 alpha_ext: float = 0.2):
+                 alpha_ext: float = 0.2,
+                 noise_range: Optional[tuple[float, float]] = None):
         super().__init__()
         self.register_buffer('expert_centers', expert_centers)
         self.p_mean = p_mean
@@ -39,23 +50,31 @@ class PathPriorLoss(nn.Module):
         self.sigma_min = sigma_min
         self.sigma_max = sigma_max
         self.alpha_ext = alpha_ext
+        if noise_range is not None:
+            low_cdf, high_cdf = branch_cdf_bounds(
+                noise_range[0], noise_range[1],
+                p_mean, p_std, sigma_min, sigma_max, alpha_ext,
+            )
+            span = max(float(high_cdf - low_cdf), 1e-4)
+        else:
+            span = 1.0
+        self.register_buffer('branch_span', torch.tensor(span, dtype=torch.float32))
         self.kl_div = nn.KLDivLoss(reduction='batchmean')
 
     def forward(self, gate_probs: torch.Tensor, sigma: torch.Tensor):
         device = sigma.device
         log_sigma = torch.log(sigma.flatten().clamp(min=1e-8))
-        
-        # Fix 4: Use mixture CDF to match router and mask
-        from Utils.cdf_utils import mixture_cdf
+
+        # Match the mixture CDF and branch-local span normalization used by the routers
         sigma_percentile = mixture_cdf(
             log_sigma, self.p_mean, self.p_std,
             math.log(self.sigma_min), math.log(self.sigma_max), self.alpha_ext,
         ).view(-1, 1)
 
-        dist_sq = (sigma_percentile - self.expert_centers.to(device).view(1, -1)) ** 2
+        dist_sq = ((sigma_percentile - self.expert_centers.to(device).view(1, -1)) / self.branch_span.to(device)) ** 2
         target_logits = -dist_sq * self.sharpness
         target_dist = F.softmax(target_logits, dim=-1)
-        
+
         log_probs = torch.log(gate_probs + 1e-8)
         return self.kl_div(log_probs, target_dist)
 
@@ -79,6 +98,11 @@ class EDM_LOSS_NOD(nn.Module):
                  alpha_vit: float = 0.4,
                  lap_kernel: int = 9,
                  lap_sigma: float = 1.5,
+                 sigma_min: float = 0.002,
+                 sigma_max: float = 80.0,
+                 alpha_ext: float = 0.2,
+                 vit_noise_range: Optional[tuple[float, float]] = None,
+                 unet_noise_range: Optional[tuple[float, float]] = None,
                  ):
         super().__init__()
         self.num_experts = num_experts
@@ -99,15 +123,30 @@ class EDM_LOSS_NOD(nn.Module):
         self.lap_kernel = lap_kernel
         self.lap_sigma = lap_sigma
 
+        vit_range = vit_noise_range if vit_noise_range is not None else (
+            (sigma_min, transition_sigma) if transition_sigma > sigma_min else None
+        )
+        unet_range = unet_noise_range if unet_noise_range is not None else (
+            (transition_sigma, sigma_max) if sigma_max > transition_sigma else None
+        )
+
         self.prior_path_loss_vit = PathPriorLoss(
             p_mean=p_mean, p_std=p_std,
             expert_centers=expert_centers_vit,
-            sharpness=sharpness
+            sharpness=sharpness,
+            sigma_min=sigma_min,
+            sigma_max=sigma_max,
+            alpha_ext=alpha_ext,
+            noise_range=vit_range,
         )
         self.prior_path_loss_Unet = PathPriorLoss(
             p_mean=p_mean, p_std=p_std,
             expert_centers=expert_centers_Unet,
-            sharpness=sharpness
+            sharpness=sharpness,
+            sigma_min=sigma_min,
+            sigma_max=sigma_max,
+            alpha_ext=alpha_ext,
+            noise_range=unet_range,
         )
 
     def __call__(self,
@@ -125,13 +164,15 @@ class EDM_LOSS_NOD(nn.Module):
         wx_vit = out_model['w_vit']  # (B, 1, 1, 1)
         wx_unet = out_model['w_unet']  # (B, 1, 1, 1)
 
-        # Fix 2: Consistent uncertainty weighting for ALL terms
+        # Keep Gaussian NLL gradient d/d(log_var) exclusively on the blended prediction
         if out_model["log_var"] is not None:
             log_var = out_model["log_var"].clamp(min=-10, max=10)
             uncertainty_scale = 1.0 / log_var.exp()
+            branch_uncertainty_scale = uncertainty_scale.detach()
         else:
             log_var = None
             uncertainty_scale = 1.0
+            branch_uncertainty_scale = 1.0
 
         # 3. Global Blend Loss (The "Truth")
         diff_blend = out_model["denoised"] - x
@@ -142,12 +183,12 @@ class EDM_LOSS_NOD(nn.Module):
         # 4. UNet Branch Loss — LOW-FREQUENCY projection only (Fix 2)
         unet_residual = out_model['unet_denoised'] - x
         unet_low, _ = laplacian_decomposition(unet_residual, self.lap_kernel, self.lap_sigma)
-        unet_loss = torch.mean(weight * uncertainty_scale * wx_unet * (unet_low ** 2))
+        unet_loss = torch.mean(weight * branch_uncertainty_scale * wx_unet * (unet_low ** 2))
 
         # 5. ViT Branch Loss — HIGH-FREQUENCY projection only (Fix 2)
         vit_residual = out_model['vit_denoised'] - x
         _, vit_high = laplacian_decomposition(vit_residual, self.lap_kernel, self.lap_sigma)
-        vit_loss = torch.mean(weight * uncertainty_scale * wx_vit * (vit_high ** 2))
+        vit_loss = torch.mean(weight * branch_uncertainty_scale * wx_vit * (vit_high ** 2))
 
         # 6. Total Loss Aggregation
         trajectory_loss = (
@@ -205,216 +246,4 @@ class EDM_LOSS_NOD(nn.Module):
         z = torch.logsumexp(logits, dim=-1) ** 2
         return torch.mean(z)
 
-
-class EDM_LOSS_LPD(nn.Module):
-    def __init__(self,
-                 expert_centers_vit: torch.Tensor,
-                 expert_centers_Unet: torch.Tensor,
-                 num_experts: int,
-                 sigma_data: float = 0.5,
-                 Unet_bal: float = 0.0005,
-                 vit_bal: float = 0.0005,
-                 z_bal: float = 0.0001,
-                 prior_bal: float = 0.001,
-                 p_mean: float = -0.4,  # Adjusted default as discussed
-                 p_std: float = 1.6,
-                 sharpness: float = 2.0,
-                 # LPD Configuration
-                 laplacian_sigma: float = 1.5,
-                 laplacian_kernel: int = 9
-                 ):
-        super().__init__()
-        self.num_experts = num_experts
-        self.sigma_data = sigma_data
-        self.Unet_lambda = Unet_bal
-        self.vit_lambda = vit_bal
-        self.z_bal = z_bal
-        self.prior_bal = prior_bal
-
-        # Laplacian Params
-        self.laplacian_sigma = laplacian_sigma
-        self.laplacian_kernel = laplacian_kernel
-
-        # Path Priors (Keep existing logic)
-        self.prior_path_loss_vit = PathPriorLoss(p_mean=p_mean, p_std=p_std,
-                                                 expert_centers=expert_centers_vit, sharpness=sharpness)
-        self.prior_path_loss_Unet = PathPriorLoss(p_mean=p_mean, p_std=p_std,
-                                                  expert_centers=expert_centers_Unet, sharpness=sharpness)
-
-    def __call__(self,
-                 x: torch.Tensor,  # Clean Image (Target)
-                 noisy_x: torch.Tensor,  # Noisy Input (x + n)
-                 sigma: torch.Tensor,
-                 out_model: dict[str, torch.Tensor]
-                 ) -> dict[str, torch.Tensor]:
-
-        # 1. EDM Constants Calculation
-        sigma = sigma.reshape(-1, 1, 1, 1)
-        # Standard EDM Preconditioning coefficients
-        c_skip = self.sigma_data ** 2 / (sigma ** 2 + self.sigma_data ** 2)
-        c_out = sigma * self.sigma_data / (sigma ** 2 + self.sigma_data ** 2).sqrt()
-        # c_in is handled inside the model, but needed for target derivation logic if we had raw inputs.
-        # Since 'noisy_x' is already the raw input, we use it directly.
-
-        # 2. Calculate the Ideal "F" Target
-        # In EDM, D(x) = c_skip * x_in + c_out * F(x_in).
-        # We want to train F(x_in) to predict: (x_clean - c_skip * x_in) / c_out
-        target_F = (x - c_skip * noisy_x) / c_out
-
-        # 3. Laplacian Decomposition of the TARGET F
-        # We decompose the *feature target*, not just the pixel target.
-        # This forces the network branches to specialize in the preconditioned space.
-        target_F_low, target_F_high = laplacian_decomposition(
-            image=target_F,
-            kernel_size=self.laplacian_kernel,
-            sigma=self.laplacian_sigma
-        )
-
-        # 4. Retrieve Raw Branch Outputs
-        # Note: These keys must exist in your HDMOEM return dict
-        # These are the outputs of output_proj_vit and output_proj_unet *before* blending
-        pred_vit_F = out_model['vit_denoised']
-        pred_unet_F = out_model['unet_denoised']
-
-        # 5. EDM Weighting (Critical for stability)
-        # This weight balances the loss magnitude across different noise levels
-        weight = (sigma ** 2 + self.sigma_data ** 2) / (sigma * self.sigma_data) ** 2
-
-        # 6. Calculate Orthogonal Losses
-        # ViT Branch Loss (Structure)
-        vit_loss = torch.mean(weight * (pred_vit_F - target_F_low) ** 2)
-
-        # UNet Branch Loss (Texture)
-        # This is the "Texture Forcing" term
-        unet_loss = torch.mean(weight * (pred_unet_F - target_F_high) ** 2)
-
-        # 7. Global Consistency Loss
-        # We also compute loss on the final blended 'denoised' output vs clean image
-        # This ensures the summation A+B is correct.
-        diff = out_model["denoised"] - x
-
-        if out_model["log_var"] is None:
-            pure_loss = torch.mean(weight * (diff ** 2))
-        else:
-            # Uncertainty-aware loss (if enabled)
-            log_var = out_model["log_var"].clamp(min=-10, max=10)
-            pure_loss = torch.mean((weight * (diff ** 2)) / log_var.exp() + log_var)
-
-        denoising_loss = torch.mean(diff ** 2)  # Raw MSE for logging
-
-        # 8. Auxiliary Losses (Router & Z-Loss)
-        router_loss = (self.Unet_lambda * self.load_balance(out_model["Unet_router_loss"], self.num_experts) +
-                       self.vit_lambda * self.load_balance(out_model["vit_router_loss"], self.num_experts)).clamp(
-            max=50)
-
-        scaling_loss = (self.prior_bal * (self.prior_path_loss_vit(out_model["vit_router_loss"], sigma) +
-                                          self.prior_path_loss_Unet(out_model["Unet_router_loss"], sigma))).clamp(max=50)
-
-        z_los = (self.z_bal * self.z_loss(out_model["Unet_raw"]) +
-                 self.z_bal * self.z_loss(out_model["vit_raw"])).clamp(max=50)
-
-        # 9. Total Loss Summation
-        total_loss = (pure_loss + vit_loss + unet_loss + z_los + router_loss + scaling_loss).clamp(max=50)
-
-        return {
-            "loss": total_loss,
-            "loss_texture": unet_loss,
-            "loss_structure": vit_loss,
-            "denoising": denoising_loss,
-            "balance": router_loss,
-            "z_loss": z_los,
-            "entropy": scaling_loss,
-            "pure_loss": pure_loss
-        }
-
-    @staticmethod
-    def load_balance(gate_probs, num_experts):
-        P = gate_probs.mean(dim=0)
-        return num_experts * torch.sum(P ** 2)
-
-    @staticmethod
-    def z_loss(logits):
-        logits = logits.clamp(min=-50, max=50)
-        z = torch.logsumexp(logits, dim=-1) ** 2
-        return torch.mean(z)
-
-
-class EDM_LOSS(nn.Module):
-    def __init__(self,
-                 expert_centers_vit,
-                 expert_centers_Unet,
-                 num_experts: int,
-                 sigma_data: float = 0.5,
-                 Unet_bal: float = 0.0005,
-                 vit_bal: float = 0.0005,
-                 z_bal: float = 0.0001,
-                 prior_bal: float = 0.001,
-                 p_mean: float = 0.4,
-                 p_std: float = 1.6,
-                 sharpness: float = 2.0
-                 ):
-        super().__init__()
-        self.num_experts = num_experts
-        self.sigma_data = sigma_data
-        self.Unet_lambda = Unet_bal
-        self.vit_lambda = vit_bal
-        self.z_bal = z_bal
-        self.prior_bal = prior_bal
-        self.prior_path_loss_vit = PathPriorLoss(p_mean=p_mean, p_std=p_std, expert_centers=expert_centers_vit,
-                                                 sharpness=sharpness)
-        self.prior_path_loss_Unet = PathPriorLoss(p_mean=p_mean, p_std=p_std, expert_centers=expert_centers_Unet,
-                                                  sharpness=sharpness)
-
-    def __call__(self,
-                 x: torch.Tensor,
-                 sigma: torch.Tensor,
-                 out_model: dict[str, torch.Tensor]
-                 ) -> dict[str, torch.Tensor]:
-
-
-        weight = (sigma ** 2 + self.sigma_data ** 2) / (sigma * self.sigma_data) ** 2
-
-        # Main Denoising Loss
-        diff = out_model["denoised"] - x
-        if out_model["log_var"] is None:
-            pure_loss = torch.mean(weight * (diff ** 2))
-        else:
-            # Uncertainty-aware loss
-            log_var = out_model["log_var"].clamp(min=-10, max=10)
-            pure_loss = torch.mean((weight * (diff ** 2)) / log_var.exp() + log_var)
-
-        denoising_loss = torch.mean(diff ** 2)  # Raw MSE for logging
-
-        # Aux Losses
-        router_loss = (self.Unet_lambda * self.load_balance(out_model["Unet_router_loss"], self.num_experts) +
-                       self.vit_lambda * self.load_balance(out_model["vit_router_loss"], self.num_experts)).clamp(max=50)
-
-        scaling_loss = (self.prior_bal * (self.prior_path_loss_vit(out_model["Unet_router_loss"], sigma) +
-                                          self.prior_path_loss_Unet(out_model["vit_router_loss"], sigma))).clamp(max=50)
-
-        z_los = (self.z_bal * self.z_loss(out_model["Unet_raw"]) +
-                 self.z_bal * self.z_loss(out_model["vit_raw"])).clamp(max=50)
-
-        total_loss = (pure_loss + z_los + router_loss + scaling_loss).clamp(max=50)
-
-        return {
-            "loss": total_loss,
-            "denoising": denoising_loss,
-            "balance": router_loss,
-            "z_loss": z_los,
-            "entropy": scaling_loss,
-            "pure_loss": pure_loss
-        }
-
-    @staticmethod
-    def load_balance(gate_probs, num_experts):
-        P = gate_probs.mean(dim=0)
-        return num_experts * torch.sum(P ** 2)
-
-    @staticmethod
-    def z_loss(logits):
-        # Penalize large logits to keep router stable
-        logits = logits.clamp(min=-50, max=50)
-        z = torch.logsumexp(logits, dim=-1) ** 2
-        return torch.mean(z)
 

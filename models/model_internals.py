@@ -174,6 +174,34 @@ class MP_Fourier(nn.Module):
         y = y.cos() * np.sqrt(2)
         return y.to(x.dtype)
 
+def _build_2d_sincos_pos_emb(emb_dim: int, height: int, width: int) -> torch.Tensor:
+    """
+    Build a unit-variance-normalized 2D sinusoidal positional encoding of shape
+    (1, height * width, emb_dim). Shared by MP_Pos_encoding_2D and dynamic
+    multi-resolution calls.
+    """
+    grid_y, grid_x = torch.meshgrid(torch.arange(height), torch.arange(width), indexing='ij')
+    grid_y = grid_y.flatten()
+    grid_x = grid_x.flatten()
+
+    dim_half = emb_dim // 4
+    omega = torch.exp(-math.log(10000.0) * torch.arange(dim_half) / dim_half)
+
+    emb_y = grid_y[:, None] * omega[None, :]
+    emb_x = grid_x[:, None] * omega[None, :]
+
+    emb_y = torch.cat([torch.sin(emb_y), torch.cos(emb_y)], dim=1)
+    emb_x = torch.cat([torch.sin(emb_x), torch.cos(emb_x)], dim=1)
+
+    pos_emb = torch.cat([emb_y, emb_x], dim=1)
+
+    if pos_emb.shape[1] < emb_dim:
+        pad_size = emb_dim - pos_emb.shape[1]
+        pos_emb = torch.cat([pos_emb, torch.zeros(pos_emb.shape[0], pad_size)], dim=1)
+
+    return normalize(pos_emb).unsqueeze(0)
+
+
 #not used right now but can be applied later
 class MP_Pos_encoding_2D(nn.Module):
     """
@@ -190,46 +218,33 @@ class MP_Pos_encoding_2D(nn.Module):
         # Calculate grid dimensions (assuming square images)
         grid_size = int(np.sqrt(seq_ln))
         assert grid_size * grid_size == seq_ln, "Sequence length must be a perfect square."
-
-        # 1. Create 2D grid coordinates (X and Y)
-        grid_y, grid_x = torch.meshgrid(torch.arange(grid_size), torch.arange(grid_size), indexing='ij')
-        grid_y = grid_y.flatten()
-        grid_x = grid_x.flatten()
-
-        # 2. Calculate frequencies (half of emb_dim is for X, half for Y)
-        # We divide by 4 because each dimension gets Sine and Cosine (4 parts total)
-        dim_half = emb_dim // 4
-        omega = torch.exp(-math.log(10000.0) * torch.arange(dim_half) / dim_half)
-
-        # 3. Apply frequencies to grid
-        emb_y = grid_y[:, None] * omega[None, :]
-        emb_x = grid_x[:, None] * omega[None, :]
-
-        # 4. Generate Sine and Cosine waves
-        emb_y = torch.cat([torch.sin(emb_y), torch.cos(emb_y)], dim=1)
-        emb_x = torch.cat([torch.sin(emb_x), torch.cos(emb_x)], dim=1)
-
-        # 5. Concatenate Y and X embeddings
-        pos_emb = torch.cat([emb_y, emb_x], dim=1)
-
-        # Pad if emb_dim is not perfectly divisible by 4
-        if pos_emb.shape[1] < emb_dim:
-            pad_size = emb_dim - pos_emb.shape[1]
-            pos_emb = torch.cat([pos_emb, torch.zeros(pos_emb.shape[0], pad_size)], dim=1)
-
-        # 6. Apply Magnitude Preserving Normalization
-        # This is CRITICAL. It forces the variance to 1.0 so mp_sum doesn't break.
-        pos_emb = normalize(pos_emb)
+        self.grid_size = grid_size
 
         # Register as a non-learnable fixed buffer of shape (1, seq_ln, emb_dim)
-        self.register_buffer('pos_emb', pos_emb.unsqueeze(0))
+        self.register_buffer('pos_emb', _build_2d_sincos_pos_emb(emb_dim, grid_size, grid_size))
 
-    def forward(self, x: torch.Tensor, t: float = 0.5) -> torch.Tensor:
+    def forward(
+            self,
+            x: torch.Tensor,
+            t: float = 0.5,
+            spatial_shape: Optional[tuple[int, int]] = None,
+    ) -> torch.Tensor:
         """
         Blends the input sequence with the 2D positional embeddings using mp_sum.
+        Dynamically generates a grid-matched sinusoidal embedding if the spatial
+        resolution differs from the pre-registered buffer size.
         """
-        # Ensure the buffer is cast to the correct dtype (e.g., float16/float32) dynamically
-        pe = self.pos_emb.to(x.dtype)
+        if x.shape[1] == self.seq_ln and (spatial_shape is None or spatial_shape == (self.grid_size, self.grid_size)):
+            pe = self.pos_emb.to(x.dtype)
+        else:
+            if spatial_shape is None:
+                side = int(math.isqrt(x.shape[1]))
+                assert side * side == x.shape[1], "Sequence length must be a perfect square when spatial_shape is omitted."
+                h, w = side, side
+            else:
+                h, w = spatial_shape
+                assert h * w == x.shape[1], f"spatial_shape {spatial_shape} does not match seq_len {x.shape[1]}."
+            pe = _build_2d_sincos_pos_emb(self.emb_dim, h, w).to(device=x.device, dtype=x.dtype)
         return mp_sum(x, pe, t=t)
 
 #magnitude preserving convolution layer as in EDM2 paper
@@ -380,6 +395,8 @@ class MP_Attention(nn.Module):
 
         if context is None:
             context = query
+        elif context.ndim == 2:
+            context = context.unsqueeze(1)
         batch_size, seq_len_kv, _ = context.shape
 
         # Flatten for MP_Conv (Linear Mode)
@@ -491,7 +508,7 @@ class PooledCrossAttn(nn.Module):
             num_heads: int,
             img_resolution: int = 64,
             pool_size: int = 16,
-            attn_balance: float = 0.5,
+            attn_balance: float = 1.0,
     ):
         super().__init__()
 
@@ -505,13 +522,13 @@ class PooledCrossAttn(nn.Module):
         self.pos_enc_q = MP_Pos_encoding_2D(emb_dim=channels, seq_ln=seq_ln)
         self.pos_enc_kv = MP_Pos_encoding_2D(emb_dim=channels, seq_ln=pool_seq)
 
-        # Fix 6b: Pure cross-attention (attn_balance=1.0), no query self-echo
+        # Fix 6b: Pure cross-attention by default (attn_balance=1.0), configurable via attn_balance
         self.cross_attn = MP_Attention(
             num_heads=num_heads,
             emb_dim=channels,
             seq_ln=0,
             context_dim=channels,
-            attn_balance=1.0,
+            attn_balance=attn_balance,
             is_cross_attn=True,
         )
 
@@ -534,13 +551,15 @@ class PooledCrossAttn(nn.Module):
 
         # 1. Query: flatten ViT features to sequence and add positional encoding
         vit_seq = vit_feat.flatten(2).transpose(1, 2)  # (B, H*W, C)
-        vit_seq = self.pos_enc_q(vit_seq, t=0.3)       # Fix 6a: spatial anchoring
+        vit_seq = self.pos_enc_q(vit_seq, t=0.3, spatial_shape=(H, W))  # Fix 6a: spatial anchoring
 
-        # 2. K/V: Pool U-Net features to fixed grid, then flatten + pos encode
-        # Fix 6c: Reduces cost from O((HW)^2) to O(HW * pool_size^2)
-        unet_pooled = F.adaptive_avg_pool2d(unet_feat, self.pool_size)  # (B, C, P, P)
-        unet_seq = unet_pooled.flatten(2).transpose(1, 2)  # (B, P*P, C)
-        unet_seq = self.pos_enc_kv(unet_seq, t=0.3)   # Fix 6a: spatial anchoring
+        # 2. K/V: Pool U-Net features to at most pool_size x pool_size, then flatten + pos encode
+        # Fix 6c: Reduces cost from O((HW)^2) to O(HW * pool_size^2) without upsampling small inputs
+        p_h = min(self.pool_size, H)
+        p_w = min(self.pool_size, W)
+        unet_pooled = F.adaptive_avg_pool2d(unet_feat, (p_h, p_w))  # (B, C, p_h, p_w)
+        unet_seq = unet_pooled.flatten(2).transpose(1, 2)  # (B, p_h*p_w, C)
+        unet_seq = self.pos_enc_kv(unet_seq, t=0.3, spatial_shape=(p_h, p_w))  # Fix 6a: spatial anchoring
 
         # 3. Cross-attention: ViT queries pooled U-Net
         attn_out = self.cross_attn(

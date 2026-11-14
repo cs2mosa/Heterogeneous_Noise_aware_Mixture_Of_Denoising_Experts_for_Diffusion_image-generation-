@@ -34,7 +34,7 @@ model_configs = {
     'Unet_label_balance': 0.5,
     'Unet_concat_balances': [0.7, 0.3],
     'pool_size': 16,  # 4x4 latent pooling blocks
-    'attn_pool_balance': 0.5,
+    'attn_pool_balance': 1.0,
 
     # --- Physics & Data ---
     'sigma_data': 0.8,
@@ -66,7 +66,6 @@ loss_configs = {
     'laplacian_std': 1.0,
     'transition_sigma': 2.5,  #log_scale
     'transition_sharpness': 0.8,  # Fix 5: widened from 0.3 for smoother ODE handoff
-    'overlap_width': 0.8, #deprecated
     'alpha_blend': 0.6,
     'alpha_unet': 0.2,
     'alpha_vit': 0.2,

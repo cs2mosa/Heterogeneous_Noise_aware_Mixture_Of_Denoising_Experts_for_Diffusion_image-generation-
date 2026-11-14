@@ -14,12 +14,9 @@ class MockDenoiser(nn.Module):
         Simulates the model output.
         Returns a dict containing 'denoised'.
         """
-        # If specific value requested, return that (broadcasted)
         if self.output_val is not None:
             return {"denoised": torch.full_like(x, self.output_val)}
 
-        # Otherwise, act like an Identity function (Perfect denoiser says "Input is clean")
-        # Or simulated scaling: x / (1+sigma)
         return {"denoised": x * 0.9}
 
 
@@ -34,7 +31,6 @@ class TestEDMSampler(unittest.TestCase):
         self.shape = (self.batch_size, self.channels, self.res, self.res)
 
         self.mock_model = MockDenoiser()
-        self.mock_guide = MockDenoiser()  # Unconditional model
 
         # Dummy embeddings
         self.text_emb = torch.randn(self.batch_size, 1, 64)
@@ -50,26 +46,14 @@ class TestEDMSampler(unittest.TestCase):
 
         # Initialize sampler
         sampler = EDM_Sampler(
-            model=self.mock_model, Guide_net=self.mock_guide,
+            model=self.mock_model,
             num_solve_steps=steps,
             sigma_min=sigma_min, sigma_max=sigma_max,
             rho=7
         )
 
-        # Create dummy noise to trigger t_step calculation on device
         noise = torch.randn(self.shape)
-
-        # Run a tiny sampling (just to trigger internal setup if lazy loaded)
-        # Actually, t_steps logic is inside sample(), so we need to inspect logic there
-        # or verify the logic mathematically here.
-
-        # Let's verify the formula manually vs what the sampler produces during a dry run
-        # We can hijack the sample loop or just trust the end-to-end execution.
-
-        # Dry run:
         out = sampler.sample(noise, self.text_emb)
-
-        # If it runs without error and returns correct shape, init is likely fine.
         self.assertEqual(out.shape, self.shape)
 
     def test_02_guidance_math(self):
@@ -77,33 +61,33 @@ class TestEDMSampler(unittest.TestCase):
         Test if Classifier-Free Guidance (CFG) linear interpolation is correct.
         """
         # Setup:
-        # Unconditional (Guide) outputs 0.0
-        # Conditional (Model) outputs 1.0
+        # Unconditional outputs 0.0, Conditional outputs 1.0
         # Guidance Scale = 3.0
-        # Expected Result: Uncond + w * (Cond - Uncond)
-        #                  0 + 3 * (1 - 0) = 3.0
+        # Expected Result: Uncond + w * (Cond - Uncond) = 0 + 3 * (1 - 0) = 3.0
+        class CFGMock(nn.Module):
+            def __init__(self, uncond_ref):
+                super().__init__()
+                self.uncond_ref = uncond_ref
 
-        model_cond = MockDenoiser(output_val=1.0)
-        model_uncond = MockDenoiser(output_val=0.0)
+            def forward(self, x, sigma, text_emb, **kwargs):
+                if text_emb is self.uncond_ref:
+                    return {"denoised": torch.zeros_like(x)}
+                return {"denoised": torch.ones_like(x)}
 
+        model = CFGMock(self.uncond_text)
         guidance_scale = 3.0
 
         sampler = EDM_Sampler(
-            model=model_cond,
-            Guide_net=model_uncond,
+            model=model,
             guidance=guidance_scale,
-            num_solve_steps=1  # 1 step to verify denoise logic quickly
+            num_solve_steps=1
         )
 
         noise = torch.randn(self.shape)
-
-        # We access the internal 'denoise' helper directly to verify math
-        # denoise(x, sigma, text_emb, uncond_emb)
         sigma_test = torch.tensor([1.0] * self.batch_size)
 
         result = sampler.denoise(noise, sigma_test, self.text_emb, self.uncond_text)
 
-        # Check if all values are approx 3.0
         self.assertTrue(torch.allclose(result, torch.tensor(3.0)),
                         f"Expected 3.0, got {result.mean().item()}")
 
@@ -112,16 +96,13 @@ class TestEDMSampler(unittest.TestCase):
         Ensure sampling is deterministic when S_churn = 0.
         """
         sampler = EDM_Sampler(
-            model=self.mock_model, Guide_net=self.mock_guide,
+            model=self.mock_model,
             num_solve_steps=5, S_churn=0.0
         )
 
         noise = torch.randn(self.shape)
 
-        # Run 1
         out1 = sampler.sample(noise, self.text_emb)
-
-        # Run 2 (Same noise input)
         out2 = sampler.sample(noise, self.text_emb)
 
         self.assertTrue(torch.allclose(out1, out2), "Sampling without churn should be deterministic")
@@ -131,22 +112,20 @@ class TestEDMSampler(unittest.TestCase):
         Ensure sampling varies when S_churn > 0 (Stochastic Sampling).
         """
         sampler = EDM_Sampler(
-            model=self.mock_model, Guide_net=self.mock_guide,
+            model=self.mock_model,
             num_solve_steps=5,
-            S_churn=10.0,  # High churn to guarantee divergence
+            S_churn=10.0,
             S_min=0.0, S_max=100.0, S_noise=1.0
         )
 
         noise = torch.randn(self.shape)
 
-        # Set seed manually to ensure randomness comes from sampler, not setup
         torch.manual_seed(42)
         out1 = sampler.sample(noise, self.text_emb)
 
-        torch.manual_seed(43)  # Change seed for the internal randn_like
+        torch.manual_seed(43)
         out2 = sampler.sample(noise, self.text_emb)
 
-        # Should NOT be close
         diff = (out1 - out2).abs().mean()
         self.assertGreater(diff.item(), 1e-4, "Churn enabled but outputs are identical!")
 
@@ -154,18 +133,14 @@ class TestEDMSampler(unittest.TestCase):
         """
         Test if the solver actually reduces magnitude (Denoising behavior).
         """
-        # If MockDenoiser returns x * 0.9 (shrinking),
-        # the sampler should effectively shrink the noise vector towards 0 over steps.
-
         sampler = EDM_Sampler(
-            model=self.mock_model, Guide_net=self.mock_guide,
+            model=self.mock_model,
             num_solve_steps=10
         )
 
-        noise = torch.ones(self.shape) * 10.0  # High initial noise
+        noise = torch.ones(self.shape) * 10.0
         out = sampler.sample(noise, self.text_emb)
 
-        # Output should be significantly smaller than input (denoised)
         self.assertLess(out.abs().mean(), noise.abs().mean() * 135)
 
     def test_06_device_handling(self):
@@ -178,9 +153,8 @@ class TestEDMSampler(unittest.TestCase):
 
         device = "cuda"
         model_gpu = self.mock_model.to(device)
-        guide_gpu = self.mock_model.to(device)
 
-        sampler = EDM_Sampler(model=model_gpu, Guide_net=guide_gpu, num_solve_steps=2)
+        sampler = EDM_Sampler(model=model_gpu, num_solve_steps=2)
 
         noise = torch.randn(self.shape).to(device)
         text_emb = self.text_emb.to(device)

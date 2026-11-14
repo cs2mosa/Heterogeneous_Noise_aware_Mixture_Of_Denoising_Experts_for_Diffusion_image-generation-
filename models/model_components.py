@@ -36,11 +36,18 @@ class ParametricTrajectoryRouter(nn.Module):
         self.sigma_max = sigma_max
         self.alpha_ext = alpha_ext
 
-        # Fix 4: Use mixture-CDF quantile seeding instead of log-equidistant + pure Gaussian CDF
-        from Utils.cdf_utils import branch_local_quantile_centers
+        # Fix 4: Use mixture-CDF quantile seeding + normalize distances by branch CDF span
+        from Utils.cdf_utils import branch_cdf_bounds, branch_local_quantile_centers
+        cdf_low, cdf_high = branch_cdf_bounds(
+            min_sigma, max_sigma, p_mean, p_std, sigma_min, sigma_max, alpha_ext,
+        )
         cdf_points = branch_local_quantile_centers(
             num_experts, min_sigma, max_sigma,
             p_mean, p_std, sigma_min, sigma_max, alpha_ext,
+        )
+        self.register_buffer(
+            "branch_span",
+            torch.tensor(max(abs(cdf_high - cdf_low), 1e-4), dtype=torch.float32),
         )
 
         # Learnable Centers (mu) and Sharpness (gamma)
@@ -70,9 +77,9 @@ class ParametricTrajectoryRouter(nn.Module):
         )
         sigma_percentile = sigma_percentile.view(-1, 1)  # (B, 1)
 
-        # 2. Calculate Distances to Expert Centers
-        # (B, 1) - (1, E) -> (B, E)
-        dist_sq = (sigma_percentile - self.centers.view(1, -1)) ** 2
+        # 2. Calculate branch-normalized distances to expert centers
+        # Dividing by branch_span puts both UNet and ViT branches on the same [0, 1] metric scale.
+        dist_sq = ((sigma_percentile - self.centers.view(1, -1)) / self.branch_span) ** 2
 
         # 3. Apply Learnable Sharpness (Gamma)
         sharpness = torch.exp(self.log_sharpness).view(1, -1)
@@ -94,121 +101,6 @@ class ParametricTrajectoryRouter(nn.Module):
         # But Soft-Routing during training is usually better for gradients.
         sparse_gate_weights = gate_probs
 
-        return sparse_gate_weights, gate_probs, logits
-
-
-class Scaling_router(nn.Module):
-    """
-    A Residual-Scaling Router.
-
-    Robustness Principle:
-    The output is centered around 1.0. The network predicts a deviation factor.
-    This ensures that at initialization (when weights are small/zero),
-    the experts are FULLY ACTIVE, forcing the backbone to learn immediately.
-
-    Formula: Scale = 1.0 + tanh(Net(x)) * range_factor
-    Range: [1 - range, 1 + range]
-    """
-
-    def __init__(self,
-                 emb_dim: int = 3,
-                 num_experts: int = 2,
-                 scale_range: float = 0.9  # Allows scaling from 0.0 to 2.0
-                 ):
-        super().__init__()
-        self.scale_range = scale_range
-
-        # 1. Deeper, Narrower MLP for stability
-        # Using LayerNorm (via normalize) is crucial to keep logits bounded
-        self.net = nn.Sequential(
-            m.MP_Conv(in_channels=emb_dim, out_channels=emb_dim * 2, kernel=()),
-            nn.SiLU(),  # Use standard SiLU for router internals
-            m.MP_Conv(in_channels=emb_dim * 2, out_channels=emb_dim, kernel=()),
-            nn.SiLU(),
-            m.MP_Conv(in_channels=emb_dim, out_channels=num_experts, kernel=())
-        )
-
-        # 2. Zero Initialization for the last layer
-        # This guarantees that at Step 0, Net(x) = 0
-        nn.init.constant_(self.net[-1].weights, 0.0)
-
-    def forward(self,
-                x: torch.Tensor,
-                zeta: Optional[float] = 0.0
-                ) -> torch.Tensor:
-
-        if x.ndim == 3:
-            x = x.squeeze(1)
-
-        # 1. Get Logits (Deviation from baseline)
-        deviation_logits = self.net(x)
-
-        # 2. Add exploration noise (Zeta) to logits, not output
-        if self.training and zeta > 0:
-            deviation_logits = deviation_logits + torch.randn_like(deviation_logits) * zeta
-
-        # 3. Compute Scaling Factor
-        # Tanh maps to [-1, 1].
-        # Output maps to [1.0 - range, 1.0 + range]
-        # At Init (logits=0): Output = 1.0 + 0 = 1.0 (Unit Gain)
-        scaling_output = 1.0 + torch.tanh(deviation_logits) * self.scale_range
-
-        # 4. Safety Clamp (Prevent negative scaling if range > 1.0)
-        return scaling_output.clamp(min=0.01)
-
-
-class Router(nn.Module):
-    """
-    A Pure Noise-Dependent Trajectory Router.
-    Uses standard Linear layers because classifiers need unbounded weight
-    magnitudes to achieve high Softmax confidence.
-    """
-
-    def __init__(self,
-                 time_dim: Optional[int] = 256,
-                 top_k: Optional[int] = 1,
-                 num_experts: Optional[int] = 4,
-                 dropout: Optional[float] = 0.0
-                 ):
-        super().__init__()
-        self.mlp_route = nn.Sequential(
-            nn.Linear(time_dim, time_dim * 2),
-            nn.SiLU(),
-            nn.Linear(time_dim * 2, time_dim),
-            nn.SiLU(),
-            nn.Dropout(dropout),
-            nn.Linear(time_dim, num_experts)
-        )
-        self.k = top_k
-        nn.init.constant_(self.mlp_route[-1].weight, 0.0)
-        nn.init.constant_(self.mlp_route[-1].bias, 0.0)
-
-    def forward(self,
-                time_emb: torch.Tensor,
-                mask: Optional[torch.Tensor] = None,
-                zeta: Optional[float] = 1e-2
-                ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-
-        if time_emb.ndim == 3:
-            time_emb = time_emb.squeeze(1)
-
-        logits = self.mlp_route(time_emb)
-
-        if self.training and zeta > 0:
-            logits = logits + torch.randn_like(logits) * zeta
-
-        if mask is not None:
-            logits = logits.masked_fill(mask == 0, -1e9)
-
-        gate_probs = F.softmax(logits, dim=-1)
-        topk_vals, topk_indices = torch.topk(logits, self.k, dim=-1)
-
-        if self.k == 1:
-            gating_weights = torch.ones_like(topk_vals)
-        else:
-            gating_weights = F.softmax(topk_vals, dim=-1)
-
-        sparse_gate_weights = torch.zeros_like(logits).scatter(-1, topk_indices, gating_weights)
         return sparse_gate_weights, gate_probs, logits
 
 
@@ -283,7 +175,8 @@ class Unet_block(nn.Module):
         self.conv_res1 = m.MP_Conv(in_channels=out_channels if self.type == 'enc' else in_channels,
                                    out_channels=out_channels, kernel=self.kernel)
         self.conv_res2 = m.MP_Conv(in_channels=out_channels, out_channels=out_channels, kernel=self.kernel)
-        nn.init.constant_(self.conv_res2.weights, 0.0)
+        # Keep MP_Conv weights on the unit sphere; use a scalar gate for safe identity init (Fix 3)
+        self.res_gate = nn.Parameter(torch.zeros(1))
 
     def forward(self,
                 x: torch.Tensor,
@@ -314,7 +207,7 @@ class Unet_block(nn.Module):
         """if self.training and self.dropout != 0:
             main_branch = F.dropout(main_branch, p= self.dropout)"""
 
-        main_branch = self.conv_res2(main_branch, gain=self.conv_gain2)
+        main_branch = self.conv_res2(main_branch, gain=self.conv_gain2) * self.res_gate
         # conv_skip for decoders in the residual branch
         if self.type == 'dec' and self.conv_skip is not None:
             x = self.conv_skip(x)
@@ -496,7 +389,8 @@ class Unet_expert(nn.Module):
             skips.append(x)
 
         if self.bottleneck_attn is not None and text_emb is not None:
-            # text_emb is shaped (B, 77, 768)
+            if text_emb.ndim == 2:
+                text_emb = text_emb.unsqueeze(1)
             x = self.bottleneck_attn(x, text_emb)
 
         for name, block in self.decoders.items():
@@ -577,11 +471,11 @@ class Vit_block(nn.Module):
         self.linear1 = m.MP_Conv(num_channels, emb_dim, kernel=(3, 3))
         self.TMSA = m.MP_Attention(num_heads=num_heads, emb_dim=emb_dim, seq_ln=seq_ln, time_dim=time_dim,
                                    attn_balance=attn_balance)
-        # MLP used after the TMSA attention
+        # MLP used after the TMSA attention; keep MP_Conv weights on the unit sphere and gate residually (Fix 3)
         self.linear2 = m.MP_Conv(emb_dim, emb_dim * 4, kernel=())
         self.linear3 = m.MP_Conv(emb_dim * 4, emb_dim, kernel=())
-        nn.init.constant_(self.linear3.weights, 0.0)
-        nn.init.constant_(self.TMSA.out_proj.weights, 0.0)
+        self.tmsa_gate = nn.Parameter(torch.zeros(1))
+        self.mlp_gate = nn.Parameter(torch.zeros(1))
 
     def forward(self,
                 x: torch.Tensor,
@@ -626,7 +520,7 @@ class Vit_block(nn.Module):
         if time_embedding is not None and time_embedding.ndim == 2:
             time_embedding = time_embedding[:, None, :]  # (B, 1, C)
 
-        y = self.TMSA(y, time_embedding=time_embedding, gain_s=self.gain_s, gain_t=self.gain_t)
+        y = self.TMSA(y, time_embedding=time_embedding, gain_s=self.gain_s, gain_t=self.gain_t) * self.tmsa_gate
 
         if self.cross_attn is not None and text_embedding is not None:
             # MP_Attention handles the residual summation internally.
@@ -639,7 +533,7 @@ class Vit_block(nn.Module):
         x = y.reshape(batch_size * seq_ln, self.emb_dim)
         x = m.normalize(x)
         x = m.mp_silu(self.linear2(x, gain=self.gain_s))
-        x = self.linear3(x, gain=self.gain_s)
+        x = self.linear3(x, gain=self.gain_s) * self.mlp_gate
 
         x = m.mp_sum(x, res_mlp, t=self.res_balance)
         x = x.reshape(batch_size, seq_ln, self.emb_dim)  # Back to 3D

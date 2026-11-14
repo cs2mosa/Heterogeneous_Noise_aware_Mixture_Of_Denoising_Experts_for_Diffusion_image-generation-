@@ -20,6 +20,7 @@ class TestDiffiTViTBlock(unittest.TestCase):
             num_channels=self.emb_dim,  # Isotropic: In == Emb
             seq_ln=self.seq_len,
             emb_dim=self.emb_dim,
+            text_dim=self.emb_dim,
             time_dim=self.emb_dim
         ).to(self.device)
 
@@ -80,6 +81,7 @@ class TestDiffiTViTBlock(unittest.TestCase):
             num_channels=input_dim,
             seq_ln=self.seq_len,
             emb_dim=self.emb_dim,  # 64
+            text_dim=self.emb_dim,
         ).to(self.device)
 
         x = torch.randn(self.batch_size, self.seq_len, input_dim).to(self.device)
@@ -143,6 +145,7 @@ class TestDiffiTViTBlock(unittest.TestCase):
             num_channels=in_dim,
             seq_ln=self.seq_len,
             emb_dim=out_dim,
+            text_dim=out_dim,
             time_dim=out_dim
         ).to(self.device)
 
@@ -170,6 +173,10 @@ class TestDiffiTViTBlock(unittest.TestCase):
         Test 9: Functional check - Does changing the time embedding actually
         alter the output? (Verifies TMSA injection is active).
         """
+        # tmsa_gate is zero-initialized by design; open the gate to verify time-embedding gradient injection.
+        with torch.no_grad():
+            self.block.tmsa_gate.fill_(1.0)
+
         x = torch.randn(self.batch_size, self.seq_len, self.emb_dim).to(self.device)
 
         # Two different time steps

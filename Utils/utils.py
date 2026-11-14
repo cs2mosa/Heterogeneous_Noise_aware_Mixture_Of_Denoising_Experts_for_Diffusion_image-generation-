@@ -42,24 +42,6 @@ def save_checkpoint(model,
     torch.save(checkpoint, str(full_path))
     print(f"   [Save] Checkpoint saved: {full_path}")
 
-def sample_sigma(batch_size: int,
-                 uniform: bool = False,
-                 p_mean: float = -0.4,
-                 p_std: float = 1.0,
-                 sigma_max: Optional[float] = 80.0,
-                 sigma_min: Optional[float] = 0.002
-                 ) -> torch.Tensor:
-    if uniform:
-        low = torch.log(torch.tensor(sigma_min))
-        high = torch.log(torch.tensor(sigma_max))
-        rnd_uniform = torch.rand([batch_size, 1, 1, 1])
-        sigma_vec = (rnd_uniform * (high - low) + low).exp()
-    else:
-        sigma_vec = torch.randn([batch_size, 1, 1, 1])
-        sigma_vec = (sigma_vec * p_std + p_mean).exp()
-        sigma_vec = sigma_vec.clamp(min=sigma_min, max=sigma_max)
-    return sigma_vec
-
 
 def sample_sigma_hybrid(batch_size,
                         sigma_min=0.002,
@@ -84,47 +66,6 @@ def sample_sigma_hybrid(batch_size,
     perm = torch.randperm(batch_size, device=device)
     return sigma[perm]
 
-
-class GradBooster(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, x, multiplier: int):
-        ctx.multiplier = multiplier
-        return x
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        grad_x = grad_output * ctx.multiplier
-        return grad_x, None
-
-
-def boost(x, multiplier=100.0):
-    return GradBooster.apply(x, multiplier)
-
-
-def register_gradient_scalers(model):
-    """
-    Registers hooks to boost gradients for Expert layers specifically.
-    This helps overcome the "stiffness" of MP-initialized weights.
-    """
-    hooks = []
-
-    # Target the experts
-    target_modules = [model.net.Unet_experts,
-                      model.net.VIT_experts,
-                      model.net.input_proj,  # <--- ADD THIS
-                      model.net.input_time_proj
-                      ]
-
-    for module in target_modules:
-        for name, param in module.named_parameters():
-            if param.requires_grad:
-                # We define a lambda that multiplies the grad by 100
-                # logic: 1e-7 (current) * 100 -> 1e-5 (healthy start)
-                h = param.register_hook(lambda grad: grad * 1000.0)
-                hooks.append(h)
-
-    print(f"Registered Gradient Boosters (x100) on {len(hooks)} expert parameters.")
-    return hooks
 
 class Lr_Scheduler:
     """
@@ -269,7 +210,8 @@ class MaskGenerator(nn.Module):
             noise_range: tuple = (0.002, 80.0), # Example: (2.5, 80.0) for UNet
             strat_band: str = "step",
             sigma_min: float = 0.002,
-            sigma_max: float = 80.0
+            sigma_max: float = 80.0,
+            alpha_ext: float = 0.2
     ):
         """
         Attributes-Aware Mask Generator (Rank-Based).
@@ -287,19 +229,23 @@ class MaskGenerator(nn.Module):
         self.min_active = min_active
         self.sigma_min = sigma_min
         self.sigma_max = sigma_max
+        self.alpha_ext = alpha_ext
 
         attrs = torch.tensor(expert_attributes, dtype=torch.float32)
         num_experts = len(attrs)
         _, sorted_indices = torch.sort(attrs, stable=True)
-        
+
         # Fix 4: Use mixture-CDF quantile seeding instead of pure Gaussian CDF
-        from Utils.cdf_utils import branch_local_quantile_centers
+        try:
+            from Utils.cdf_utils import branch_local_quantile_centers
+        except ImportError:
+            from cdf_utils import branch_local_quantile_centers
         min_r, max_r = noise_range
         cdf_points = branch_local_quantile_centers(
             num_experts, min_r, max_r,
-            self.p_mean, self.p_std, self.sigma_min, self.sigma_max,
+            self.p_mean, self.p_std, self.sigma_min, self.sigma_max, self.alpha_ext,
         )
-        
+
         final_centers = torch.zeros_like(attrs)
         final_centers[sorted_indices] = cdf_points
         self.register_buffer('expert_centers', final_centers)
@@ -308,12 +254,15 @@ class MaskGenerator(nn.Module):
     def __call__(self, sigma: torch.Tensor, step: int) -> torch.Tensor:
         device = sigma.device
         log_sigma = torch.log(sigma.flatten().clamp(min=1e-8))
-        
+
         # Fix 4: Use mixture CDF to match quantile-seeded centers
-        from Utils.cdf_utils import mixture_cdf
+        try:
+            from Utils.cdf_utils import mixture_cdf
+        except ImportError:
+            from cdf_utils import mixture_cdf
         sigma_percentile = mixture_cdf(
             log_sigma, self.p_mean, self.p_std,
-            math.log(self.sigma_min), math.log(self.sigma_max),
+            math.log(self.sigma_min), math.log(self.sigma_max), self.alpha_ext,
         )
         sp_reshaped = sigma_percentile.view(-1, 1)
         

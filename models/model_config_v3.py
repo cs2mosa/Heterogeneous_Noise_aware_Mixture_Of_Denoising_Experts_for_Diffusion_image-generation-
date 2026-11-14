@@ -17,16 +17,17 @@ def router_to_experts(
         text_emb: Optional[torch.Tensor],
 ) -> torch.Tensor:
     """
-    Weighted sum of expert outputs.
+    Correlation- and magnitude-aware weighted sum of expert outputs.
 
-    Denominator is clamped to 0.1 so a sparse router that only activates
-    a subset of experts on a given sample never divides by near-zero.
+    Preserves the target RMS magnitude sum_i w_i * rms(E_i) regardless of
+    whether experts are orthogonal (rho = 0, matching EDM2 L2 scaling) or
+    correlated (rho -> 1, avoiding sqrt(E) variance inflation), while bounding
+    amplification near exact cancellation and returning zero if all experts are
+    masked out.
     """
-    # Fix 1b: ℓ2 normalization for variance preservation (restoring v2 behavior)
-    denom = torch.sqrt((out_router**2).sum(dim=-1, keepdim=True) + 1e-8)
-    denom = denom.view(-1, 1, 1, 1)
     text_processed = text_emb
     output = torch.zeros_like(x)
+    target_rms = x.new_zeros((x.shape[0], 1, 1, 1))
 
     for i, expert in enumerate(experts):
         weights = out_router[:, i]  # (B,)
@@ -40,9 +41,49 @@ def router_to_experts(
             time_emb=time_emb[mask],
             text_emb=text_processed[mask] if text_processed is not None else None,
         )
-        output[mask] += out_exp * weights[mask].view(-1, 1, 1, 1)
+        w_active = weights[mask].view(-1, 1, 1, 1)
+        output[mask] += out_exp * w_active
+        with torch.no_grad():
+            exp_rms = out_exp.detach().pow(2).mean(dim=(1, 2, 3), keepdim=True).sqrt()
+        target_rms[mask] += w_active * exp_rms
 
-    return output / denom
+    with torch.no_grad():
+        actual_rms = output.detach().pow(2).mean(dim=(1, 2, 3), keepdim=True).sqrt()
+    denom = torch.maximum(actual_rms, 0.25 * target_rms.detach()).clamp(min=1e-6)
+    return output * (target_rms / denom)
+
+
+def spherical_blend(
+        vit_out: torch.Tensor,
+        unet_out: torch.Tensor,
+        w_vit: torch.Tensor,
+        w_unet: torch.Tensor,
+) -> torch.Tensor:
+    """
+    Magnitude-aware spherical blend between ViT and UNet branch outputs.
+
+    Handles unequal branch scales (sigma_v != sigma_u) while reducing cleanly
+    to EDM2 spherical interpolation when sigma_v == sigma_u, and bounds
+    amplification near anti-parallel cancellation (rho -> -1).
+    """
+    eps = 1e-6
+    with torch.no_grad():
+        sigma_v = vit_out.pow(2).mean(dim=(1, 2, 3), keepdim=True).sqrt()
+        sigma_u = unet_out.pow(2).mean(dim=(1, 2, 3), keepdim=True).sqrt()
+        rho = F.cosine_similarity(
+            vit_out.flatten(1), unet_out.flatten(1), dim=1
+        ).view(-1, 1, 1, 1).clamp(-1.0, 1.0)
+    sigma_target = w_vit * sigma_v + w_unet * sigma_u
+    z_sq = (
+        (w_vit * sigma_v) ** 2
+        + (w_unet * sigma_u) ** 2
+        + 2.0 * rho * (w_vit * sigma_v) * (w_unet * sigma_u)
+    )
+    # Add eps^2 before sqrt so d(sqrt)/dz stays finite at step-0 init (sigma_v=sigma_u=0),
+    # and keep (sigma_target + eps) / denom == 1.0 at zero so branch gate gradients flow.
+    z_actual = torch.sqrt(z_sq.clamp(min=0.0) + eps * eps)
+    denom = torch.maximum(z_actual, 0.25 * sigma_target.detach() + eps)
+    return (w_vit * vit_out + w_unet * unet_out) * ((sigma_target + eps) / denom)
 
 class HDMOEM_v3(nn.Module):
     """
@@ -121,11 +162,12 @@ class HDMOEM_v3(nn.Module):
         transition_sigma:     float                  = 3.0,
         transition_sharpness: float                  = 1.5,
         pool_size:            int                    = 4,
-        attn_pool_balance:    float                  = 0.5,
+        attn_pool_balance:    float                  = 1.0,
         p_mean:               float                  = -0.4,
         p_std:                float                  = 1.2,
         sigma_min:            float                  = 0.002,
-        sigma_max:            float                  = 80
+        sigma_max:            float                  = 80,
+        alpha_ext:            float                  = 0.2,
     ):
         super().__init__()
         self.internal_channels = internal_channels
@@ -155,23 +197,25 @@ class HDMOEM_v3(nn.Module):
         self.time_proj_gate = nn.Parameter(torch.zeros(1))
 
         self.Unet_router = ParametricTrajectoryRouter(
-            num_experts=num_experts, 
+            num_experts=num_experts,
             min_sigma=transition_sigma,
             max_sigma=sigma_max,
             p_mean=p_mean,
             p_std=p_std,
             sigma_min=sigma_min,
             sigma_max=sigma_max,
+            alpha_ext=alpha_ext,
         )
 
         self.vit_router = ParametricTrajectoryRouter(
-            num_experts=num_experts, 
+            num_experts=num_experts,
             min_sigma=sigma_min,
             max_sigma=transition_sigma,
             p_mean=p_mean,
             p_std=p_std,
             sigma_min=sigma_min,
             sigma_max=sigma_max,
+            alpha_ext=alpha_ext,
         )
 
         if Unet_concat_balance is None:
@@ -233,8 +277,8 @@ class HDMOEM_v3(nn.Module):
         self.unet_proj_gate = nn.Parameter(torch.zeros(1))
         self.vit_proj_gate = nn.Parameter(torch.zeros(1))
 
-        self.out_gain_vit = nn.Parameter(torch.ones(1) * 0.01)
-        self.out_gain_unet = nn.Parameter(torch.ones(1) * 0.01)
+        self.out_gain_vit = nn.Parameter(torch.ones(1))
+        self.out_gain_unet = nn.Parameter(torch.ones(1))
         self.blend_residual = nn.Sequential(
             MP_Conv(in_channels=time_emb_dim, out_channels=time_emb_dim // 2, kernel=()),
             MP_Conv(in_channels=time_emb_dim // 2, out_channels=1, kernel=()),
@@ -376,15 +420,8 @@ class HDMOEM_v3(nn.Module):
             )  # (B, C, H, W)
             attn_correction = self.output_proj_attn(raw_correction)  # (B, C_in, H, W)
 
-        # Fix 1: Variance-preserving spherical blend
-        # Compute stop-gradient cosine similarity between branches
-        with torch.no_grad():
-            rho = F.cosine_similarity(
-                vit_out.flatten(1), unet_out.flatten(1), dim=1
-            ).view(-1, 1, 1, 1).clamp(-1.0, 1.0)
-        Z_sq = w_vit**2 + w_unet**2 + 2 * rho * w_vit * w_unet
-        Z = torch.sqrt(Z_sq.clamp(min=1e-6))
-        out = (w_vit * vit_out + w_unet * unet_out) / Z + attn_correction
+        # Fix 1: Magnitude-aware variance-preserving spherical blend
+        out = spherical_blend(vit_out, unet_out, w_vit, w_unet) + attn_correction
 
         return {
             "out": out,
@@ -454,11 +491,12 @@ class preconditioned_HDMOEM_v3(nn.Module):
             transition_sharpness: float = 1.5,
             # ── v3-only ──────────────────────────────────────────────────────────
             pool_size: int = 4,
-            attn_pool_balance: float = 0.5,
+            attn_pool_balance: float = 1.0,
             p_mean: float = -0.4,
             p_std: float = 1.2,
             sigma_min: float = 0.002,
-            sigma_max: float = 80
+            sigma_max: float = 80,
+            alpha_ext: float = 0.2,
     ):
         super().__init__()
         self.sigma_data = sigma_data
@@ -497,7 +535,8 @@ class preconditioned_HDMOEM_v3(nn.Module):
             p_mean=p_mean,
             p_std=p_std,
             sigma_max=sigma_max,
-            sigma_min=sigma_min
+            sigma_min=sigma_min,
+            alpha_ext=alpha_ext,
         )
 
     def forward(

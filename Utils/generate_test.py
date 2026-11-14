@@ -6,9 +6,10 @@ from Utils.EDM_sampler import EDM_Sampler
 from Utils.VAE_CLIP import StabilityVAE, CLIP_EMBED
 from models.model_config_v3 import preconditioned_HDMOEM_v3
 from graphs.plotter2 import Plotter
-from graphs.plotter import Plotter2
 from Utils.configs import model_configs as model_config
 import os
+
+__test__ = False
 
 def debug_trajectory_sampler(
         model,
@@ -473,10 +474,11 @@ def sample_and_save(model_configs):
         Unet_concat_balance=model_config['Unet_concat_balances'],
         sigma_data=model_config["sigma_data"],
         log_var_channels=model_config["log_var_channels"],
-        transition_sigma=model_configs['transition_sigma'],
-        transition_sharpness=model_configs['transition_sharpness'],
-        pool_size=model_configs['pool_size'],
-        attn_pool_balance=model_configs['attn_pool_balance']
+        transition_sigma=model_config['transition_sigma'],
+        transition_sharpness=model_config['transition_sharpness'],
+        pool_size=model_config['pool_size'],
+        attn_pool_balance=model_config['attn_pool_balance'],
+        alpha_ext=model_config['extreme_prob']
     ).to(model_config["device"])
 
     # 2. Load Weights
@@ -608,8 +610,6 @@ def sample_and_save(model_configs):
         out_dir=os.path.join(output_folder, "analysis"),  # Save plots inside output folder
         smooth_sigma=5.0
     )
-    slotter = Plotter2(run_name="test_run",)
-    slotter.visualize_expert_landscape(model=modeli,num_points=500)
     # Generate all plots (Training, Router, Gradients, Specialization, Checkpoints)
     # Note: 'visualize_expert_landscape' is now handled automatically inside plot_router_health
     # utilizing the histogram data logged during training.

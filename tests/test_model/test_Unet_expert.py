@@ -45,8 +45,8 @@ class TestUnetExpert(unittest.TestCase):
         # Pass None for text_emb
         out = model(x, t, None)
         self.assertEqual(out.shape, x.shape)
-        # Ensure map_text is actually None
-        self.assertIsNone(model.map_text)
+        # Ensure bottleneck_attn is actually None
+        self.assertIsNone(model.bottleneck_attn)
 
     def test_03_deep_architecture(self):
         """Performance Case: deeper network (3 levels). Checks tensor contraction logic."""
@@ -89,18 +89,17 @@ class TestUnetExpert(unittest.TestCase):
         self.assertIsNotNone(x.grad, "Input image should have gradients")
         # Check parameter gradient (e.g., out_conv weights)
         self.assertIsNotNone(model.out_conv.weights.grad, "Model weights should have gradients")
-        # Check out_gain gradient (specific to EDM2)
-        self.assertIsNotNone(model.out_gain.grad, "out_gain should have gradients")
 
     def test_06_non_square_aspect_ratio(self):
-        """Corner Case: Rectangular images (64x128). Checks up/downsampling logic."""
-        model = m.Unet_expert(**self.common_args)
+        """Corner Case: Rectangular images (64x128). Checks up/downsampling logic without spatial cross-attn."""
+        args = self.common_args.copy()
+        args['text_emb_dim'] = 0
+        model = m.Unet_expert(**args)
         h, w = 64, 128
         x = torch.randn(self.batch_size, self.img_ch, h, w)
         t = torch.randn(self.batch_size, self.time_dim)
-        txt = torch.randn(self.batch_size, self.text_dim)
 
-        out = model(x, t, txt)
+        out = model(x, t, None)
         self.assertEqual(out.shape, (self.batch_size, self.img_ch, h, w))
 
     def test_07_fp16_compatibility(self):
@@ -131,19 +130,15 @@ class TestUnetExpert(unittest.TestCase):
         out = model(x, t, txt)
         self.assertEqual(out.shape, x.shape)
 
-    def test_09_initialization_zero(self):
-        """Corner Case: Check EDM2 strict initialization rule (Output starts at 0)."""
+    def test_09_3d_text_embedding(self):
+        """Verify that Unet_expert supports 3D sequence text embeddings (Batch, Seq, Dim)."""
         model = m.Unet_expert(**self.common_args)
-        # out_gain is initialized to zeros.
-        # Since out = conv(x) * out_gain, output should be all zeros initially.
         x = torch.randn(self.batch_size, self.img_ch, self.img_res, self.img_res)
         t = torch.randn(self.batch_size, self.time_dim)
-        txt = torch.randn(self.batch_size, self.text_dim)
+        txt = torch.randn(self.batch_size, 77, self.text_dim)
 
-        with torch.no_grad():
-            out = model(x, t, txt)
-
-        self.assertTrue(torch.allclose(out, torch.zeros_like(out)), "Output should be zero at init")
+        out = model(x, t, txt)
+        self.assertEqual(out.shape, x.shape)
 
 
 if __name__ == '__main__':

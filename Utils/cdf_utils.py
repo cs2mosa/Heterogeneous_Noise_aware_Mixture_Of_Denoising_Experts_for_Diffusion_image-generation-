@@ -57,6 +57,31 @@ def mixture_cdf(
     return ((1.0 - alpha_ext) * gaussian_cdf + alpha_ext * uniform_cdf).clamp(0.001, 0.999)
 
 
+def branch_cdf_bounds(
+    sigma_low: float,
+    sigma_high: float,
+    p_mean: float,
+    p_std: float,
+    sigma_min: float = 0.002,
+    sigma_max: float = 80.0,
+    alpha_ext: float = 0.2,
+) -> tuple[float, float]:
+    """
+    Compute the mixture-CDF endpoints (cdf_low, cdf_high) for a branch spanning
+    [sigma_low, sigma_high].
+    """
+    log_min = math.log(sigma_min)
+    log_max = math.log(sigma_max)
+
+    cdf_low = mixture_cdf(
+        torch.tensor(math.log(sigma_low)), p_mean, p_std, log_min, log_max, alpha_ext
+    ).item()
+    cdf_high = mixture_cdf(
+        torch.tensor(math.log(sigma_high)), p_mean, p_std, log_min, log_max, alpha_ext
+    ).item()
+    return cdf_low, cdf_high
+
+
 def branch_local_quantile_centers(
     num_experts: int,
     sigma_low: float,
@@ -87,15 +112,9 @@ def branch_local_quantile_centers(
     Returns:
         Tensor of shape (E,) with expert center positions in global CDF space.
     """
-    log_min = math.log(sigma_min)
-    log_max = math.log(sigma_max)
-
-    cdf_low = mixture_cdf(
-        torch.tensor(math.log(sigma_low)), p_mean, p_std, log_min, log_max, alpha_ext
-    ).item()
-    cdf_high = mixture_cdf(
-        torch.tensor(math.log(sigma_high)), p_mean, p_std, log_min, log_max, alpha_ext
-    ).item()
+    cdf_low, cdf_high = branch_cdf_bounds(
+        sigma_low, sigma_high, p_mean, p_std, sigma_min, sigma_max, alpha_ext
+    )
 
     # Equidistant in local [0, 1] quantile space: c_i = (i + 0.5) / E
     local = torch.linspace(0.5 / num_experts, 1.0 - 0.5 / num_experts, num_experts)

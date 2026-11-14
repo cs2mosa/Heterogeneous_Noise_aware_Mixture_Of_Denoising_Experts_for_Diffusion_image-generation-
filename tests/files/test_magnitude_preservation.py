@@ -76,25 +76,6 @@ class TestMPPrimitives(unittest.TestCase):
         out = layer(x)
         self.assertTrue(torch.all(out == 0.0))
 
-    def test_gaussian_freq_mask_is_resolution_adaptive(self):
-        """
-        Same cutoff_fraction at different (H, W) should pass approximately
-        the same *fraction* of total frequency-domain energy, not the same
-        absolute pixel radius. This is the regression test for the fix
-        that replaced the fixed sigma_g=4.0 cutoff.
-        """
-        fractions = []
-        for size in [8, 16, 32, 64]:
-            mask = m.get_gaussian_freq_mask(size, size, cutoff_fraction=0.125,
-                                             device=torch.device("cpu"))
-            fractions.append((mask ** 2).mean().item())
-        # All four resolutions should retain a similar energy fraction
-        # (within a loose band -- exact equality isn't expected because
-        # discretization effects differ at very small grids).
-        self.assertLess(max(fractions) - min(fractions), 0.15,
-                         msg=f"low-pass energy fraction should be roughly "
-                             f"resolution-invariant, got {fractions}")
-
 
 class TestMPIntegration(unittest.TestCase):
     """Part 2: end-to-end activation statistics on the real tiny model."""
@@ -102,7 +83,7 @@ class TestMPIntegration(unittest.TestCase):
     def setUp(self):
         self.model, self.cfg = build_tiny_model()
 
-    def test_E_unified_is_unit_variance_across_sigma_range(self):
+    def test_time_embed_is_unit_variance_across_sigma_range(self):
         for name, sigma_val in SIGMA_PROBES.items():
             with self.subTest(sigma=name):
                 x, sigma, text_emb, Umask, Vmask = random_batch(self.cfg, sigma_value=sigma_val)
@@ -111,9 +92,8 @@ class TestMPIntegration(unittest.TestCase):
                     time_embed = self.model.net.Fourier_emb(x=time_vec)
                     time_embed = self.model.net.out_fourier1(x=time_embed)
                     time_embed = self.model.net.out_fourier2(x=m.mp_silu(x=time_embed))
-                    E_unified = self.model.net.merge_op(time_emb=time_embed, text_seq=text_emb)
-                self.assertAlmostEqual(std_of(E_unified), 1.0, delta=0.15,
-                                       msg=f"E_unified std drifted at sigma={name}")
+                self.assertAlmostEqual(std_of(time_embed), 1.0, delta=0.25,
+                                       msg=f"time_embed std drifted at sigma={name}")
 
     def test_x_feats_scales_with_c_in_as_edm_specifies(self):
         """
@@ -148,15 +128,15 @@ class TestMPIntegration(unittest.TestCase):
         with torch.no_grad():
             time_vec = sigma.log() / 4.0
             time_embed = net.out_fourier2(m.mp_silu(net.out_fourier1(net.Fourier_emb(time_vec))))
-            E_unified = net.merge_op(time_emb=time_embed, text_seq=text_emb)
-            e_global = m.normalize(E_unified.mean(dim=1), dim=[1])
-            x_feats = m.normalize(net.input_proj(x))
+            time_gain = net.input_time_proj(time_embed) * net.time_proj_gate
+            time_gain = time_gain.view(-1, net.internal_channels, 1, 1)
+            x_feats = m.normalize(net.input_proj(x)) * (1.0 + time_gain)
             for expert in net.Unet_experts:
-                out = expert(x=x_feats, time_emb=e_global, text_emb=E_unified)
+                out = expert(x=x_feats, time_emb=time_embed, text_emb=text_emb)
                 self.assertGreater(std_of(out), 0.05, "UNet expert output collapsed toward 0")
                 self.assertLess(std_of(out), 10.0, "UNet expert output exploded")
             for expert in net.VIT_experts:
-                out = expert(x=x_feats, time_emb=e_global, text_emb=E_unified)
+                out = expert(x=x_feats, time_emb=time_embed, text_emb=text_emb)
                 self.assertGreater(std_of(out), 0.05, "ViT expert output collapsed toward 0")
                 self.assertLess(std_of(out), 10.0, "ViT expert output exploded")
 

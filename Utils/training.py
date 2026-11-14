@@ -2,10 +2,16 @@ import os
 import torch
 from typing import Any
 from models.model_config_v3 import preconditioned_HDMOEM_v3
-from loss import EDM_LOSS_NOD
-from utils import sample_sigma_hybrid, ZetaScheduler, MaskGenerator, Lr_Scheduler, save_checkpoint, EMA
-from VAE_CLIP import StabilityVAE,CLIP_EMBED
-from configs import model_configs, mask_configs, zeta_configs, loss_configs, optim_configs
+try:
+    from Utils.loss import EDM_LOSS_NOD
+    from Utils.utils import sample_sigma_hybrid, ZetaScheduler, MaskGenerator, Lr_Scheduler, save_checkpoint, EMA
+    from Utils.VAE_CLIP import StabilityVAE, CLIP_EMBED
+    from Utils.configs import model_configs, mask_configs, zeta_configs, loss_configs, optim_configs
+except ImportError:
+    from loss import EDM_LOSS_NOD
+    from utils import sample_sigma_hybrid, ZetaScheduler, MaskGenerator, Lr_Scheduler, save_checkpoint, EMA
+    from VAE_CLIP import StabilityVAE, CLIP_EMBED
+    from configs import model_configs, mask_configs, zeta_configs, loss_configs, optim_configs
 from graphs.logger2 import Logger
 from data_augmentation.data_collector import get_dataloader_path
 from glob import glob
@@ -26,7 +32,7 @@ def training_HDMOE(model_config: dict[str, Any],
         log_interval=10,
         num_unet_experts=model_config["num_experts"],
         num_vit_experts=model_config["num_experts"],
-        transition_sigma=model_configs['transition_sigma'],
+        transition_sigma=model_config['transition_sigma'],
         sigma_min=model_config['sigma_min'],
         sigma_max=model_config['sigma_max'],
         p_mean=mask_config["p_mean"],
@@ -76,14 +82,15 @@ def training_HDMOE(model_config: dict[str, Any],
         Unet_concat_balance=model_config['Unet_concat_balances'],
         sigma_data=model_config["sigma_data"],
         log_var_channels=model_config["log_var_channels"],
-        transition_sigma=model_configs['transition_sigma'],
-        transition_sharpness=model_configs['transition_sharpness'],
-        pool_size=model_configs['pool_size'],
-        attn_pool_balance=model_configs['attn_pool_balance'],
+        transition_sigma=model_config['transition_sigma'],
+        transition_sharpness=model_config['transition_sharpness'],
+        pool_size=model_config['pool_size'],
+        attn_pool_balance=model_config['attn_pool_balance'],
         p_mean=mask_config['p_mean'],
         p_std=mask_config['p_std'],
         sigma_min=model_config['sigma_min'],
-        sigma_max=model_config['sigma_max']
+        sigma_max=model_config['sigma_max'],
+        alpha_ext=model_config['extreme_prob']
     ).to(model_config["device"])
 
     special_params = set()
@@ -134,11 +141,12 @@ def training_HDMOE(model_config: dict[str, Any],
                                   min_active=mask_config['min_active'],
                                   step_size=mask_config['step_size'],
                                   min_bandwidth=mask_config['min_BW_u'],
-                                  bandwidth=mask_config['BW'],
+                                  bandwidth=mask_config['max_BW_u'],
                                   strat_band=mask_config['strat_band'],
                                   noise_range=mask_config['unet_noise_range'],
                                   sigma_max=model_config['sigma_max'],
                                   sigma_min=model_config['sigma_min'],
+                                  alpha_ext=model_config['extreme_prob'],
                                   )
 
     vit_mask_gen = MaskGenerator(expert_attributes=mask_config["vit_attr"],
@@ -148,11 +156,12 @@ def training_HDMOE(model_config: dict[str, Any],
                                  min_active=mask_config['min_active'],
                                  step_size=mask_config['step_size'],
                                  min_bandwidth=mask_config['min_BW_v'],
-                                 bandwidth=mask_config['BW'],
+                                 bandwidth=mask_config['max_BW_v'],
                                  strat_band=mask_config['strat_band'],
                                  noise_range=mask_config['vit_noise_range'],
                                  sigma_max=model_config['sigma_max'],
                                  sigma_min=model_config['sigma_min'],
+                                 alpha_ext=model_config['extreme_prob'],
                                  )
 
     criterion = EDM_LOSS_NOD(expert_centers_vit=vit_mask_gen.expert_centers,
@@ -166,11 +175,18 @@ def training_HDMOE(model_config: dict[str, Any],
                              p_mean=mask_config['p_mean'],
                              p_std=mask_config['p_std'],
                              sharpness=loss_config['sharpness'],
-                             transition_sigma=model_configs['transition_sigma'],
-                             overlap_width=model_configs['transition_sharpness'],
+                             transition_sigma=model_config['transition_sigma'],
+                             overlap_width=model_config['transition_sharpness'],
                              alpha_vit=loss_config['alpha_vit'],
                              alpha_unet=loss_config['alpha_unet'],
-                             alpha_blend=loss_config['alpha_blend']
+                             alpha_blend=loss_config['alpha_blend'],
+                             lap_kernel=loss_config['laplacian_kernel'],
+                             lap_sigma=loss_config['laplacian_std'],
+                             sigma_min=model_config['sigma_min'],
+                             sigma_max=model_config['sigma_max'],
+                             alpha_ext=model_config['extreme_prob'],
+                             vit_noise_range=mask_config['vit_noise_range'],
+                             unet_noise_range=mask_config['unet_noise_range'],
                              )
 
     json_log_path = os.path.join(model_config["save_dir_stats"], "training_stats.jsonl")
@@ -183,7 +199,7 @@ def training_HDMOE(model_config: dict[str, Any],
 
         # Option A: Auto-find latest
         if resume_path == "latest":
-            save_dir = model_configs.get("save_dir", "./checkpoints")
+            save_dir = model_config.get("save_dir", "./checkpoints")
             # Look for ckpt_*.pt files
             list_of_files = glob(os.path.join(save_dir, "ckpt_*.pt"))
             if list_of_files:
