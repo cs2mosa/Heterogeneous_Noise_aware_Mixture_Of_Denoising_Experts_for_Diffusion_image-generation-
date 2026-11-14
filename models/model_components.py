@@ -207,12 +207,12 @@ class Unet_block(nn.Module):
         """if self.training and self.dropout != 0:
             main_branch = F.dropout(main_branch, p= self.dropout)"""
 
-        main_branch = self.conv_res2(main_branch, gain=self.conv_gain2) * self.res_gate
+        main_branch = self.conv_res2(main_branch, gain=self.conv_gain2)
         # conv_skip for decoders in the residual branch
         if self.type == 'dec' and self.conv_skip is not None:
             x = self.conv_skip(x)
 
-        return m.mp_sum(x, main_branch, t=self.residual_balance)
+        return m.mp_gated_sum(x, main_branch, t=self.residual_balance, gate=self.res_gate)
 
 
 class Unet_expert(nn.Module):
@@ -437,6 +437,7 @@ class Vit_block(nn.Module):
                  time_dim: Optional[int] = 0,
                  res_balance: Optional[float] = 0.5,
                  attn_balance: Optional[float] = 0.5,
+                 emb_balance: Optional[float] = 0.3,
                  gain_s: Optional[float] = 1.0,
                  gain_t: Optional[float] = 1.0,
                  ):
@@ -452,11 +453,13 @@ class Vit_block(nn.Module):
            time_dim (int, optional): Dimension of the time embedding vector. Defaults to 0.
            res_balance (float, optional): Residual balance factor 't' for mp_sum. Defaults to 0.5.
            attn_balance (float, optional): Attention balance factor. Defaults to 0.5.
+           emb_balance (float, optional): Time-embedding balance factor inside TMSA. Defaults to 0.3.
            gain_s (float, optional): Magnitude scaling factor for spatial signals. Defaults to 1.0.
            gain_t (float, optional): Magnitude scaling factor for temporal signals. Defaults to 1.0.
        """
         super().__init__()
         self.res_balance = res_balance
+        self.emb_balance = emb_balance
         self.gain_s = gain_s
         self.gain_t = gain_t
         self.emb_dim = emb_dim
@@ -470,7 +473,7 @@ class Vit_block(nn.Module):
         self.skip_proj = m.MP_Conv(num_channels, emb_dim, kernel=()) if num_channels != emb_dim else None
         self.linear1 = m.MP_Conv(num_channels, emb_dim, kernel=(3, 3))
         self.TMSA = m.MP_Attention(num_heads=num_heads, emb_dim=emb_dim, seq_ln=seq_ln, time_dim=time_dim,
-                                   attn_balance=attn_balance)
+                                   attn_balance=attn_balance, time_balance=emb_balance)
         # MLP used after the TMSA attention; keep MP_Conv weights on the unit sphere and gate residually (Fix 3)
         self.linear2 = m.MP_Conv(emb_dim, emb_dim * 4, kernel=())
         self.linear3 = m.MP_Conv(emb_dim * 4, emb_dim, kernel=())
@@ -520,22 +523,28 @@ class Vit_block(nn.Module):
         if time_embedding is not None and time_embedding.ndim == 2:
             time_embedding = time_embedding[:, None, :]  # (B, 1, C)
 
-        y = self.TMSA(y, time_embedding=time_embedding, gain_s=self.gain_s, gain_t=self.gain_t) * self.tmsa_gate
+        attn_out = self.TMSA(
+            y, time_embedding=time_embedding,
+            gain_s=self.gain_s, gain_t=self.gain_t,
+            apply_residual=False,
+        )
+        y = m.mp_gated_sum(
+            res_attn.reshape(batch_size * seq_ln, self.emb_dim),
+            attn_out.reshape(batch_size * seq_ln, self.emb_dim),
+            t=self.TMSA.attn_balance,
+            gate=self.tmsa_gate,
+        ).reshape(batch_size, seq_ln, self.emb_dim)
 
         if self.cross_attn is not None and text_embedding is not None:
-            # MP_Attention handles the residual summation internally.
+            # MP_Attention handles the residual summation internally; y retains unit variance at step 0.
             y = self.cross_attn(query=y, context=text_embedding, gain_s=self.gain_s, gain_t=self.gain_t)
 
-        y = y.reshape(batch_size * seq_ln, self.emb_dim)
-        y = m.mp_sum(y, res_attn.reshape(batch_size * seq_ln, self.emb_dim), t=self.res_balance)
-
-        res_mlp = y  # 3D
-        x = y.reshape(batch_size * seq_ln, self.emb_dim)
-        x = m.normalize(x)
+        res_mlp = y.reshape(batch_size * seq_ln, self.emb_dim)
+        x = m.normalize(res_mlp)
         x = m.mp_silu(self.linear2(x, gain=self.gain_s))
-        x = self.linear3(x, gain=self.gain_s) * self.mlp_gate
+        x = self.linear3(x, gain=self.gain_s)
 
-        x = m.mp_sum(x, res_mlp, t=self.res_balance)
+        x = m.mp_gated_sum(res_mlp, x, t=self.res_balance, gate=self.mlp_gate)
         x = x.reshape(batch_size, seq_ln, self.emb_dim)  # Back to 3D
         if self.skip_proj is not None:
             # Project original residual to emb_dim (MP_Conv linear mode requires 2D)
@@ -627,6 +636,7 @@ class Vit_expert(nn.Module):
                                          time_dim=time_dim,
                                          res_balance=res_balance,
                                          attn_balance=attn_balance,
+                                         emb_balance=emb_balance,
                                          gain_s=gain_s,
                                          gain_t=gain_t,
                                          text_dim=text_dim))

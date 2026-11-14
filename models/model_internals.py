@@ -65,6 +65,25 @@ def mp_sum(a: torch.Tensor,b: torch.Tensor,t: float = 0.5)-> torch.Tensor:
         """
     return a.lerp(b,t) / np.sqrt((1 - t)**2 + t**2)
 
+def mp_gated_sum(
+    a: torch.Tensor,
+    b: torch.Tensor,
+    t: float = 0.5,
+    gate: Optional[torch.Tensor] = None,
+    eps: float = 1e-6,
+) -> torch.Tensor:
+    """
+    Magnitude-preserving residual sum with a learnable scalar gate on branch `b`.
+    At gate == 0, returns `a` with exact unit variance (no 1/sqrt((1-t)^2 + t^2) shrinkage).
+    At gate == 1, reduces to mp_sum(a, b, t).
+    """
+    if gate is None:
+        return mp_sum(a, b, t=t)
+    w_a = 1.0 - float(t)
+    w_b = float(t) * gate.to(dtype=a.dtype, device=a.device)
+    denom = torch.sqrt(w_a * w_a + w_b * w_b + eps * eps)
+    return (w_a * a + w_b * b) / denom
+
 #magnitude preserving concatenation as in EDM2 paper
 def mp_cat(a: torch.Tensor,b:torch.Tensor,dim: int = 1,t: float = 0.5)-> torch.Tensor :
     """
@@ -119,7 +138,7 @@ def resample(x, f:Optional[list] = (1, 1), mode: Optional[str]='keep'):
     c = x.shape[1]
     kernel = f.repeat(c, 1, 1, 1)
     if mode == 'down':
-        return F.conv2d(x, kernel, stride=2, groups=c, padding=pad)
+        return F.conv2d(x, kernel * 2.0, stride=2, groups=c, padding=pad)
 
     if mode == 'up':
         return F.conv_transpose2d(x, kernel * 4, stride=2, groups=c, padding=pad)
@@ -336,6 +355,7 @@ class MP_Attention(nn.Module):
                  time_dim: Optional[int] = 0,
                  context_dim: Optional[int] = None,
                  attn_balance: Optional[float] = 0.5,
+                 time_balance: float = 0.3,
                  is_cross_attn: Optional[bool] = False):
         super().__init__()
         self.num_heads = num_heads
@@ -347,6 +367,7 @@ class MP_Attention(nn.Module):
 
         self.is_cross = is_cross_attn
         self.attn_balance = attn_balance
+        self.time_balance = time_balance
         self.time_dependent = True if time_dim > 0 else False
 
         if context_dim is None:
@@ -367,20 +388,78 @@ class MP_Attention(nn.Module):
 
         # --- Relative Positional Bias ---
         # Only for Self-Attention. Cross-Attention usually relies on context alignment.
+        self.grid_size = None
         if not self.is_cross:
-            # Shape: (Heads, Seq_Len, Seq_Len)
-            # This is a learnable lookup table for attention scores.
-            self.rel_pos_bias = nn.Parameter(torch.zeros(num_heads, seq_ln, seq_ln))
+            grid_size = int(math.isqrt(seq_ln))
+            if seq_ln > 0 and grid_size * grid_size == seq_ln:
+                # Translation-equivariant 2D relative positional bias table: O(N) vs O(N^2) params
+                self.grid_size = grid_size
+                rel_size = 2 * grid_size - 1
+                self.rel_pos_bias = nn.Parameter(torch.zeros(num_heads, rel_size, rel_size))
+                nn.init.trunc_normal_(self.rel_pos_bias, std=0.02)
+                self.register_buffer(
+                    '_rel_pos_idx',
+                    self._build_2d_rel_pos_index(grid_size, device=self.rel_pos_bias.device),
+                    persistent=False,
+                )
+            else:
+                # Non-square sequence length fallback: (Heads, Seq_Len, Seq_Len)
+                self.rel_pos_bias = nn.Parameter(torch.zeros(num_heads, seq_ln, seq_ln))
+                nn.init.trunc_normal_(self.rel_pos_bias, std=0.02)
 
-            # Initialize with small variance to not disrupt MP start
-            nn.init.trunc_normal_(self.rel_pos_bias, std=0.02)
+    @staticmethod
+    def _build_2d_rel_pos_index(grid_size: int, device: torch.device) -> torch.Tensor:
+        coords_h = torch.arange(grid_size, device=device)
+        coords_w = torch.arange(grid_size, device=device)
+        grid_h, grid_w = torch.meshgrid(coords_h, coords_w, indexing='ij')
+        coords = torch.stack([grid_h.flatten(), grid_w.flatten()], dim=0)  # (2, N)
+        rel_coords = coords[:, :, None] - coords[:, None, :]  # (2, N, N)
+        rel_coords[0] += grid_size - 1
+        rel_coords[1] += grid_size - 1
+        return rel_coords[0] * (2 * grid_size - 1) + rel_coords[1]
+
+    def _get_rel_pos_bias(self, seq_len_q: int, seq_len_kv: int) -> torch.Tensor:
+        if self.grid_size is not None:
+            if seq_len_q == seq_len_kv:
+                g_q = int(math.isqrt(seq_len_q))
+                if seq_len_q > 0 and g_q * g_q == seq_len_q:
+                    if g_q == self.grid_size:
+                        table = self.rel_pos_bias.flatten(1)
+                        return table[:, self._rel_pos_idx.to(device=table.device)]
+                    rel_size = 2 * g_q - 1
+                    table = F.interpolate(
+                        self.rel_pos_bias.unsqueeze(0),
+                        size=(rel_size, rel_size),
+                        mode='bilinear',
+                        align_corners=False,
+                    ).squeeze(0).flatten(1)
+                    rel_idx = self._build_2d_rel_pos_index(g_q, device=table.device)
+                    return table[:, rel_idx]
+            bias_base = self.rel_pos_bias.flatten(1)[:, self._rel_pos_idx.to(device=self.rel_pos_bias.device)]
+            return F.interpolate(
+                bias_base.unsqueeze(0),
+                size=(seq_len_q, seq_len_kv),
+                mode='bilinear',
+                align_corners=False,
+            ).squeeze(0)
+
+        bias = self.rel_pos_bias
+        if seq_len_q != bias.shape[1] or seq_len_kv != bias.shape[2]:
+            bias = F.interpolate(
+                bias.unsqueeze(0),
+                size=(seq_len_q, seq_len_kv),
+                mode='bilinear',
+                align_corners=False,
+            ).squeeze(0)
+        return bias
 
     def forward(self,
                 query: torch.Tensor,
                 gain_s: float,
                 gain_t: float,
                 context: Optional[torch.Tensor] = None,
-                time_embedding: Optional[torch.Tensor] = None
+                time_embedding: Optional[torch.Tensor] = None,
+                apply_residual: bool = True
                 )-> torch.Tensor:
         """
         Args:
@@ -390,6 +469,7 @@ class MP_Attention(nn.Module):
             context (torch.Tensor, optional): Context for cross-attention.
                                               Shape (Batch, Seq_Len_Ctx, Context_Dim).
             time_embedding (torch.Tensor, optional):  The diffusion time step embedding used in TMSA for VIT experts
+            apply_residual (bool, optional): Whether to apply the internal residual mp_sum. Defaults to True.
         """
         batch_size, seq_len_q, _ = query.shape
 
@@ -397,6 +477,8 @@ class MP_Attention(nn.Module):
             context = query
         elif context.ndim == 2:
             context = context.unsqueeze(1)
+        if self.is_cross:
+            context = normalize(context, dim=[-1])
         batch_size, seq_len_kv, _ = context.shape
 
         # Flatten for MP_Conv (Linear Mode)
@@ -413,13 +495,13 @@ class MP_Attention(nn.Module):
         if self.time_dependent and time_embedding is not None:
             t_emb = time_embedding.view(batch_size, -1)
             q_t = self.q_time(t_emb, gain=gain_t).unsqueeze(1)
-            q = mp_sum(q, q_t.expand(-1, seq_len_q, -1), t=0.3)
+            q = mp_sum(q, q_t.expand(-1, seq_len_q, -1), t=self.time_balance)
 
             if not self.is_cross:
                 k_t = self.k_time(t_emb, gain=gain_t).unsqueeze(1)
                 v_t = self.v_time(t_emb, gain=gain_t).unsqueeze(1)
-                k = mp_sum(k, k_t.expand(-1, seq_len_kv, -1), t=0.3)
-                v = mp_sum(v, v_t.expand(-1, seq_len_kv, -1), t=0.3)
+                k = mp_sum(k, k_t.expand(-1, seq_len_kv, -1), t=self.time_balance)
+                v = mp_sum(v, v_t.expand(-1, seq_len_kv, -1), t=self.time_balance)
 
         # Reshape to (B, Heads, Seq, Dim)
         q = q.view(batch_size, seq_len_q, self.num_heads, self.head_dim).transpose(1, 2)
@@ -432,22 +514,7 @@ class MP_Attention(nn.Module):
 
         # --- Add Relative Positional Bias ---
         if not self.is_cross:
-            bias = self.rel_pos_bias
-
-            # Interpolation logic for variable sequence lengths (e.g. different patch sizes)
-            if seq_len_q != bias.shape[1] or seq_len_kv != bias.shape[2]:
-                # Reshape to (1, Heads, S, S) for interpolation
-                bias_in = bias.unsqueeze(0)
-
-                # Interpolate to current sequence length
-                bias = F.interpolate(
-                    bias_in,
-                    size=(seq_len_q, seq_len_kv),
-                    mode='bilinear',
-                    align_corners=False
-                )
-                bias = bias.squeeze(0)  # (Heads, Sq, Skv)
-
+            bias = self._get_rel_pos_bias(seq_len_q, seq_len_kv)
             # Add bias (Broadcasting over Batch dimension)
             attn_scores = attn_scores + bias.unsqueeze(0)
 
@@ -461,6 +528,8 @@ class MP_Attention(nn.Module):
         out = self.out_proj(out, gain=gain_s)
         out = out.view(batch_size, seq_len_q, self.emb_dim)
 
+        if not apply_residual:
+            return out
         return mp_sum(query, out, t=self.attn_balance)
 
 

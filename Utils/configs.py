@@ -11,14 +11,15 @@ model_configs = {
     "data_img_res": 512, #512
     'img_resolution': 64, #64
     'time_emb_dim': 512,
-    'text_emb_dim': 1152,  # using SigLIP-Large or Qwen2.5-0.5B for text embedding
+    'text_emb_dim': 768,  # Matches openai/clip-vit-large-patch14
+    'cfg_drop_prob': 0.10,
     'num_experts': 2,
     'top_k': 1,
     'fourier_bandwidth': 1.2,  # High-frequency sub-millimeter temporal resolution, can be lowered to 1.2 if needed
 
     # --- ViT Settings ---
     'VIT_num_blocks': 10,
-    'VIT_patch_sizes': [1, 1], # try [2,2]
+    'VIT_patch_sizes': [2, 2],
     'VIT_num_groups': 4,
     'VIT_num_heads': 12,
     'VIT_emb_size': 768,
@@ -80,6 +81,7 @@ optim_configs = {
     'lr_out_proj_unet': 5e-4,
     'lr_blend_residual': 10e-4,
     'lr_pooled_attn': 10e-4,
+    'lr_gates': 5e-4,
     'ref_batches': 70e3,
     'rampup_Mimg': 1.0,
     'betas': (0.9, 0.99),

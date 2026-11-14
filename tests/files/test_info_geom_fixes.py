@@ -13,12 +13,15 @@ from unittest.mock import patch
 
 import torch
 
-from models.model_components import ParametricTrajectoryRouter, Unet_block, Vit_block
-from models.model_config_v3 import router_to_experts
-from models.model_internals import MP_Conv, PooledCrossAttn
+from models.model_components import ParametricTrajectoryRouter, Unet_block, Unet_expert, Vit_block
+from models.model_config_v3 import router_to_experts, spherical_blend
+from models.model_internals import MP_Attention, MP_Conv, PooledCrossAttn, mp_gated_sum, normalize, resample
 from Utils.configs import loss_configs, mask_configs, model_configs, optim_configs, zeta_configs
+from Utils.EDM_sampler import EDM_Sampler
 from Utils.loss import EDM_LOSS_NOD, PathPriorLoss, laplacian_decomposition
-from Utils.utils import MaskGenerator
+from Utils.utils import EMA, MaskGenerator, ZetaScheduler
+from graphs.logger2 import Logger
+from data_augmentation.data_collector import _ImageLabelDictCollate
 from tests.files.model_factory import build_tiny_model, build_tiny_net, random_batch
 
 
@@ -445,6 +448,219 @@ class TestFix6PooledCrossAttn(unittest.TestCase):
         pca_custom = PooledCrossAttn(channels=32, num_heads=4, attn_balance=0.7)
         self.assertEqual(pca_custom.cross_attn.attn_balance, 0.7)
         self.assertEqual(model_configs["attn_pool_balance"], 1.0)
+
+
+class TestPostAuditMathFixes(unittest.TestCase):
+
+    def test_spherical_blend_and_router_to_experts_exact_analytic_gradients(self):
+        """
+        spherical_blend and router_to_experts must match finite-difference gradients
+        (no detached RMS/cosine norm Jacobian error).
+        """
+        torch.manual_seed(0)
+        v = torch.randn(2, 4, 8, 8, dtype=torch.float64, requires_grad=True)
+        u = torch.randn(2, 4, 8, 8, dtype=torch.float64, requires_grad=True)
+        wv = torch.full((2, 1, 1, 1), 0.5, dtype=torch.float64, requires_grad=True)
+        target = torch.randn(2, 4, 8, 8, dtype=torch.float64)
+
+        out = spherical_blend(v, u, wv, 1.0 - wv)
+        (out - target).pow(2).sum().backward()
+        g_auto = v.grad.detach().clone().view(-1)[:16]
+
+        eps = 1e-6
+        g_fd = torch.zeros(16, dtype=torch.float64)
+        with torch.no_grad():
+            for i in range(16):
+                vp = v.detach().clone()
+                vm = v.detach().clone()
+                vp.view(-1)[i] += eps
+                vm.view(-1)[i] -= eps
+                lp = (spherical_blend(vp, u.detach(), wv.detach(), 1.0 - wv.detach()) - target).pow(2).sum()
+                lm = (spherical_blend(vm, u.detach(), wv.detach(), 1.0 - wv.detach()) - target).pow(2).sum()
+                g_fd[i] = (lp - lm) / (2.0 * eps)
+
+        rel_err = ((g_auto - g_fd).norm() / g_fd.norm().clamp(min=1e-12)).item()
+        self.assertLess(rel_err, 1e-3, f"spherical_blend gradient error too large: {rel_err:.4e}")
+
+        class _ScaleExpert(torch.nn.Module):
+            def __init__(self, s: float):
+                super().__init__()
+                self.s = s
+
+            def forward(self, x, time_emb, text_emb):
+                return x * self.s
+
+        xr = torch.randn(2, 4, 6, 6, dtype=torch.float64)
+        experts = torch.nn.ModuleList([_ScaleExpert(1.3), _ScaleExpert(0.6)])
+        weights = torch.tensor([[0.6, 0.4], [0.25, 0.75]], dtype=torch.float64, requires_grad=True)
+        tgt_r = torch.randn_like(xr)
+        routed = router_to_experts(xr, experts, weights, torch.zeros(2, 8, dtype=torch.float64), None)
+        (routed - tgt_r).pow(2).sum().backward()
+        rw_auto = weights.grad.detach().clone()
+
+        rw_fd = torch.zeros_like(weights)
+        with torch.no_grad():
+            for r in range(weights.shape[0]):
+                for c in range(weights.shape[1]):
+                    wp = weights.detach().clone()
+                    wm = weights.detach().clone()
+                    wp[r, c] += eps
+                    wm[r, c] -= eps
+                    lp = (router_to_experts(xr, experts, wp, torch.zeros(2, 8, dtype=torch.float64), None) - tgt_r).pow(2).sum()
+                    lm = (router_to_experts(xr, experts, wm, torch.zeros(2, 8, dtype=torch.float64), None) - tgt_r).pow(2).sum()
+                    rw_fd[r, c] = (lp - lm) / (2.0 * eps)
+
+        rw_err = ((rw_auto - rw_fd).norm() / rw_fd.norm().clamp(min=1e-12)).item()
+        self.assertLess(rw_err, 1e-3, f"router_to_experts gradient error too large: {rw_err:.4e}")
+
+        net_lin, _ = build_tiny_net(blend_mode="linear")
+        self.assertEqual(net_lin.blend_mode, "linear")
+
+    def test_edm_loss_nod_detaches_branch_weights_from_spectral_asymmetry(self):
+        """
+        wx_unet and wx_vit in auxiliary spectral branch losses must be detached so
+        high-pass vs low-pass spectral area asymmetry never biases d(loss)/d(w_vit).
+        """
+        torch.manual_seed(0)
+        x = torch.randn(4, 4, 32, 32)
+        err = torch.randn_like(x) * 0.5
+        w_vit = torch.full((4, 1, 1, 1), 0.5, requires_grad=True)
+        u_den = x + err
+        v_den = x + torch.roll(err, shifts=3, dims=-1)
+        blend = w_vit * v_den + (1.0 - w_vit) * u_den
+
+        out_model = {
+            "denoised": blend,
+            "unet_denoised": u_den,
+            "vit_denoised": v_den,
+            "w_vit": w_vit,
+            "w_unet": 1.0 - w_vit,
+            "log_var": None,
+            "Unet_router_loss": torch.full((4, 2), 0.5),
+            "vit_router_loss": torch.full((4, 2), 0.5),
+            "Unet_raw": torch.zeros(4, 2),
+            "vit_raw": torch.zeros(4, 2),
+        }
+        crit_full = EDM_LOSS_NOD(
+            torch.tensor([0.25, 0.75]), torch.tensor([0.25, 0.75]), 2,
+            sigma_data=0.8, Unet_bal=0.0, vit_bal=0.0, z_bal=0.0, prior_bal=0.0,
+            alpha_blend=0.6, alpha_unet=0.2, alpha_vit=0.2, lap_kernel=9, lap_sigma=1.0,
+        )
+        crit_pure = EDM_LOSS_NOD(
+            torch.tensor([0.25, 0.75]), torch.tensor([0.25, 0.75]), 2,
+            sigma_data=0.8, Unet_bal=0.0, vit_bal=0.0, z_bal=0.0, prior_bal=0.0,
+            alpha_blend=0.6, alpha_unet=0.0, alpha_vit=0.0, lap_kernel=9, lap_sigma=1.0,
+        )
+        sigma = torch.full((4,), 2.5)
+        g_full = torch.autograd.grad(crit_full(x, x, sigma, out_model)["loss"], w_vit, retain_graph=True)[0]
+        g_pure = torch.autograd.grad(crit_pure(x, x, sigma, out_model)["loss"], w_vit)[0]
+        torch.testing.assert_close(g_full, g_pure, rtol=1e-6, atol=1e-7)
+
+    def test_mp_gated_sum_preserves_unit_variance_and_unblocks_vit_cross_attn_step0(self):
+        """
+        mp_gated_sum avoids 1/sqrt(2) decay across zero-gated residuals, keeping Unet_expert
+        output std ~1.0 at step 0 and passing unit-variance queries into Vit_block.cross_attn
+        so cross_attn.q_proj, cross_attn.k_proj, and tmsa_gate get non-zero step-0 gradients.
+        """
+        torch.manual_seed(0)
+        a = torch.randn(4096)
+        b = torch.randn(4096)
+        zero_gate = torch.zeros(1)
+        out_zero = mp_gated_sum(a, b, t=0.5, gate=zero_gate)
+        torch.testing.assert_close(out_zero, a, atol=1e-5, rtol=1e-5)
+
+        u_exp = Unet_expert(
+            img_resolution=32, img_channels=64, time_emb_dim=64, text_emb_dim=64,
+            num_blocks=2, channel_mult=[1, 2], kernel_size=(3, 3), model_channels=64,
+        )
+        xu = torch.randn(4, 64, 32, 32)
+        tu = torch.randn(4, 64)
+        txu = torch.randn(4, 6, 64)
+        u_std = u_exp(xu, tu, txu).std().item()
+        self.assertGreaterEqual(u_std, 0.75, f"Unet_expert init std collapsed to {u_std:.4f}")
+        self.assertLessEqual(u_std, 1.25, f"Unet_expert init std exploded to {u_std:.4f}")
+
+        vb = Vit_block(num_heads=4, num_groups=4, num_channels=64, seq_ln=64, emb_dim=64, text_dim=64, time_dim=64)
+        xv = torch.randn(2, 64, 64, requires_grad=True)
+        tv = torch.randn(2, 64, requires_grad=True)
+        txv = torch.randn(2, 6, 64, requires_grad=True)
+        (vb(xv, tv, txv) - xv.detach()).pow(2).mean().backward()
+        self.assertGreater(vb.cross_attn.q_proj.weights.grad.norm().item(), 1e-6)
+        self.assertGreater(vb.cross_attn.k_proj.weights.grad.norm().item(), 1e-6)
+        self.assertGreater(vb.tmsa_gate.grad.norm().item(), 1e-6)
+
+    def test_mp_attention_2d_rel_pos_bias_and_context_normalization(self):
+        """
+        Square self-attention uses a (heads, 2H-1, 2W-1) 2D relative bias table with 2D resolution
+        interpolation, and cross-attention normalizes external context embeddings along dim=-1.
+        """
+        attn = MP_Attention(num_heads=4, emb_dim=32, seq_ln=256)
+        self.assertEqual(tuple(attn.rel_pos_bias.shape), (4, 31, 31))
+        for seq_len in (64, 256, 1024):
+            q = torch.randn(2, seq_len, 32)
+            out = attn(q, gain_s=1.0, gain_t=1.0)
+            self.assertEqual(out.shape, q.shape)
+            self.assertTrue(torch.isfinite(out).all())
+
+        attn_ca = MP_Attention(num_heads=4, emb_dim=64, seq_ln=77, context_dim=768, is_cross_attn=True)
+        q_img = torch.randn(2, 16, 64)
+        ctx_unnorm = torch.randn(2, 77, 768) * 5.0 + 1.5
+        ctx_unit = normalize(ctx_unnorm, dim=[-1])
+        out1 = attn_ca(q_img, gain_s=1.0, gain_t=1.0, context=ctx_unnorm)
+        out2 = attn_ca(q_img, gain_s=1.0, gain_t=1.0, context=ctx_unit)
+        torch.testing.assert_close(out1, out2, rtol=1e-4, atol=1e-4)
+
+    def test_resample_down_preserves_unit_variance(self):
+        torch.manual_seed(0)
+        x = torch.randn(16, 16, 32, 32)
+        down = resample(x, mode='down')
+        self.assertAlmostEqual(down.std().item(), 1.0, delta=0.08)
+
+    def test_zeta_exp_continuity_ema_power_and_logger_zones(self):
+        zs = ZetaScheduler(total_steps=40000, max_zeta=2.0, min_zeta=0.001, strategy='exp', warmup_ratio=0.3, alpha=4.0)
+        z_before = zs.get_zeta(12000)
+        z_after = zs.get_zeta(12001)
+        self.assertGreater(z_after, 1.9, f"Zeta exp discontinuity at warmup end: {z_before} -> {z_after}")
+
+        src_low = torch.nn.Linear(4, 4, bias=False)
+        src_high = torch.nn.Linear(4, 4, bias=False)
+        torch.nn.init.zeros_(src_low.weight)
+        torch.nn.init.zeros_(src_high.weight)
+        ema_low = EMA(src_low, beta=0.999, warmup_power=0.3, min_warmup_step=1000)
+        ema_high = EMA(src_high, beta=0.999, warmup_power=0.9, min_warmup_step=1000)
+        with torch.no_grad():
+            src_low.weight.fill_(1.0)
+            src_high.weight.fill_(1.0)
+        ema_low.update()
+        ema_high.update()
+        # With larger warmup_power, (1 - (step+1)^(-power)) reaches higher decay faster -> smaller move toward 1.0
+        self.assertLess(ema_high.ema_model.weight.mean().item(), ema_low.ema_model.weight.mean().item())
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            lg = Logger(tmpdir, "zone_test", transition_sigma=2.5)
+            hi = lg._trajectory_zones(torch.tensor([50.0]))
+            lo = lg._trajectory_zones(torch.tensor([0.01]))
+            self.assertEqual(hi["zone_unet_dominant"], 1.0)
+            self.assertEqual(hi["zone_vit_dominant"], 0.0)
+            self.assertEqual(lo["zone_vit_dominant"], 1.0)
+            self.assertEqual(lo["zone_unet_dominant"], 0.0)
+
+    def test_dataloader_dict_collate_and_sampler_masks(self):
+        collate = _ImageLabelDictCollate(class_names=["rose_red", "lily"], fallback_prompt="flower")
+        batch = collate([(torch.zeros(3, 8, 8), 0), (torch.ones(3, 8, 8), 1)])
+        self.assertEqual(batch["pixel_values"].shape, (2, 3, 8, 8))
+        self.assertEqual(batch["prompts"], ["rose red", "lily"])
+
+        model, cfg = build_tiny_model()
+        model.eval()
+        u_gen = MaskGenerator([3, 5], cfg["p_mean"], cfg["p_std"], bandwidth=0.15, min_bandwidth=0.05, total_steps=10, noise_range=(cfg["transition_sigma"], cfg["sigma_max"]))
+        v_gen = MaskGenerator([1, 1], cfg["p_mean"], cfg["p_std"], bandwidth=0.60, min_bandwidth=0.25, total_steps=10, noise_range=(cfg["sigma_min"], cfg["transition_sigma"]))
+        sampler = EDM_Sampler(model, num_solve_steps=2, guidance=2.0, unet_mask_gen=u_gen, vit_mask_gen=v_gen, mask_step=10)
+        z = torch.randn(2, cfg["IN_in_channels"], cfg["IN_img_resolution"], cfg["IN_img_resolution"])
+        txt = torch.randn(2, 6, cfg["text_emb_dim"])
+        uncond = torch.zeros_like(txt)
+        out = sampler.sample(z, text_emb=txt, uncond_text_emb=uncond)
+        self.assertTrue(torch.isfinite(out).all())
 
 
 if __name__ == "__main__":

@@ -25,9 +25,11 @@ def router_to_experts(
     amplification near exact cancellation and returning zero if all experts are
     masked out.
     """
+    eps = 1e-6
+    stat_dtype = torch.float32 if x.dtype in (torch.float16, torch.bfloat16) else x.dtype
     text_processed = text_emb
     output = torch.zeros_like(x)
-    target_rms = x.new_zeros((x.shape[0], 1, 1, 1))
+    target_rms = x.new_zeros((x.shape[0], 1, 1, 1), dtype=stat_dtype)
 
     for i, expert in enumerate(experts):
         weights = out_router[:, i]  # (B,)
@@ -36,21 +38,21 @@ def router_to_experts(
         if not mask.any():
             continue
 
+        idx = mask.nonzero(as_tuple=True)[0]
         out_exp = expert(
-            x=x[mask],
-            time_emb=time_emb[mask],
-            text_emb=text_processed[mask] if text_processed is not None else None,
+            x=x[idx],
+            time_emb=time_emb[idx],
+            text_emb=text_processed[idx] if text_processed is not None else None,
         )
-        w_active = weights[mask].view(-1, 1, 1, 1)
-        output[mask] += out_exp * w_active
-        with torch.no_grad():
-            exp_rms = out_exp.detach().pow(2).mean(dim=(1, 2, 3), keepdim=True).sqrt()
-        target_rms[mask] += w_active * exp_rms
+        w_active = weights[idx].view(-1, 1, 1, 1)
+        output = output.index_add(0, idx, (out_exp * w_active).to(output.dtype))
+        exp_rms = torch.sqrt(out_exp.to(stat_dtype).pow(2).mean(dim=(1, 2, 3), keepdim=True) + eps * eps)
+        target_rms = target_rms.index_add(0, idx, w_active.to(stat_dtype) * exp_rms)
 
-    with torch.no_grad():
-        actual_rms = output.detach().pow(2).mean(dim=(1, 2, 3), keepdim=True).sqrt()
-    denom = torch.maximum(actual_rms, 0.25 * target_rms.detach()).clamp(min=1e-6)
-    return output * (target_rms / denom)
+    actual_rms = torch.sqrt(output.to(stat_dtype).pow(2).mean(dim=(1, 2, 3), keepdim=True) + eps * eps)
+    denom = torch.maximum(actual_rms, 0.25 * target_rms + eps)
+    scale = ((target_rms + eps) / denom).to(output.dtype)
+    return output * scale
 
 
 def spherical_blend(
@@ -67,23 +69,33 @@ def spherical_blend(
     amplification near anti-parallel cancellation (rho -> -1).
     """
     eps = 1e-6
-    with torch.no_grad():
-        sigma_v = vit_out.pow(2).mean(dim=(1, 2, 3), keepdim=True).sqrt()
-        sigma_u = unet_out.pow(2).mean(dim=(1, 2, 3), keepdim=True).sqrt()
-        rho = F.cosine_similarity(
-            vit_out.flatten(1), unet_out.flatten(1), dim=1
-        ).view(-1, 1, 1, 1).clamp(-1.0, 1.0)
-    sigma_target = w_vit * sigma_v + w_unet * sigma_u
+    stat_dtype = torch.float32 if vit_out.dtype in (torch.float16, torch.bfloat16) else vit_out.dtype
+    v_f = vit_out.to(stat_dtype)
+    u_f = unet_out.to(stat_dtype)
+    wv_f = w_vit.to(stat_dtype)
+    wu_f = w_unet.to(stat_dtype)
+
+    sigma_v = torch.sqrt(v_f.pow(2).mean(dim=(1, 2, 3), keepdim=True) + eps * eps)
+    sigma_u = torch.sqrt(u_f.pow(2).mean(dim=(1, 2, 3), keepdim=True) + eps * eps)
+
+    v_flat = v_f.flatten(1)
+    u_flat = u_f.flatten(1)
+    v_norm = torch.sqrt(v_flat.pow(2).sum(dim=1, keepdim=True) + eps * eps)
+    u_norm = torch.sqrt(u_flat.pow(2).sum(dim=1, keepdim=True) + eps * eps)
+    rho = ((v_flat * u_flat).sum(dim=1, keepdim=True) / (v_norm * u_norm)).view(-1, 1, 1, 1).clamp(-1.0 + eps, 1.0 - eps)
+
+    sigma_target = wv_f * sigma_v + wu_f * sigma_u
     z_sq = (
-        (w_vit * sigma_v) ** 2
-        + (w_unet * sigma_u) ** 2
-        + 2.0 * rho * (w_vit * sigma_v) * (w_unet * sigma_u)
+        (wv_f * sigma_v) ** 2
+        + (wu_f * sigma_u) ** 2
+        + 2.0 * rho * (wv_f * sigma_v) * (wu_f * sigma_u)
     )
     # Add eps^2 before sqrt so d(sqrt)/dz stays finite at step-0 init (sigma_v=sigma_u=0),
     # and keep (sigma_target + eps) / denom == 1.0 at zero so branch gate gradients flow.
     z_actual = torch.sqrt(z_sq.clamp(min=0.0) + eps * eps)
-    denom = torch.maximum(z_actual, 0.25 * sigma_target.detach() + eps)
-    return (w_vit * vit_out + w_unet * unet_out) * ((sigma_target + eps) / denom)
+    denom = torch.maximum(z_actual, 0.25 * sigma_target + eps)
+    scale = ((sigma_target + eps) / denom).to(vit_out.dtype)
+    return (w_vit * vit_out + w_unet * unet_out) * scale
 
 class HDMOEM_v3(nn.Module):
     """
@@ -168,8 +180,12 @@ class HDMOEM_v3(nn.Module):
         sigma_min:            float                  = 0.002,
         sigma_max:            float                  = 80,
         alpha_ext:            float                  = 0.2,
+        blend_mode:           str                    = "spherical",
     ):
         super().__init__()
+        if blend_mode not in ("spherical", "linear"):
+            raise ValueError(f"Unsupported blend_mode '{blend_mode}'. Expected 'spherical' or 'linear'.")
+        self.blend_mode         = blend_mode
         self.internal_channels = internal_channels
         self.num_experts        = num_experts
         self.transition_sigma   = transition_sigma
@@ -420,8 +436,11 @@ class HDMOEM_v3(nn.Module):
             )  # (B, C, H, W)
             attn_correction = self.output_proj_attn(raw_correction)  # (B, C_in, H, W)
 
-        # Fix 1: Magnitude-aware variance-preserving spherical blend
-        out = spherical_blend(vit_out, unet_out, w_vit, w_unet) + attn_correction
+        # Fix 1: Magnitude-aware variance-preserving spherical blend (or optional linear blend)
+        if self.blend_mode == "linear":
+            out = (w_vit * vit_out + w_unet * unet_out) + attn_correction
+        else:
+            out = spherical_blend(vit_out, unet_out, w_vit, w_unet) + attn_correction
 
         return {
             "out": out,
@@ -497,6 +516,7 @@ class preconditioned_HDMOEM_v3(nn.Module):
             sigma_min: float = 0.002,
             sigma_max: float = 80,
             alpha_ext: float = 0.2,
+            blend_mode: str = "spherical",
     ):
         super().__init__()
         self.sigma_data = sigma_data
@@ -537,6 +557,7 @@ class preconditioned_HDMOEM_v3(nn.Module):
             sigma_max=sigma_max,
             sigma_min=sigma_min,
             alpha_ext=alpha_ext,
+            blend_mode=blend_mode,
         )
 
     def forward(

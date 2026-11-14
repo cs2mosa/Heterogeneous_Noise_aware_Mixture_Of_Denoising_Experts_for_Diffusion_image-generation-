@@ -184,9 +184,10 @@ class ZetaScheduler:
             zeta = self.min_zeta + (self.max_zeta - self.min_zeta) * cosine_val
 
         elif self.strategy == 'exp':
-            term = -self.alpha * (curr_step - (self.max_zeta / decay_total))
-            #Safety clamp for exp to prevent overflow if alpha is huge
-            term = max(min(term, 10), -10)
+            progress = curr_step / max(float(decay_total), 1.0)
+            term = -self.alpha * progress
+            # Safety clamp for exp to prevent overflow if alpha is huge
+            term = max(min(term, 10.0), -10.0)
             decay_factor = np.exp(term)
             zeta = (self.max_zeta - self.min_zeta) * decay_factor + self.min_zeta
             zeta = max(min(zeta, self.max_zeta), self.min_zeta)
@@ -332,9 +333,8 @@ class EMA:
         # Logic: decay starts small (fast updates) and grows to self.beta (slow smoothing).
         cur_beta = self.beta
         if self.step < self.min_warmup_step:  # Standard "warmup" period
-            # A simple power-law approximation often used in EDM implementations
-            # Effective beta = 1 - (1/step) roughly
-            cur_beta = min(self.beta, (1 + self.step) / (10 + self.step))
+            # Power-law EDM2 warmup honoring self.warmup_power
+            cur_beta = min(self.beta, 1.0 - (1.0 + self.step) ** (-self.warmup_power))
 
         # 2. Update Shadow Parameters
         for name, source_param in self.source_dict.items():

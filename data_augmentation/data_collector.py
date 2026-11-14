@@ -4,6 +4,35 @@ import torch
 from PIL import Image
 from datasets import load_dataset
 
+
+class _ImageLabelDictCollate:
+    """Collate (image, label) batches into {"pixel_values": Tensor, "prompts": List[str]}."""
+
+    def __init__(self, class_names=None, fallback_prompt: str = "a photo of a flower"):
+        self.class_names = list(class_names) if class_names is not None else None
+        self.fallback_prompt = fallback_prompt
+
+    def __call__(self, batch):
+        if isinstance(batch[0], dict):
+            pixel_values = torch.stack([item["pixel_values"] for item in batch])
+            prompts = [item.get("prompts", self.fallback_prompt) for item in batch]
+            return {"pixel_values": pixel_values, "prompts": prompts}
+        pixel_values = torch.stack([item[0] for item in batch])
+        prompts = []
+        for item in batch:
+            label = item[1]
+            if (
+                self.class_names is not None
+                and isinstance(label, int)
+                and 0 <= label < len(self.class_names)
+                and isinstance(self.class_names[label], str)
+            ):
+                prompts.append(self.class_names[label].replace("_", " "))
+            else:
+                prompts.append(self.fallback_prompt)
+        return {"pixel_values": pixel_values, "prompts": prompts}
+
+
 def get_dataloader(cfg):
     transform = transforms.Compose([
         transforms.Resize((cfg["data_img_res"], cfg["data_img_res"])),
@@ -21,6 +50,11 @@ def get_dataloader(cfg):
     full_dataset = ConcatDataset([train_set, val_set, test_set])
     print(f"Total images loaded: {len(full_dataset)}")
 
+    collate = _ImageLabelDictCollate(
+        class_names=getattr(train_set, "classes", None),
+        fallback_prompt=cfg.get("fixed_prompt", "a photo of a flower"),
+    )
+
     return DataLoader(
         full_dataset,
         batch_size=cfg['batch_size'],
@@ -28,7 +62,8 @@ def get_dataloader(cfg):
         drop_last=True,
         num_workers=4,
         pin_memory=True,
-        persistent_workers=True
+        persistent_workers=True,
+        collate_fn=collate,
     )
 
 def get_dataloader_path(model_config: dict, data_dir: str = "/kaggle/input/YOUR_DATASET_FOLDER"):
@@ -56,6 +91,11 @@ def get_dataloader_path(model_config: dict, data_dir: str = "/kaggle/input/YOUR_
 
     print(f"Dataset Loaded: {len(dataset)} images found.")
 
+    collate = _ImageLabelDictCollate(
+        class_names=getattr(dataset, "classes", None),
+        fallback_prompt=model_config.get("fixed_prompt", "a photo of a flower"),
+    )
+
     # 3. High-Throughput DataLoader
     dataloader = DataLoader(
         dataset,
@@ -64,7 +104,8 @@ def get_dataloader_path(model_config: dict, data_dir: str = "/kaggle/input/YOUR_
         num_workers=4,  # Kaggle generally handles 2 to 4 workers optimally
         pin_memory=True,  # Speeds up CPU-to-GPU transfer
         drop_last=True,  # Ensures every batch is exactly batch_size (prevents shape errors)
-        prefetch_factor=2  # Pre-loads the next 2 batches in the background
+        prefetch_factor=2,  # Pre-loads the next 2 batches in the background
+        collate_fn=collate,
     )
 
     return dataloader

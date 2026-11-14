@@ -93,29 +93,48 @@ def training_HDMOE(model_config: dict[str, Any],
         alpha_ext=model_config['extreme_prob']
     ).to(model_config["device"])
 
-    special_params = set()
-    special_params.update(model.net.Unet_experts.parameters())
-    special_params.update(model.net.VIT_experts.parameters())
+    gate_params = [
+        p for n, p in model.named_parameters()
+        if n.split(".")[-1].endswith("_gate") or n.split(".")[-1].startswith("out_gain_")
+    ]
+    gate_param_set = set(gate_params)
+
+    unet_expert_params = [p for p in model.net.Unet_experts.parameters() if p not in gate_param_set]
+    vit_expert_params = [p for p in model.net.VIT_experts.parameters() if p not in gate_param_set]
+
+    special_params = set(gate_params)
+    special_params.update(unet_expert_params)
+    special_params.update(vit_expert_params)
     special_params.update(model.net.vit_router.parameters())
     special_params.update(model.net.Unet_router.parameters())
     special_params.update(model.net.output_proj_vit.parameters())
     special_params.update(model.net.output_proj_unet.parameters())
     special_params.update(model.net.blend_residual.parameters())
-    special_params.update(model.net.pooled_cross_attn.parameters())
+
+    attn_params = []
+    if getattr(model.net, "_cross_attn_enabled", False) and model.net.pooled_cross_attn is not None:
+        attn_params.extend([p for p in model.net.pooled_cross_attn.parameters() if p not in gate_param_set])
+        attn_params.extend([p for p in model.net.output_proj_attn.parameters() if p not in gate_param_set])
+        special_params.update(attn_params)
 
     default_params = [p for p in model.parameters() if p not in special_params]
 
-    optimizer = torch.optim.Adam([
-        {'params': model.net.Unet_experts.parameters(), 'lr': Optim_config['lr_unet']},
-        {'params': model.net.VIT_experts.parameters(), 'lr': Optim_config['lr_vit']},
-        {'params': model.net.vit_router.parameters(), 'lr': Optim_config['lr_router']},
-        {'params': model.net.Unet_router.parameters(), 'lr': Optim_config['lr_router']},
-        {'params': model.net.output_proj_vit.parameters(), 'lr': Optim_config['lr_out_proj_vit']},
-        {'params': model.net.output_proj_unet.parameters(), 'lr': Optim_config['lr_out_proj_unet']},
-        {'params': model.net.blend_residual.parameters(), 'lr': Optim_config['lr_blend_residual']},
-        {'params': model.net.pooled_cross_attn.parameters(), 'lr': Optim_config['lr_pooled_attn']},
-        {'params': default_params, 'lr': Optim_config['LR_DEFAULT']}
-    ],
+    param_groups = [
+        {'params': unet_expert_params, 'lr': Optim_config['lr_unet']},
+        {'params': vit_expert_params, 'lr': Optim_config['lr_vit']},
+        {'params': list(model.net.vit_router.parameters()), 'lr': Optim_config['lr_router']},
+        {'params': list(model.net.Unet_router.parameters()), 'lr': Optim_config['lr_router']},
+        {'params': list(model.net.output_proj_vit.parameters()), 'lr': Optim_config['lr_out_proj_vit']},
+        {'params': list(model.net.output_proj_unet.parameters()), 'lr': Optim_config['lr_out_proj_unet']},
+        {'params': list(model.net.blend_residual.parameters()), 'lr': Optim_config['lr_blend_residual']},
+        {'params': gate_params, 'lr': Optim_config.get('lr_gates', Optim_config['LR_DEFAULT'])},
+        {'params': default_params, 'lr': Optim_config['LR_DEFAULT']},
+    ]
+    if attn_params:
+        param_groups.append({'params': attn_params, 'lr': Optim_config['lr_pooled_attn']})
+
+    optimizer = torch.optim.Adam(
+        param_groups,
         betas=Optim_config['betas'],
         weight_decay=Optim_config['weight_decay'],
         eps=Optim_config['eps']
@@ -137,7 +156,7 @@ def training_HDMOE(model_config: dict[str, Any],
     Unet_mask_gen = MaskGenerator(expert_attributes=mask_config["unet_attr"],
                                   p_mean=mask_config["p_mean"],
                                   p_std=mask_config["p_std"],
-                                  total_steps=model_config['total_steps'],
+                                  total_steps=mask_config.get('total_steps', model_config['total_steps']),
                                   min_active=mask_config['min_active'],
                                   step_size=mask_config['step_size'],
                                   min_bandwidth=mask_config['min_BW_u'],
@@ -152,7 +171,7 @@ def training_HDMOE(model_config: dict[str, Any],
     vit_mask_gen = MaskGenerator(expert_attributes=mask_config["vit_attr"],
                                  p_mean=mask_config["p_mean"],
                                  p_std=mask_config["p_std"],
-                                 total_steps=model_config['total_steps'],
+                                 total_steps=mask_config.get('total_steps', model_config['total_steps']),
                                  min_active=mask_config['min_active'],
                                  step_size=mask_config['step_size'],
                                  min_bandwidth=mask_config['min_BW_v'],
@@ -262,7 +281,14 @@ def training_HDMOE(model_config: dict[str, Any],
             batch = next(data_iter)
 
         images_rgb = batch["pixel_values"]
-        prompts = batch["prompts"] # You now have access to text prompts here!
+        prompts = list(batch["prompts"])
+
+        cfg_drop_prob = model_config.get("cfg_drop_prob", 0.10)
+        if cfg_drop_prob > 0.0:
+            prompts = [
+                "" if torch.rand((), device=images_rgb.device).item() < cfg_drop_prob else p
+                for p in prompts
+            ]
 
         images = images_rgb.to(model_config["device"])
         images = (images + 1) / 2

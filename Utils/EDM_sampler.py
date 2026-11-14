@@ -1,4 +1,5 @@
 from typing import Optional
+import warnings
 import numpy as np
 import torch.nn as nn
 import torch
@@ -16,7 +17,10 @@ class EDM_Sampler:
                  S_max: float = float('inf'),
                  S_noise: float = 1.0,
                  guidance: float = 1.0,
-                 dtype=torch.float32
+                 dtype=torch.float32,
+                 unet_mask_gen=None,
+                 vit_mask_gen=None,
+                 mask_step: Optional[int] = None,
                  ):
         self.model = model
         self.num_steps = num_solve_steps
@@ -29,22 +33,50 @@ class EDM_Sampler:
         self.s_noise = S_noise
         self.guide = guidance
         self.dtype = dtype
+        self.unet_mask_gen = unet_mask_gen
+        self.vit_mask_gen = vit_mask_gen
+        self.mask_step = mask_step
 
-    def denoise(self, x, sigma, text_emb,uncond_text_emb=None):
+    def _compute_masks(self, x: torch.Tensor, sigma):
+        u_mask = None
+        v_mask = None
+        if self.unet_mask_gen is not None or self.vit_mask_gen is not None:
+            sigma_t = torch.as_tensor(sigma, dtype=torch.float32, device=x.device).flatten()
+            if sigma_t.numel() == 1 and x.shape[0] > 1:
+                sigma_t = sigma_t.expand(x.shape[0])
+            if self.unet_mask_gen is not None:
+                step_u = self.mask_step if self.mask_step is not None else self.unet_mask_gen.total_steps
+                u_mask = self.unet_mask_gen(sigma=sigma_t, step=step_u)
+            if self.vit_mask_gen is not None:
+                step_v = self.mask_step if self.mask_step is not None else self.vit_mask_gen.total_steps
+                v_mask = self.vit_mask_gen(sigma=sigma_t, step=step_v)
+        return u_mask, v_mask
+
+    def denoise(self, x, sigma, text_emb, uncond_text_emb=None):
         """
         Denoise helper that handles Classifier-Free Guidance internally.
         """
+        u_mask, v_mask = self._compute_masks(x, sigma)
 
         out_model = self.model(
             x=x,
             sigma=sigma,
             text_emb=text_emb,
-            Unet_router_mask=None,
-            Vit_router_mask=None,
+            Unet_router_mask=u_mask,
+            Vit_router_mask=v_mask,
             zeta=0,
         )
         D_x = out_model["denoised"].to(self.dtype)
         if self.guide == 1.0:
+            return D_x
+
+        if text_emb is not None and uncond_text_emb is None:
+            warnings.warn(
+                "EDM_Sampler called with guidance != 1.0 and text_emb provided, "
+                "but uncond_text_emb is None; CFG will be a no-op.",
+                UserWarning,
+                stacklevel=2,
+            )
             return D_x
 
         emb_for_guide = uncond_text_emb if uncond_text_emb is not None else text_emb
@@ -52,8 +84,8 @@ class EDM_Sampler:
             x=x,
             sigma=sigma,
             text_emb=emb_for_guide,
-            Unet_router_mask=None,
-            Vit_router_mask=None,
+            Unet_router_mask=u_mask,
+            Vit_router_mask=v_mask,
             zeta=0,
         )
         ref_D_x = out_guide["denoised"].to(self.dtype)

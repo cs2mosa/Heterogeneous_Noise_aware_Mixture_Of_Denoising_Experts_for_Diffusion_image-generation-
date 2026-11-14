@@ -183,12 +183,12 @@ class EDM_LOSS_NOD(nn.Module):
         # 4. UNet Branch Loss — LOW-FREQUENCY projection only (Fix 2)
         unet_residual = out_model['unet_denoised'] - x
         unet_low, _ = laplacian_decomposition(unet_residual, self.lap_kernel, self.lap_sigma)
-        unet_loss = torch.mean(weight * branch_uncertainty_scale * wx_unet * (unet_low ** 2))
+        unet_loss = torch.mean(weight * branch_uncertainty_scale * wx_unet.detach() * (unet_low ** 2))
 
         # 5. ViT Branch Loss — HIGH-FREQUENCY projection only (Fix 2)
         vit_residual = out_model['vit_denoised'] - x
         _, vit_high = laplacian_decomposition(vit_residual, self.lap_kernel, self.lap_sigma)
-        vit_loss = torch.mean(weight * branch_uncertainty_scale * wx_vit * (vit_high ** 2))
+        vit_loss = torch.mean(weight * branch_uncertainty_scale * wx_vit.detach() * (vit_high ** 2))
 
         # 6. Total Loss Aggregation
         trajectory_loss = (

@@ -140,8 +140,8 @@ class Logger:
         n = s.numel()
         if n == 0:
             return {"vit_dominant": 0.0, "overlap": 0.0, "unet_dominant": 0.0}
-        vit_dom = (s > t * 1.5).float().sum().item() / n
-        unet_dom = (s <= t * 0.5).float().sum().item() / n
+        unet_dom = (s > t * 1.5).float().sum().item() / n
+        vit_dom = (s <= t * 0.5).float().sum().item() / n
         overlap = 1.0 - vit_dom - unet_dom
         return {
             "zone_vit_dominant": round(vit_dom, 4),
