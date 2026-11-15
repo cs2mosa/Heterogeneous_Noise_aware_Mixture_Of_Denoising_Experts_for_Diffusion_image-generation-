@@ -1,0 +1,442 @@
+# Source PDF: C:\Users\Maha Mamdouh\Desktop\ML learning phase\Probabilistic ML advanced topics.pdf
+# Extracted Pages: 889-893 of 1370
+
+
+===== [Page 889] =====
+24.3. Score matching (SM)
+855
+to sample from the EBM. In PCD, we do not restart the MCMC chain when training on a new
+datapoint; rather, we carry over the state of the previous MCMC chain and use it to initialize a
+new MCMC chain for the next training step. See Algorithm 12 for some pseudocode. Hence there
+are two dynamical processes running at different time scales: the states x change quickly, and the
+parameters θ change slowly.
+Algorithm 24.2: Persistent MCMC-SGD for fitting an EBM
+1 Initialize parameters θ randomly
+2 Initialize chains ˜x1:S randomly
+3 Initialize learning rate η
+4 for t = 1, 2, . . . do
+5
+for xb in minibatch of size B do
+6
+gb = ∇θEθ(xb)
+7
+for sample s = 1 : S do
+8
+Sample ˜xs ∼MCMC(target = p(·|θ), init = ˜xs, nsteps = N)
+9
+˜gs = ∇θEθ(˜xs)
+10
+gt = −( 1
+B
+PB
+b=1 gb) −( 1
+S
+PS
+s=1 ˜gs)
+11
+θ := θ + ηgt
+12
+Decrease step size η
+A theoretical justification for this was given in [You89], who showed that we can start the MCMC
+chain at its previous value, and just take a few steps, because p(x|θt) is likely to be close to p(x|θt−1),
+since we only changed the parameters by a small amount in the intervening SGD step.
+24.2.2.3
+Other methods
+PCD can be further improved by keeping multiple historical states of the MCMC chain in a replay
+buffer and initialize new MCMC chains by randomly sampling from it [DM19b]. Other variants of
+CD include mean field CD [WH02], and multi-grid CD [Gao+18].
+EBMs trained with CD may not capture the data distribution faithfully, since truncated MCMC
+can lead to biased gradient updates that hurt the learning dynamics [SMB10; FI10; Nij+19]. There
+are several methods that focus on removing this bias for improved MCMC training. For example, one
+line of work proposes unbiased estimators of the gradient through coupled MCMC [JOA17; QZW19];
+and Du et al. [Du+20] propose to reduce the bias by differentiating through the MCMC sampling
+algorithm and estimating an entropy correction term.
+24.3
+Score matching (SM)
+If two continuously differentiable real-valued functions f(x) and g(x) have equal first derivatives
+everywhere, then f(x) ≡g(x) + constant. When f(x) and g(x) are log probability density functions
+(pdf’s) with equal first derivatives, the normalization requirement (Equation (24.1)) implies that
+R
+exp(f(x))dx =
+R
+exp(g(x))dx = 1, and therefore f(x) ≡g(x). As a result, one can learn an EBM
+by (approximately) matching the first derivatives of its log-pdf to the first derivatives of the log
+Author: Kevin P. Murphy. (C) MIT Press. CC-BY-NC-ND license
+
+
+===== [Page 890] =====
+856
+Chapter 24. Energy-based models
+pdf of the data distribution. If they match, then the EBM captures the data distribution exactly.
+The first-order gradient function of a log pdf wrt its input, ∇x log pθ(x), is called the (Stein) score
+function. (This is distinct from the Fisher score, ∇θ log pθ(x).) For training EBMs, it is useful to
+transform the equivalence of distributions to the equivalence of scores, because the score of an EBM
+can be easily obtained as follows:
+sθ(x) ≜∇x log pθ(x) = −∇xEθ(x)
+(24.27)
+We see that this does not involve the typically intractable normalizing constant Zθ.
+Let pD(x) be the underlying data distribution, from which we have a finite number of iid samples
+but do not know its pdf. The score matching objective [Hyv05b] minimizes a discrepancy between
+two distributions called the Fisher divergence:
+DF (pD(x) ∥pθ(x)) = EpD(x)
+1
+2 ∥∇x log pD(x) −∇x log pθ(x)∥2
+
+.
+(24.28)
+The expectation wrt pD(x), in this objective and its variants below, admits a trivial unbiased Monte
+Carlo estimator using the empirical mean of samples x ∼pD(x). However, the ∇x log pD(x) term is
+generally impractical to calculate since it requires knowing the pdf of pD(x). We discuss a solution
+to this below.
+24.3.1
+Basic score matching
+Hyvärinen [Hyv05b] shows that, under certain regularity conditions, the Fisher divergence can be
+rewritten using integration by parts, with second derivatives of Eθ(x) replacing the unknown first
+derivatives of pD(x):
+DF (pD(x) ∥pθ(x)) = EpD(x)
+"
+1
+2
+d
+X
+i=1
+∂Eθ(x)
+∂xi
+2
+−∂2Eθ(x)
+∂x2
+i
+#
++ constant
+(24.29)
+= EpD(x)
+1
+2||sθ(x)||2 + tr(Jxsθ(x))
+
++ constant
+(24.30)
+where d is the dimensionality of x, and Jxsθ(x) is the Jacobian of the score function. The constant
+does not affect optimization and thus can be dropped for training. It is shown by [Hyv05b] that
+estimators based on score matching are consistent under some regularity conditions, meaning that
+the parameter estimator obtained by minimizing Equation (24.28) converges to the true parameters
+in the limit of infinite data. See Figure 25.5 for an example.
+An important downside of the objective Equation (24.30) is that it takes O(d2) time to compute
+the trace of the Jacobian. For this reason, the implicit SM formulation of Equation (24.30) has only
+been applied to relatively simple energy functions where computation of the second derivatives is
+tractable.
+Score Matching assumes a continuous data distribution with positive density over the space, but it
+can be generalized to discrete or bounded data distributions [Hyv07b; Lyu12]. It is also possible to
+consider higher-order gradients of log pdf’s beyond first derivatives [PDL+12].
+“Probabilistic Machine Learning: Advanced Topics”. Online version. December 10, 2025
+
+
+===== [Page 891] =====
+24.3. Score matching (SM)
+857
+24.3.2
+Denoising score matching (DSM)
+The Score Matching objective in Equation (24.30) requires several regularity conditions for log pD(x),
+e.g., it should be continuously differentiable and finite everywhere. However, these conditions may
+not always hold in practice. For example, a distribution of digital images is typically discrete and
+bounded, because the values of pixels are restricted to the range {0, 1, · · · , 255}. Therefore, log pD(x)
+in this case is discontinuous and is negative infinity outside the range, and thus SM is not directly
+applicable.
+To alleviate this, one can add a bit of noise to each datapoint: ˜x = x + ϵ. As long as the noise
+distribution p(ϵ) is smooth, the resulting noisy data distribution q(˜x) =
+R
+q(˜x | x)pD(x)dx is also
+smooth, and thus the Fisher divergence DF (q(˜x) ∥pθ(˜x)) is a proper objective. [KL10] showed that
+the objective with noisy data can be approximated by the noiseless Score Matching objective of
+Equation (24.30) plus a regularization term; this regularization makes Score Matching applicable to
+a wider range of data distributions, but still requires expensive second-order derivatives.
+[Vin11] proposed an elegant and scalable solution to the above difficulty, by showing that:
+DF (q(˜x) ∥pθ(˜x)) = Eq(˜x)
+1
+2 ∥∇˜x log pθ(˜x) −∇˜x log q(˜x)∥2
+2
+
+(24.31)
+= Eq(x,˜x)
+1
+2 ∥∇˜x log pθ(˜x) −∇˜x log q(˜x|x)∥2
+2
+
+(24.32)
+= 1
+2Eq(x,˜x)
+"
+
+
+
+sθ(˜x) −(x −˜x)
+σ2
+
+
+
+
+
+2
+2
+#
++ const
+(24.33)
+where sθ(˜x) = ∇˜x log pθ(˜x) is the estimated score function, and
+∇x log q(˜x|x) = ∇x log N(˜x|x, σ2I) = −(˜x −x)
+σ2
+(24.34)
+The directional term x −˜x corresponds to moving from the noisy input towards the clean input, and
+we want the score function to approximate this denoising operation. (We will see this idea again in
+Section 25.3, where we discuss diffusion models.)
+To compute the expectation in Equation (24.33), we can sample from pD(x) and then sample the
+noise term ˜x. (The constant term does not affect optimization and can be ignored without changing
+the optimal solution.)
+This estimation method is called denoising score matching (DSM) by [Vin11]. Similar formula-
+tions were also explored by Raphan and Simoncelli [RS07; RS11] and can be traced back to Tweedie’s
+formula (Supplementary Section 3.3) and Stein’s unbiased risk estimation [Ste81].
+24.3.2.1
+Difficulties
+The major drawback of adding noise to data arises when pD(x) is already a well-behaved distribution
+that satisfies the regularity conditions required by score matching. In this case, DF (q(˜x) ∥pθ(˜x))̸ =
+DF (pD(x) ∥pθ(x)), and DSM is not a consistent objective because the optimal EBM matches the
+noisy distribution q(˜x), not pD(x). This inconsistency becomes non-negligible when q(˜x) significantly
+differs from pD(x).
+Author: Kevin P. Murphy. (C) MIT Press. CC-BY-NC-ND license
+
+
+===== [Page 892] =====
+858
+Chapter 24. Energy-based models
+One way to attenuate the inconsistency of DSM is to choose q ≈pD, i.e., use a small noise
+perturbation. However, this often significantly increases the variance of objective values and hinders
+optimization. As an example, suppose q(˜x | x) = N(˜x | x, σ2I) and σ ≈0. The corresponding DSM
+objective is
+DF (q(˜x) ∥pθ(˜x)) = EpD(x)Ez∼N(0,I)
+1
+2
+
+
+
+ z
+σ + ∇x log pθ(x + σz)
+
+
+
+
+2
+2
+
+≃
+1
+2N
+N
+X
+i=1
+
+
+
+
+
+z(i)
+σ
++ ∇x log pθ(x(i) + σz(i))
+
+
+
+
+
+2
+2
+,
+(24.35)
+where {x(i)}N
+i=1
+i.i.d.
+∼pD(x), and {z(i)}N
+i=1
+i.i.d.
+∼N(0, I). When σ →0, we can leverage Taylor series
+expansion to rewrite the Monte Carlo estimator in Equation (24.35) to
+1
+2N
+N
+X
+i=1
+ 2
+σ (z(i))T∇x log pθ(x(i)) +
+
+
+z(i)
+
+2
+2
+σ2
+
++ constant.
+(24.36)
+When estimating the above expectation with samples, the variances of (z(i))T∇x log pθ(x(i))/σ and
+
+
+z(i)
+
+2
+2 /σ2 will both grow unbounded as σ →0 due to division by σ and σ2. This enlarges the
+variance of DSM and makes optimization challenging. Various methods have been proposed to reduce
+this variance (see e.g., [Wan+20d]).
+24.3.3
+Sliced score matching (SSM)
+By adding noise to data, DSM avoids the expensive computation of second-order derivatives. However,
+as mentioned before, the optimal EBM that minimizes the DSM objective corresponds to the
+distribution of noise-perturbed data q(˜x), not the original noise-free data distribution pD(x). In other
+words, DSM does not give a consistent estimator of the data distribution, i.e., one cannot directly
+obtain an EBM that exactly matches the data distribution even with unlimited data.
+Sliced score matching (SSM) [Son+19] is one alternative to Denoising Score Matching that is
+both consistent and computationally efficient. Instead of minimizing the Fisher divergence between
+two vector-valued scores, SSM randomly samples a projection vector v, takes the inner product
+between v and the two scores, and then compares the resulting two scalars. More specifically, sliced
+score matching minimizes the following divergence called the sliced Fisher divergence:
+DSF (pD(x)||pθ(x)) = EpD(x)Ep(v)
+1
+2(vT∇x log pD(x) −vT∇x log pθ(x))2
+
+,
+(24.37)
+where p(v) denotes a projection distribution such that Ep(v)[vvT] is positive definite. Similar to
+Fisher divergence, sliced Fisher divergence has an implicit form that does not involve the unknown
+∇x log pD(x), which is given by
+DSF (pD(x)∥pθ(x)) = EpD(x)Ep(v)
+
+1
+2
+d
+X
+i=1
+∂Eθ(x)
+∂xi
+vi
+2
++
+d
+X
+i=1
+d
+X
+j=1
+∂2Eθ(x)
+∂xi∂xj
+vivj
+
++ C.
+(24.38)
+“Probabilistic Machine Learning: Advanced Topics”. Online version. December 10, 2025
+
+
+===== [Page 893] =====
+24.3. Score matching (SM)
+859
+All expectations in the above objective can be estimated with empirical means, and again the
+constant term C can be removed without affecting training. The second term involves second-order
+derivatives of Eθ(x), but contrary to SM, it can be computed efficiently with a cost linear in the
+dimensionality d. This is because
+d
+X
+i=1
+d
+X
+j=1
+∂2Eθ(x)
+∂xi∂xj
+vivj =
+d
+X
+i=1
+∂
+∂xi
+
+d
+X
+j=1
+∂Eθ(x)
+∂xj
+vj
+
+|
+{z
+}
+:=f(x)
+vi,
+(24.39)
+where f(x) is the same for different values of i. Therefore, we only need to compute it once with
+O(d) computation, plus another O(d) computation for the outer sum to evaluate Equation (24.39),
+whereas the original SM objective requires O(d2) computation.
+For many choices of p(v), part of the SSM objective (Equation (24.38)) can be evaluated in closed
+form, potentially leading to lower variance. For example, when p(v) = N(0, I), we have
+EpD(x)Ep(v)
+"
+1
+2
+d
+X
+i=1
+∂Eθ(x)
+∂xi
+vi
+2#
+= EpD(x)
+"
+1
+2
+d
+X
+i=1
+∂Eθ(x)
+∂xi
+2#
+(24.40)
+and as a result,
+DSF (pD(x)∥pθ(x)) = EpD(x)Ev∼N(0,I)
+
+1
+2
+d
+X
+i=1
+∂Eθ(x)
+∂xi
+2
++
+d
+X
+i=1
+d
+X
+j=1
+∂2Eθ(x)
+∂xi∂xj
+vivj
+
++ C
+(24.41)
+= EpD(x)Ev∼N(0,I)
+1
+2(vTsθ(x))2 + vT[Jv]
+
+(24.42)
+where J = Jxsθ(x). (Note that Jv can be computed using a Jacobian vector product operation.)
+The above objective Equation (24.41) can also be obtained by approximating the sum of second-order
+gradients in the standard SM objective (Equation (24.30)) with the Hutchinson trace estimator [Ski89;
+Hut89; Mey+21]. It often (but not always) has lower variance than Equation (24.38), and can
+perform better in some applications [Son+19].
+24.3.4
+Connection to contrastive divergence
+Though score matching and contrastive divergence (Section 24.2.2) are seemingly very different
+approaches, they are closely connected to each other. In fact, score matching can be viewed as
+a special instance of contrastive divergence in the limit of a particular MCMC sampler [Hyv07a].
+Moreover, the Fisher divergence optimized by Score Matching is related to the derivative of KL
+divergence [Cov99], which is the underlying objective of Contrastive Divergence.
+Contrastive divergence requires sampling from the EBM Eθ(x), and one popular method for doing
+so is Langevin MCMC. Recall from Section 24.2.1 that given any initial datapoint x0, the Langevin
+MCMC method executes the following
+xk+1 ←xk −ϵ
+2∇xEθ(xk) + √ϵ zk,
+(24.43)
+Author: Kevin P. Murphy. (C) MIT Press. CC-BY-NC-ND license

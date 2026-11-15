@@ -168,11 +168,9 @@ class EDM_LOSS_NOD(nn.Module):
         if out_model["log_var"] is not None:
             log_var = out_model["log_var"].clamp(min=-10, max=10)
             uncertainty_scale = 1.0 / log_var.exp()
-            branch_uncertainty_scale = uncertainty_scale.detach()
         else:
             log_var = None
             uncertainty_scale = 1.0
-            branch_uncertainty_scale = 1.0
 
         # 3. Global Blend Loss (The "Truth")
         diff_blend = out_model["denoised"] - x
@@ -180,15 +178,13 @@ class EDM_LOSS_NOD(nn.Module):
         if log_var is not None:
             pure_loss = pure_loss + torch.mean(log_var)
 
-        # 4. UNet Branch Loss — LOW-FREQUENCY projection only (Fix 2)
+        # 4. UNet Branch Loss — full-spectrum trajectory-weighted loss (main NOD)
         unet_residual = out_model['unet_denoised'] - x
-        unet_low, _ = laplacian_decomposition(unet_residual, self.lap_kernel, self.lap_sigma)
-        unet_loss = torch.mean(weight * branch_uncertainty_scale * wx_unet.detach() * (unet_low ** 2))
+        unet_loss = torch.mean(weight * wx_unet.detach() * (unet_residual ** 2))
 
-        # 5. ViT Branch Loss — HIGH-FREQUENCY projection only (Fix 2)
+        # 5. ViT Branch Loss — full-spectrum trajectory-weighted loss (main NOD)
         vit_residual = out_model['vit_denoised'] - x
-        _, vit_high = laplacian_decomposition(vit_residual, self.lap_kernel, self.lap_sigma)
-        vit_loss = torch.mean(weight * branch_uncertainty_scale * wx_vit.detach() * (vit_high ** 2))
+        vit_loss = torch.mean(weight * wx_vit.detach() * (vit_residual ** 2))
 
         # 6. Total Loss Aggregation
         trajectory_loss = (

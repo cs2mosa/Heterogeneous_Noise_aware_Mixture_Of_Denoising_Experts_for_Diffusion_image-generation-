@@ -1,0 +1,870 @@
+# Source PDF: C:\Users\Maha Mamdouh\Desktop\ML learning phase\deep learning math books\deep learning architectures , a mathematical approach.pdf
+# Extracted Pages: 209-219 of 768
+
+
+===== [Page 209] =====
+186
+Deep Learning Architectures, A Mathematical Approach
+In this case the deltas of the output layer are computed as
+δ(L)
+j
+=
+∂C
+∂s(L)
+j
+= −
+∂
+∂s(L)
+j
+ 
+k
+zk ln σ(s(L)
+k ) +
+
+k
+(1 −zk) ln(1 −σ(s(L)
+k ))
+
+=
+−zj
+σ′(s(L)
+j
+)
+σ(s(L)
+j
+)
++ (1 −zj)
+σ′(s(L)
+j
+)
+1 −σ(s(L)
+j
+)
+=
+−zj(1 −σ(s(L)
+j
+)) + (1 −zj)σ(s(L)
+j
+)
+=
+σ(s(L)
+j
+) −zj = x(L)
+j
+−zj,
+where we have used the useful property σ′(x) = σ(x)(1 −σ(x)). Hence, in
+this case the deltas are equal to the diﬀerences between the model outcomes
+and target values, δ(L) = x(L) −z.
+6.2.6
+Gradient descent algorithm
+Consider a neural network with the initial system of weights and biasses
+given by w(ℓ)
+ij (0) and b(ℓ)
+j (0). The weights can be initialized eﬃciently by
+the procedure described in section 6.3. Let η > 0 be the learning rate. The
+optimum values of weights and biasses after the network is trained with the
+gradient descent algorithm are given by the approximation sequences deﬁned
+recursively by
+w(ℓ)
+ij (n + 1)
+=
+w(ℓ)
+ij (n) −ηδ(ℓ)
+j (n)x(ℓ−1)
+i
+(n)
+b(ℓ)
+j (n + 1)
+=
+b(ℓ)
+j (n) + ηδ(ℓ)
+j (n),
+where the outputs x(ℓ)
+i (n) and deltas δ(ℓ)
+j (n) depend of the weights, w(ℓ)
+ij (n),
+and biasses, b(ℓ)
+j (n), obtained at the nth step. We note that when writing the
+above equations we have used the aforementioned formulas for
+∂C
+∂w(ℓ)
+ij
+and
+∂C
+∂b(ℓ)
+j
+.
+6.2.7
+Vanishing gradient problem
+Assume we have a neural network where all neurons have the activation
+function given by the logistic function σ. If a signal is too large in absolute
+value, then the logistic function saturates, approaching either 0 or 1, fact
+that, via formula (6.2.23), implies that δ(ℓ−1)
+i
+is equal, or close, to zero.
+On the other side, since σ′ = σ(1 −σ), it is easy to show that 0 < σ′ ≤
+1/4. This implies via (6.2.23) that backpropagation through a sigmoid layer
+reduces the gradient by a factor of at least 4. After propagating through sev-
+eral layers, see formulae (6.2.16) and (6.2.18), the resulting gradient becomes
+
+
+===== [Page 210] =====
+Neural Networks
+187
+very small, fact that implies a slow, or a stopped learning. This phenomenon
+is called the vanishing gradient problem.
+From the geometrical point of view, this means that the cost surface
+(w, b) →C(w, b) has ﬂat regions, called plateaus. The plain-vanilla gradient
+descent method does not perform well on plateaus. In order to get the iter-
+ation out of a plateau, the method needs to be adjusted with a momentum
+term or a stochastic perturbation, see section 4.13. Another way to minimize
+the vanishing gradient problem is to use activation functions which do not
+saturate. Improved results can be obtained sometimes by using ReLU, or
+other hockey-type activation functions.
+To conclude, the neuron learning process in the gradient descent method
+is aﬀected by two ingredients: the learning rate, η, and the size of the cost
+function gradient, ∇C. If the learning rate is too large, the algorithm will not
+converge, the approximating sequence being oscillatory. On the other side,
+if it is too small, then the algorithm will take a long time to converge and
+might also get stuck in a point of local minimum.
+The size of the gradient, ∇C, depends on two things: the type of activa-
+tion function used, φ, and the choice of the cost function, C. The gradient
+∇C depends on deltas δ(ℓ)
+j , which depend on the derivative of the learn-
+ing function, φ′. Given the aforementioned saturation tendency of sigmoidal
+functions, it is recommended to used ReLU activation function for deep feed-
+forward neural networks.
+The choice of the cost function can also aﬀect the learning eﬃciency. In
+the next table we provide three cost functions and their deltas in the output
+layers, δ(L)
+j
+, which will be backpropagated to obtain the other deltas, δ(ℓ)
+j .
+The formulas are written for a sigmoid neuron, i.e., φ = σ.
+Cost formula
+Deltas
+1
+2∥x(L) −z∥2
+δ(L)
+j
+= (x(L)
+j
+−zj)σ′(s(L)
+j
+)
+− zk ln x(L)
+k
+δ(L)
+j
+= −zj(1 −σ(s(L)
+j
+))
+− zk ln x(L)
+k
+−(1 −zk) ln(1 −x(L)
+k )
+δ(L)
+j
+= x(L)
+j
+−zj
+The ﬁrst line, which corresponds to the quadratic cost, has a delta in the
+output layer that depends on σ′, which by backpropagation inﬂuences the
+vanishing gradient tendency.
+The second line corresponds to the cross-entropy function2 and has a term
+2This has the semantic interpretation that targets that take on the value zero are unob-
+servable.
+
+
+===== [Page 211] =====
+188
+Deep Learning Architectures, A Mathematical Approach
+(1 −σ) which may lead to vanishing gradient behavior, but not as much as
+in the case of the quadratic error.
+The last line shows that the symmetric entropy delta is independent of
+the activation function, and hence, this produces the least vanishing gradient
+eﬀect among all aforementioned cost functions.
+There is one more factor that inﬂuences learning eﬃciency. This is the
+weights initialization. We shall deal with this important problem in section
+6.3.
+6.2.8
+Batch training
+Assume you are in an unknown city looking for the Science Museum. The
+only information you can get are directives from the people you meet in the
+street. It would be ideal to obtain directives from all people in town and then
+average their opinion, but this procedure is time consuming and hence not
+always feasible, if the town is large. Therefore, you are left with the options
+of asking one, or several individuals about the correct direction.
+If you ask one individual “Where is the Science Museum?”, you are given
+a directive, which may or may not be fully trustfully. However, you take the
+chance to go a certain distance in the suggested direction. Then ask again
+and walk another distance into the new suggested direction. This way, you
+are getting closer to the museum and eventually getting there.
+There is another way to navigate toward the museum. Ask a group of
+100 tourists about the museum direction and average out their suggested
+directions. This way, being more conﬁdent, you will walk for a larger distance
+into the average direction. Then repeat the procedure by asking again. In the
+latter case you expect to get to the museum sooner than in the former, since
+the learning rate is larger and you move into a more trustful direction.
+A similar situation occurs when the gradient descent method is used. Each
+input X(0) produces a gradient direction ∇C(X(0)). Using full input data to
+compute the gradient of the cost function would provide the best result,
+∇C(X(0)), but this procedure has the disadvantage that is time expensive.
+Therefore, a trade-oﬀbetween accuracy and computation time is made by
+sampling a random minibatch and computing an estimation of the gradient
+from it. If consider a minibatch of N inputs, {X(0,1), . . . , X(0,N)}, the average
+direction is
+
+∇C = 1
+N
+N
+
+k=1
+∇C(X(0,k)).
+By the Central Limit Theorem averages tend to have a smaller vari-
+ance than each individual outcome. More precisely, if the inputs are indepen-
+dent random variables, then the average gradient 
+∇C has the same mean as
+
+
+===== [Page 212] =====
+Neural Networks
+189
+a
+b
+Figure 6.6: a. Updating weights in the case of a small batch requires a large
+number of steps. b. Updating weights in the case of a large batch needs fewer
+steps.
+∇C(X(0,k)) and the variance N times smaller. For instance, if the batch size
+is N = 100, the error of the mean direction 
+∇C is one digit more accurate
+than the raw direction 
+∇C. Since the error is smaller, we are more conﬁdent
+in proceeding into this direction for ﬁnding the minimum, and hence we may
+choose a larger learning rate, at least in the beginning.
+The procedure of updating the network parameters using the gradient
+descent method with a gradient estimated as an average of gradients mea-
+sured on randomly selected training samples is called the stochastic gradient
+descent method.
+It is worth noting the trade-oﬀbetween the size of the batch and the
+training time, see Fig. 6.6. The larger the size of the batch, the more accurate
+the direction of the gradient, but the longer it takes to train. The fewer data
+fed into a batch, the faster the training but the less representative the result
+is. For instance, in the case of the MNIST data, the usual batch size used in
+practice is about 30.
+6.2.9
+Deﬁnition of FNN
+After working with feedforward neural networks at a heuristic level, we shall
+provide in this section, for the sake of mathematical completeness, a formal
+deﬁnition of this concept.
+First, we shall review all the ingredients used so far in the construction.
+We have seen that a feedforward neural network contains neurons arranged
+in L + 1 distinct layers. The ﬁrst layer corresponding to the input data is
+
+
+===== [Page 213] =====
+190
+Deep Learning Architectures, A Mathematical Approach
+obtained for ℓ= 0 and the output layer is realized for ℓ= L. The jth neuron
+in layer ℓhas the activation x(ℓ)
+j . For the input layer, x(0)
+j , the activations come
+from the input data, while for the other layers the activations are computed
+in the terms of the previous layer activations by the forward pass formula
+x(ℓ)
+j
+= φ(ℓ) 
+i
+w(ℓ)
+ij x(ℓ−1)
+i
+−b(ℓ)
+j
+
+.
+Here, φ(ℓ) is the activation function and w(ℓ)
+ij
+and b(ℓ)
+j
+are the weights and
+biasses of the neurons in the ℓth layer. We also note that s(ℓ)
+j
+= 
+i w(ℓ)
+ij x(ℓ−1)
+i
+−
+b(ℓ)
+j
+is an aﬃne function of x(ℓ−1)
+i
+and the activation x(ℓ)
+j
+is obtained by apply-
+ing the function φ on s(ℓ)
+j .
+Now we pursue a higher level of abstraction. We shall denote by F(U) =
+{f : U →R} the set of real-valued functions deﬁned on the set U. Consider
+the set of indices Uℓ= {1, 2, . . . , d(ℓ)}. Implement the aﬃne function
+αℓ: F(Uℓ−1) →F(Uℓ)
+by αℓ(x(ℓ−1)) = s(ℓ). Then x(ℓ) = (φ(ℓ) ◦αℓ)(x(ℓ−1)) is obtained composing
+the aﬃne function on the previous layer activation with the nonlinearity φ.
+The formal deﬁnition of a feedforward neural network is as in the following.
+Deﬁnition 6.2.5 Let Uℓ= {1, 2, . . . , d(ℓ)}, 0 ≤ℓ≤L, and consider the
+sequence of aﬃne functions α1, . . . , αL
+αℓ: F(Uℓ−1) →F(Uℓ)
+and the sequence of activation functions φ(ℓ) : R →R. Then the corresponding
+feedforward neural network is the sequence of maps f0, f1, . . . , fL, where
+fℓ= φ(ℓ) ◦αℓ◦fℓ−1,
+1 ≤ℓ≤L,
+with f0 given.
+Hence, a deep feedforward neural network produces a sequence of pro-
+gressively more abstract reparametrizations, fℓ, by mapping the input, f0,
+through a series of parametrized functions, αℓ, and nonlinear activation func-
+tions, φ(ℓ). The network’s output is given by
+fL = φ(L) ◦αL ◦φ(L−1) ◦αL−1 ◦· · · ◦φ(1) ◦α1.
+The number L is referred as the depth of the network and max{d(1), . . . , d(L−1)}
+as the width. In the case of regression problems the last activation function
+is linear, φ(L)(x) = x. For classiﬁcation problems, the the last activation
+function is a softmax, φ(L)(x) = softmax(x), while in the case of logistic
+regression the activation function is a logistic sigmoid, φ(L)(x) = σ(x).
+
+
+===== [Page 214] =====
+Neural Networks
+191
+6.3
+Weights Initialization
+In the case of networks with a small number of layers initializing all weights
+and biasses to zero, or sample them from a uniform or a Gaussian distribution
+of zero mean, usually provides satisfactory enough convergence results. How-
+ever, in the case of deep neural networks, a correct initialization of weights
+makes a signiﬁcant diﬀerence in the way the convergence of the optimality
+algorithm works.
+The magnitude of weights plays an important role in avoiding as much
+as possible the vanishing and exploding gradient problems. This will be
+described in the following two marginal situations.
+(i) If the weights are too close to zero, then the variance of the input
+signal decreases as it passes through each layer of the network.
+This heuristic statement is based on the following computation. Let X(ℓ)
+j
+denote the output of the jth neuron in the ℓth layer. The outputs between
+two consecutive layers are given by the forward propagation equation
+X(ℓ)
+j
+= φ
+ 
+i
+W (ℓ)
+ij X(ℓ−1)
+i
+−b(ℓ)
+j
+
+.
+Using the Appendix formula (D.4.1)
+V ar(f(X)) ≈f′
+E[X]
+2V ar(X),
+the aforementioned equation provides the variance of neuron activations in the
+ℓth layer in terms of variances of neuron activations in the previous layer as
+V ar(X(ℓ)
+j ) ≈φ′ 
+i
+W (ℓ)
+ij E[X(ℓ−1)
+i
+] −b(ℓ)
+j
+2 
+i
+W (ℓ)
+ij V ar(X(ℓ−1)
+i
+)
+
+. (6.3.35)
+By Cauchy’s inequality, we have
+
+i
+W (ℓ)
+ij V ar(X(ℓ−1)
+i
+) ≤
+ 
+i
+(W (ℓ)
+ij )21/2 
+i
+V ar(X(ℓ−1)
+i
+)21/2
+.
+Making the assumption that the activation function has a bounded derivative,
+(φ′)2 < c, then taking the sum over j and using Cauchy’s inequality yields
+
+j
+V ar(X(ℓ)
+j )2 < C2 
+i,j
+(W (ℓ)
+ij )2 
+i
+V ar(X(ℓ−1)
+i
+)2.
+This shows that for small weights W (ℓ)
+ij
+the sum of squares of variances in the
+ℓth layer is smaller than the sum of squares of variances in the (ℓ−1)th layer.
+Iterating the previous inequality, it follows that the signal’s variance decreases
+
+
+===== [Page 215] =====
+192
+Deep Learning Architectures, A Mathematical Approach
+to zero after passing through a certain number of layers. Therefore, after
+passing through a few layers, the signal becomes too low to be signiﬁcant.
+(ii) If the weights are too large, then either the variance of the signal
+tends to get ampliﬁed as it passes through the network layers, or the network
+approaches a vanishing gradient problem.
+If the weights W (ℓ)
+ij
+are large, the sum 
+i W (ℓ)
+ij X(ℓ−1)
+i
+also gets large. If the
+activation function is linear, φ(x) = x, then
+V ar(X(ℓ)
+j ) =
+
+i
+W (ℓ)
+ij V ar(X(ℓ−1)
+i
+),
+which implies that V ar(X(ℓ)
+j ) is large.
+If the activation function φ is of sigmoid type, then when the weights W (ℓ)
+ij
+are large the sum 
+i W (ℓ)
+ij X(ℓ−1)
+i
+tends to have large values, and hence the
+activation function φ becomes saturated, fact that leads to an approaching
+zero gradient problem.
+Hence, neither choosing the weights too close to zero, or choosing them
+far too large is a feasible initialization, since in both cases the initialization is
+outside the right basin of attraction of the optimization procedure. We need
+to initialize the weights with values in a reasonable range before we start
+training the network. We shall deal next with the problem of ﬁnding this
+reasonable range.
+The main idea is based on the fact that the propagation of the signal
+error through a deep neural network can be quantized by the signal variance,
+namely the variance of the neuron activations. In order to keep the variance
+under control, away from exploding or vanishing values, the simplest way is
+to ﬁnd the weights values for which the variance remains roughly unchanged
+as the signal passes through each layer. Since assigning the initial weights is
+a random process, we assume the weights to be either uniform- or Gaussian-
+distributed random variables with zero mean.
+To make notations simpler, after we ﬁx a layer ℓ, we denote the incoming
+and outgoing vector signals from that layer by X = X(ℓ−1) and Y = X(ℓ),
+respectively. The number of the neurons into the layer ℓwill be denoted in
+this section by N = d(ℓ−1). The jth component of Y is given by
+Yj = φ
+ 
+i
+WijXi + bj
+
+,
+where Wij are random variables with E[Wij] = 0, and Xi are indepen-
+dent, identically distributed random variables, with zero mean (for instance,
+
+
+===== [Page 216] =====
+Neural Networks
+193
+Gaussian distributed with zero mean). It makes sense to assume that Wij
+and Xi are independent. Also, the bias bj is a constant (usually initialized
+to zero). Using the Appendix formula (D.4.1), the variance of Yj is approxi-
+mately given by
+V ar(Yj)
+=
+φ′ 
+i
+E[WijXi] + bj
+2
+V ar
+ 
+i
+WijXi
+
+=
+φ′(bj)2 
+i
+V ar(WijXi)
+=
+φ′(bj)2 
+i
+V ar(Wij)V ar(Xi)
+=
+Nφ′(0)2V ar(Wij)V ar(Xi),
+where in the second identity we used E[WijXi] = E[Wij]E[Xi] = 0 and the
+additivity of variance with respect to independent random variables. In the
+third identity we used the multiplicative property of variance as given by
+Goodman’s formula, see Lemma D.4.1 from Appendix. In the last identity
+we used that both weights Wij and inputs Xi are identically distributed and
+the number of incoming neurons is N. We also initialized here the bias bj = 0.
+Asking the condition that the variance is invariant under the ℓth layer,
+i.e., V ar(Yj) = V ar(Xi) , we obtain
+Nφ′(0)2V ar(Wij)V ar(Xi) = V ar(Xi).
+Simplifying by V ar(Xi), we obtain the variance of the weights
+V ar(Wij) =
+1
+Nφ′(0)2 .
+(6.3.36)
+We encounter two useful cases:
+1. If Wij are drawn from a normal distribution, then Wij ∼N
+
+0,
+1
+Nφ′(0)2
+
+. In
+the case of a linear activation, φ′(0) = 1, we have Wij ∼N
+
+0, 1
+N
+
+.
+2. If Wij are drawn from a uniform distribution on [−a, a], with zero mean,
+Wij ∼Unif[−a, a], then equating their variances,
+1
+Nφ′(0)2 = a2
+3 , yields
+a =
+√
+3
+φ′(0)
+√
+N . Hence, Wij ∼Unif
+
+−
+√
+3
+φ′(0)
+√
+N
+,
+√
+3
+φ′(0)
+√
+N
+
+.
+It is worth noting how the activation function nonlinearity at 0 inﬂuences
+the range of the initialization interval. The larger the slope at zero, the nar-
+rower the interval. One way to use this for obtaining better results is to set
+φ′(0) to be a new hyperparameter and tune it on a validation set.
+Xavier initialization These weight initializations have taken into account
+only the number of the input neurons, N, into the layer ℓ, using a forward
+
+
+===== [Page 217] =====
+194
+Deep Learning Architectures, A Mathematical Approach
+propagation point of view described by the invariance relation V ar(X(ℓ)) =
+V ar(X(ℓ+1)). For preserving the backpropagated signal as well, Glorot and
+Bengio [43] worked a formula involving also the outgoing number of neurons,
+called the Xavier initialization. This involves a backpropagation point of
+view, which is based on the assumption that the variances of the cost function
+gradient remain unchanged as the signal backpropagates through the ℓth
+layer, i.e.,
+V ar
+
+∂C
+∂W (ℓ−1)
+ij
+
+= V ar
+ ∂C
+∂W (ℓ)
+ij
+
+.
+Using the chain rule equation (6.2.27) the previous equation becomes
+V ar
+
+δ(ℓ−1)
+j
+X(ℓ−2)
+i
+
+= V ar
+
+δ(ℓ)
+j X(ℓ−1)
+i
+
+,
+where δ(ℓ)
+j
+=
+∂C
+∂s(ℓ)
+j
+. In order to make progress with the computation we shall
+assume that the activation function is linear, φ(x) = x, i.e., the neuron is of
+linear type. Under this condition the equation (6.2.26) is written as
+δ(ℓ−1)
+i
+= φ′(s(ℓ−1)
+i
+)
+N′
+
+j=1
+δ(ℓ)
+j W (ℓ)
+ij
+=
+N′
+
+j=1
+δ(ℓ)
+j W (ℓ)
+ij ,
+(6.3.37)
+where N ′ = d(ℓ) is the number of neurons in the ℓth layer. Since δ(ℓ)
+j
+and W (ℓ)
+ij
+are independent, see Exercise 6.6.7, then we have
+E
+ N′
+
+j=1
+δ(ℓ)
+j W (ℓ)
+ij
+
+=
+N′
+
+j=1
+E[δ(ℓ)
+j ]E[W (ℓ)
+ij ] = 0,
+where we used that E[W (ℓ)
+ij ] = 0. Therefore, E[δ(ℓ−1)
+i
+] = 0, and similarly,
+E[δ(ℓ)
+i ] = 0. Assuming that E[X(ℓ−2)
+i
+] = E[X(ℓ−1)
+i
+] = 0, and using the indepen-
+dence of δ(ℓ)
+j
+and x(ℓ−1)
+i
+, see Exercise 6.6.7, then Goodman’s formula (Lemma
+D.4.1) yields
+V ar
+
+δ(ℓ−1)
+j
+
+V ar
+
+X(ℓ−2)
+i
+
+= V ar
+
+δ(ℓ)
+j
+
+V ar
+
+X(ℓ−1)
+i
+
+.
+Using the forward propagation relation V ar
+
+X(ℓ−2)
+i
+
+= V ar
+
+X(ℓ−1)
+i
+
+, it fol-
+lows that the deltas variance remains unchanged
+V ar
+
+δ(ℓ−1)
+j
+
+= V ar
+
+δ(ℓ)
+j
+
+.
+Applying the variance to equation (6.3.37), using the independence and
+Goodman’s formula, we obtain
+V ar(δ(ℓ−1)
+i
+) =
+N′
+
+j=1
+V ar(δ(ℓ)
+j )V ar(W (ℓ)
+ij ) = N′V ar(δ(ℓ)
+j )V ar(W (ℓ)
+ij ),
+
+
+===== [Page 218] =====
+Neural Networks
+195
+where we also used the fact that the weights and deltas are identically
+distributed. Dividing the last two equations, we arrive at the relation
+N′V ar(W (ℓ)
+ij ) = 1, or equivalently
+V ar(W (ℓ)
+ij ) = 1
+N′ ,
+(6.3.38)
+i.e., the variance of the weights in the ℓth layer is inversely proportional to
+the number of neurons in that layer. Under the assumption of the linear
+activation function, formula (6.3.36) becomes
+V ar(W (ℓ)
+ij ) = 1
+N ,
+(6.3.39)
+where N is the number of neurons in the (ℓ−1)th layer.
+Now, the equations (6.3.38) and (6.3.39) are satisﬁed simultaneously only
+in the case N = N′, i.e., when the number of neurons is the same in any two
+consecutive layers. Since this condition is too restrictive, a lucrative compro-
+mise is to take the arithmetic average of the two, the case in which
+V ar(W (ℓ)
+ij ) =
+2
+N + N′ ,
+(6.3.40)
+where N = d(ℓ−1) and N′ = d(ℓ).
+Again, we emphasize two cases of practical importance:
+1. If Wij are drawn from a normal distribution, then Wij ∼N
+
+0,
+2
+N+N′
+
+.
+2. If Wij are drawn from a uniform distribution with zero mean, then Wij ∼
+Unif
+
+−
+√
+6
+√
+N + N′ ,
+√
+6
+√
+N + N′
+
+, which is also known as the normalized ini-
+tialization.
+In conclusion, a reasonable initialization of weights, even it might not
+totally solve the vanishing and exploding gradient problems, it still improves
+signiﬁcantly the backpropagation algorithm functionality.
+6.4
+Strong and Weak Priors
+In the context of neural networks, a prior is a probability distribution over
+the parameters (weights and biasses) that encodes our initial beliefs before
+we have seen the data.
+A prior is called weak if its entropy is high, i.e., if the initial belief about
+the parameters distribution is not very speciﬁc. A prior is called strong if its
+entropy is small, i.e., if the initial belief about parameters distribution is very
+speciﬁc.
+
+
+===== [Page 219] =====
+196
+Deep Learning Architectures, A Mathematical Approach
+This section will discuss the previous initializations in the aforementioned
+context. First, we recall from Chapter 12 that the entropy of a probability
+distribution p is given by
+H(p) = −
+
+
+p(x) ln p(x) dx.
+We shall consider only those priors p with positive entropy only.
+(i) In the case when Wij ∼Unif
+
+−
+√
+3
+φ′(0)
+√
+N
+,
+√
+3
+φ′(0)
+√
+N
+
+, then by Exer-
+cise 6.6.10 we have the entropy
+H(pW ) = ln
+2
+√
+3
+φ′(0)
+√
+N
+,
+where pW denotes the probability density of the weights Wij. Consequently,
+the prior becomes strong if the number of neurons N is large.
+(ii) In the case of Xavier initialization, Wij ∼N
+
+0,
+2
+N+N′
+
+. Then by
+Exercise 6.6.11 we have
+H(pW ) = ln
+2√e
+√
+N + N′ .
+Hence, a large number of incoming and outgoing neurons makes the prior to
+be strong.
+6.5
+Summary
+A neural network is obtained by a concatenation of several layers of neurons.
+The ﬁrst layer corresponds to the input while the last one to the output. The
+inner layers are called hidden layers. This chapter was concerned only with
+the feedforward neural networks. These are networks where the information
+ﬂows forward, from the input to the output.
+Neural networks are used for learning complicated features, which a sin-
+gle neuron can’t do. They are trained by the gradient descent method. An
+important ingredient of this method is to compute the gradient of the cost
+function. The gradient is computed by a recursive method called backprop-
+agation. The master equations for both forward and backward propagation
+are provided in detail.
+Sometimes it is more lucrative to compute the gradient using an average
+over a training minibatch, which leads to the stochastic gradient descent
+method. The optimal size of the minibatch depends on the problem and can
+be considered as a trade-oﬀbetween the training time and obtained accuracy.

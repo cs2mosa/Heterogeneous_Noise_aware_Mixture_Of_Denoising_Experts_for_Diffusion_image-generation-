@@ -113,6 +113,7 @@ class SpatialCrossAttn(nn.Module):
             num_heads=num_heads, emb_dim=channels, seq_ln=77,
             context_dim=text_dim, is_cross_attn=True
         )
+        self.ca_gate = nn.Parameter(torch.full((1,), 0.1))
 
     def forward(self, x: torch.Tensor, text_emb: torch.Tensor) -> torch.Tensor:
         B, C, H, W = x.shape
@@ -121,7 +122,15 @@ class SpatialCrossAttn(nn.Module):
         # [NEW] Inject spatial coordinates so the Attention knows where it is!
         x_seq = self.pos_encoder(x_seq, t=0.5)
 
-        x_seq = self.attn(query=x_seq, context=text_emb, gain_s=1.0, gain_t=1.0)
+        cross_out = self.attn(
+            query=x_seq, context=text_emb, gain_s=1.0, gain_t=1.0, apply_residual=False
+        )
+        x_seq = m.mp_gated_sum(
+            x_seq.reshape(B * (H * W), C),
+            cross_out.reshape(B * (H * W), C),
+            t=self.attn.attn_balance,
+            gate=self.ca_gate,
+        ).reshape(B, H * W, C)
         return x_seq.transpose(1, 2).view(B, C, H, W)
 
 class Unet_block(nn.Module):
@@ -175,8 +184,9 @@ class Unet_block(nn.Module):
         self.conv_res1 = m.MP_Conv(in_channels=out_channels if self.type == 'enc' else in_channels,
                                    out_channels=out_channels, kernel=self.kernel)
         self.conv_res2 = m.MP_Conv(in_channels=out_channels, out_channels=out_channels, kernel=self.kernel)
-        # Keep MP_Conv weights on the unit sphere; use a scalar gate for safe identity init (Fix 3)
-        self.res_gate = nn.Parameter(torch.zeros(1))
+        # Keep MP_Conv weights on the unit sphere; internal residual starts open at 0.1 so
+        # only the branch endpoint gate is zero-initialized (prevents nested 0*0 saddle)
+        self.res_gate = nn.Parameter(torch.full((1,), 0.1))
 
     def forward(self,
                 x: torch.Tensor,
@@ -474,11 +484,13 @@ class Vit_block(nn.Module):
         self.linear1 = m.MP_Conv(num_channels, emb_dim, kernel=(3, 3))
         self.TMSA = m.MP_Attention(num_heads=num_heads, emb_dim=emb_dim, seq_ln=seq_ln, time_dim=time_dim,
                                    attn_balance=attn_balance, time_balance=emb_balance)
-        # MLP used after the TMSA attention; keep MP_Conv weights on the unit sphere and gate residually (Fix 3)
+        # MLP used after the TMSA attention; internal gates start open at 0.1 so
+        # only the branch endpoint gate is zero-initialized (prevents nested 0*0 saddle)
         self.linear2 = m.MP_Conv(emb_dim, emb_dim * 4, kernel=())
         self.linear3 = m.MP_Conv(emb_dim * 4, emb_dim, kernel=())
-        self.tmsa_gate = nn.Parameter(torch.zeros(1))
-        self.mlp_gate = nn.Parameter(torch.zeros(1))
+        self.tmsa_gate = nn.Parameter(torch.full((1,), 0.1))
+        self.ca_gate = nn.Parameter(torch.full((1,), 0.1))
+        self.mlp_gate = nn.Parameter(torch.full((1,), 0.1))
 
     def forward(self,
                 x: torch.Tensor,
@@ -536,8 +548,16 @@ class Vit_block(nn.Module):
         ).reshape(batch_size, seq_ln, self.emb_dim)
 
         if self.cross_attn is not None and text_embedding is not None:
-            # MP_Attention handles the residual summation internally; y retains unit variance at step 0.
-            y = self.cross_attn(query=y, context=text_embedding, gain_s=self.gain_s, gain_t=self.gain_t)
+            cross_out = self.cross_attn(
+                query=y, context=text_embedding, gain_s=self.gain_s, gain_t=self.gain_t,
+                apply_residual=False,
+            )
+            y = m.mp_gated_sum(
+                y.reshape(batch_size * seq_ln, self.emb_dim),
+                cross_out.reshape(batch_size * seq_ln, self.emb_dim),
+                t=self.cross_attn.attn_balance,
+                gate=self.ca_gate,
+            ).reshape(batch_size, seq_ln, self.emb_dim)
 
         res_mlp = y.reshape(batch_size * seq_ln, self.emb_dim)
         x = m.normalize(res_mlp)
@@ -641,9 +661,16 @@ class Vit_expert(nn.Module):
                                          gain_t=gain_t,
                                          text_dim=text_dim))
 
-        # self.norm = nn.LayerNorm(emb_dim)
-        self.unpatch_proj = m.MP_Conv(in_channels=emb_dim, out_channels=in_channels * (patch_size ** 2), kernel=())
-        self.unpatch = nn.PixelShuffle(upscale_factor=patch_size)
+        self.patch_size = patch_size
+        self.in_channels = in_channels
+        self.unpatch_proj = m.MP_Conv(in_channels=emb_dim, out_channels=in_channels, kernel=())
+        if patch_size > 1:
+            # Bilinear token upsampling + full-res 3x3 detail skip removes PixelShuffle block aliasing
+            self.unpatch_skip = m.MP_Conv(in_channels=in_channels, out_channels=in_channels, kernel=(3, 3))
+            self.unpatch_refine = m.MP_Conv(in_channels=in_channels, out_channels=in_channels, kernel=(3, 3))
+        else:
+            self.unpatch_skip = None
+            self.unpatch_refine = None
 
     def forward(self,
                 x: torch.Tensor,
@@ -661,7 +688,7 @@ class Vit_expert(nn.Module):
         Returns:
             torch.Tensor: Output tensor (e.g., predicted noise). Shape (Batch, In_Channels, H, W).
         """
-        # Store original dimensions
+        x_in = x
         x = torch.cat([x, torch.ones_like(x[:, :1])], dim=1)
         batch, _, orig_h, orig_w = x.shape
         patch_size = self.patch.kernel[0]
@@ -686,12 +713,21 @@ class Vit_expert(nn.Module):
         x = x.reshape(batch * self.seq_ln, self.emb_dim)
         x = self.unpatch_proj(x)
 
-        c_expanded = x.shape[-1]
-        x = x.reshape(batch, self.seq_ln, c_expanded)
-        x = x.transpose(1, 2).view(batch, c_expanded, h_patch, w_patch)
-        x = self.unpatch(x)
-        # Crop back to original size
-        if pad_h > 0 or pad_w > 0:
+        x = x.reshape(batch, self.seq_ln, self.in_channels)
+        x = x.transpose(1, 2).view(batch, self.in_channels, h_patch, w_patch)
+        if self.patch_size > 1:
+            x = F.interpolate(
+                x,
+                size=(h_patch * self.patch_size, w_patch * self.patch_size),
+                mode='bilinear',
+                align_corners=False,
+            )
+            if pad_h > 0 or pad_w > 0:
+                x = x[:, :, :orig_h, :orig_w]
+            x = m.normalize(x)
+            detail_skip = self.unpatch_skip(m.normalize(x_in))
+            x = self.unpatch_refine(m.mp_sum(x, detail_skip, t=0.5))
+        elif pad_h > 0 or pad_w > 0:
             x = x[:, :, :orig_h, :orig_w]
 
         return x

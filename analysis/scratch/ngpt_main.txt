@@ -1,0 +1,467 @@
+# Source PDF: C:\Users\Maha Mamdouh\Desktop\ML learning phase\scientifc papers\NGPT  NORMALIZED TRANSFORMER WITH REPRE SENTATION LEARNING ON THE HYPERSPHERE.pdf
+# Extracted Pages: 1-6 of 21
+
+
+===== [Page 1] =====
+arXiv:2410.01131v1  [cs.LG]  1 Oct 2024
+Normalized Transformer
+NGPT: NORMALIZED TRANSFORMER WITH REPRE-
+SENTATION LEARNING ON THE HYPERSPHERE
+Ilya Loshchilov, Cheng-Ping Hsieh, Simeng Sun & Boris Ginsburg
+NVIDIA
+{iloshchilov,chsieh,simengs,bginsburg}@nvidia.com
+ABSTRACT
+We propose a novel neural network architecture, the normalized Transformer
+(nGPT) with representation learning on the hypersphere. In nGPT, all vectors
+forming the embeddings, MLP, attention matrices and hidden states are unit norm
+normalized. The input stream of tokens travels on the surface of a hypersphere,
+with each layer contributing a displacement towards the target output predictions.
+These displacements are deﬁned by the MLP and attention blocks, whose vector
+components also reside on the same hypersphere. Experiments show that nGPT
+learns much faster, reducing the number of training steps required to achieve the
+same accuracy by a factor of 4 to 20, depending on the sequence length.
+1
+INTRODUCTION
+The Transformer architecture (Vaswani et al., 2017) is the foundation for most of modern language
+models. An enormous number of modiﬁcations to this architecture have been proposed to improve
+training stability, inference costs, context length, robustness, etc. It has been noted that the ap-
+plication of various normalization techniques is beneﬁcial (Salimans & Kingma, 2016), leading to
+experiments with adding normalization layers such as LayerNorm and RMSNorm in nearly every
+possible position within the network (Xiong et al., 2020). Another approach to the model normal-
+ization is through controlling the norm of weights using weight decay (Loshchilov & Hutter, 2019).
+Recent studies (Andriushchenko et al., 2023) suggest reevaluating the role of weight decay and tak-
+ing a closer look at rotations rather than focusing solely on vector norms (Kodryan et al., 2022;
+Kosson et al., 2023). Franke et al. (2023) suggested to enforce an upper bound on L2 norm of pa-
+rameter groups. There is growing evidence that representation learning on the hypersphere is asso-
+ciated with more stable training, greater embedding space separability, and better performance on
+downstream tasks (Wang & Isola, 2020). Recent studies also suggest that transformers implicitly
+perform gradient descent as meta-optimizers (Von Oswald et al., 2023; Dai et al., 2022).
+We propose to unify various ﬁndings and observations made in the ﬁeld under a new perspective of
+the normalized Transformer. Our key contributions are as follows:
+Optimization of network parameters on the hypersphere We propose to normalize all vectors
+forming the embedding dimensions of network matrices to lie on a unit norm hypersphere.
+This allows us to view matrix-vector multiplications as dot products representing cosine
+similarities bounded in [-1,1]. The normalization renders weight decay unnecessary.
+Normalized Transformer as a variable-metric optimizer on the hypersphere The normalized
+Transformer itself performs a multi-step optimization (two steps per layer) on a hyper-
+sphere, where each step of the attention and MLP updates is controlled by eigen learning
+rates—the diagonal elements of a learnable variable-metric matrix. For each token ti in the
+input sequence, the optimization path of the normalized Transformer begins at a point on
+the hypersphere corresponding to its input embedding vector and moves to a point on the
+hypersphere that best predicts the embedding vector of the next token ti+1.
+Faster convergence We demonstrate that the normalized Transformer reduces the number of train-
+ing steps required to achieve the same accuracy by a factor of 4 to 20.
+1
+
+
+===== [Page 2] =====
+Normalized Transformer
+2
+EVOLUTION OF THE TRANSFORMER: FROM GPT TO NGPT
+This section outlines the baseline Transformer and the modiﬁcations necessary to derive its nor-
+malized version. We illustrate these changes for Transformer decoder with self-attention only. The
+extension to encoder-decoder and cross-attention is straightforward. A summary of these changes is
+given in Table 1, with details in Section 2.6.
+2.1
+TOKEN EMBEDDINGS AND OUTPUT LOGITS
+The decoder-only Transformer is trained to predict token ti using previous tokens input sequence
+x = (t1, t2, . . . , ti−1). For each input token ti, we retrieve its corresponding embedding in Rdmodel
+from a learnable embedding matrix Einput ∈RV ×dmodel with vocabulary of size V . Similarly, the
+target output sequence y is represented using a learnable embedding matrix Eoutput ∈RV ×dmodel.
+Notably, since both Einput and Eoutput are learnable (unless they are tied to be equivalent), any token
+ti can have different embeddings in the input and output sequences. To measure token similarity
+during model training, the dot product between the corresponding embedding vectors is used. How-
+ever, the norms of embedding vectors in the original Transformer are unconstrained, which can lead
+to inaccurate similarity estimation. To improve the accuracy of similarity estimation, we propose to
+normalize the embedding vectors stored in Einput and Eoutput after each step of the training algorithm.
+The next token prediction is enforced by causal masking (see Section 2.3) to ensure that no future
+tokens are considered. This allows the model to compute the prediction error for all T tokens in
+parallel during training, while preserving the autoregressive nature of the task. After the Transformer
+processes the sequence (x1, . . . , xi−1), it produces an output vector hi ∈Rdmodel for each i-th
+position in the predicted sequence. The logits zi ∈RV , representing the unnormalized probabilities
+for each token in the vocabulary, are computed using the output embedding matrix Eoutput:
+zi = Eoutputhi
+(1)
+The logits zi are passed through a softmax function to convert them into probabilities:
+P(yi|x1, . . . , xi−1) =
+exp(zi,yi)
+PV
+v=1 exp(zi,v)
+(2)
+Here, zi,yi is the logit corresponding to the correct token yi, and the denominator normalizes the log-
+its into a probability distribution over the vocabulary. During inference, the prediction ˆyi is obtained
+by selecting the token with the highest probability. Since all nGPT embeddings are normalized, the
+logits z ∈RV in equation 1 represent dot products bounded in the range [−1, 1]. This limits the
+conﬁdence (temperature) of the probability distribution generated by the softmax in equation 2. To
+adjust this during training, we introduce a trainable scaling parameter sz ∈RV that scales the logits
+element-wise:
+z ←zsz
+(3)
+Table 1: Transformer vs. Normalized Transformer.
+Transformer
+Normalized Transformer
+hA ←ATTN(RMSNorm(h))
+hA ←Norm(ATTN(h))
+h ←h + hA
+h ←Norm(h + αA(hA −h))
+hM ←MLP(RMSNorm(h))
+hM ←Norm(MLP(h))
+h ←h + hM
+h ←Norm(h + αM(hM −h))
+Final: h ←RMSNorm(h)
+All parameters of matrices and
+embeddings are unconstrained.
+After each batch pass, all matrices and embeddings are normalized
+along their embedding dimension. The hidden state updates are
+controlled by learnable vectors of eigen learning rates αA and αM.
+2
+
+
+===== [Page 3] =====
+Normalized Transformer
+2.2
+LAYERS AND BLOCKS
+2.2.1
+BASELINE TRANSFORMER
+L layers of transformations are applied to the hidden state h, consisting of alternating the self-
+attention (ATTN) and multi-layer perceptron (MLP) blocks:
+h ←h + ATTN(RMSNorm(h))
+(4)
+h ←h + MLP(RMSNorm(h)),
+(5)
+where RMSNorm(h) is one of several possible normalizations. It is used ﬁrst to normalize each
+embedding to a norm of √dmodel, then scales each dimension by a learnable vector of dmodel factors,
+typically initialized to 1. Since the transformation block outputs are added to h, the token embedding
+norms can vary signiﬁcantly. To address this, normalization is also applied after the ﬁnal layer.
+2.2.2
+NORMALIZED TRANSFORMER
+For any points a and b on the surface of a hypersphere in Rdmodel, SLERP (Spherical Linear Interpo-
+lation) by Shoemake (1985) computes an interpolation along the geodesic (shortest path):
+SLERP(a, b; α) = sin((1 −α)θ)
+sin(θ)
+a + sin(αθ)
+sin(θ) b
+(6)
+where θ = arccos(a · b) is the angle between the points a and b, and α ∈[0, 1] is the interpolation
+parameter, with α = 0 returning a and α = 1 returning b. Our experiments suggest that SLERP can
+be approximated by simple linear interpolation (LERP):
+LERP(a, b; w) = (1 −α)a + αb
+(7)
+Let us rewrite this equation as an update equation in nGPT:
+a ←a + α(b −a)
+(8)
+where a is h, and, b is the point suggested by the attention or MLP block. Then, for the gradient
+g = a −b, a more general form involving a variable matrix B ∈Rdmodel×dmodel becomes:
+a ←a −αBg
+(9)
+In quasi-Newton methods, B approximates the inverse Hessian matrix H−1.When B is diagonal
+with non-negative elements, αB becomes a vector α ∈Rdmodel
+≥0
+whose elements correspond to the
+diagonal of B times the learning rate α. We denote α as eigen learning rates (from the German
+word eigen, meaning ”own,” referring to the internal structure of the Transformer). We provide
+some notes in Appendix A.2. Following equation 8, the update equations for the attention and MLP
+blocks are as follows:
+h ←Norm( h + αA(hA −h) )
+(10)
+h ←Norm( h + αM(hM −h) ),
+(11)
+where αA ∈Rdmodel
+≥0
+and αM ∈Rdmodel
+≥0
+are learnable parameters applied to the normalized outputs
+of the attention and MLP blocks hA = Norm(ATTN(h)) and hM = Norm(MLP(h)), respectively.
+The function Norm(x) normalizes any vector x to have unit norm, and, unlike RMSNorm or Lay-
+erNorm, does not introduce any element-wise scaling factors. The normalization can be viewed as
+the retraction step in Riemannian optimization, mapping the updated solution back to the manifold.
+Appendix A.3 discusses the extension of our update equations in the context Riemannian optimiza-
+tion. In contrast to the baseline Transformer, no additional normalization is required after the ﬁnal
+layer, as the embeddings are already normalized by the proposed scheme.
+2.3
+SELF-ATTENTION BLOCK
+2.3.1
+BASELINE TRANSFORMER
+The attention mechanism is a key component of the Transformer. It allows each token to attend
+to every other token in the sequence, enabling the model to capture long-range dependencies. The
+3
+
+
+===== [Page 4] =====
+Normalized Transformer
+block typically starts with a normalization of the input hidden state h using RMSNorm to deal with
+ﬂuctuating norms of embeddings. Then, the normalized h is projected into three separate vectors -
+the query q, the key k, and the value v:
+q ←hWq, k ←hWk, v ←hWv
+(12)
+where Wq, Wk, Wv ∈Rdmodel×dk are learned projection matrices, and dk is the dimensionality of
+the query/key vectors. To incorporate positional information, we apply Rotary Position Embeddings
+(RoPE) by Su et al. (2024) to both the query and key vectors. The attention scores are computed by
+taking the dot product of the query and key vectors, scaling them by
+1
+√dk , then applying a softmax
+function to obtain attention weights, and ﬁnally computing a weighted sum of the value vectors v:
+Attention(q, k, v) ←softmax
+qk⊤
+√dk
++ M
+
+v,
+(13)
+where M is a matrix that prevents attending to future tokens by setting the corresponding entries to
+−∞. Speciﬁcally, Mi,j = 0 if j ≤i and Mi,j = −∞if j > i.
+In practice, nheads attention heads are used where for each i-th head, separate linear projections
+W i
+q, W i
+k, W i
+v are applied, and the attention mechanism is computed independently for each head:
+hA ←Concat(head1, . . . , headnheads)Wo
+(14)
+where headi = Attention(qi, ki, vi) and WO ∈Rnheads×dk×dmodel is a learned projection matrix,
+where dk is typically set to dmodel/nheads.
+2.3.2
+NORMALIZED TRANSFORMER
+The matrix-vector multiplication of Wq ∈Rdmodel×dk of the i-th head1 and h ∈Rdmodel can be viewed
+as a dot product between the columns of Wq and h. In the baseline Transformer, all matrices,
+including Wq are unconstrained, leading to unbounded values in q. We propose to normalize Wq,
+Wk, Wv and Wo along their embedding dimension so that the computed dot products with h can
+be interpreted as cosine similarity between unit norm vectors bounded in [−1, 1]. Thus, all attention
+matrices can be viewed as collections of normalized embedding vectors to be compared with.
+While each element of q and k is now bounded, the norms of these two vectors can still vary.
+Moreover, injection of positional information by RoPE further distorts q and k. We propose to
+additionally normalize q and k, ensuring that the dot product of every query and key is under control:
+q ←Norm(q)sqk
+(15)
+k ←Norm(k)sqk,
+(16)
+where sqk ∈Rdk is a vector2 of trainable scaling factors for the i-th head.
+In the original Transformer, the softmax scaling factor 1/√dk in equation 13 is introduced to account
+for the expected variance of dk in the dot product of non-normalized query and key vectors. In the
+normalized Transformer, the expected variance of the dot product between normalized query and
+key vectors is 1/dk. To restore a variance of 1, the softmax scaling factor should instead be √dk. If
+the softmax scaling factor is set to 1, this is equivalent to initializing the scaling factors sqk at d1/4
+k
+.
+2.4
+MLP BLOCK
+2.4.1
+BASELINE TRANSFORMER
+The input hidden state h of the MLP block is ﬁrst normalized using RMSNorm and then passed
+through two separate linear projections, producing two intermediate vectors (we omit bias terms):
+u ←hWu,
+ν ←hWν
+(17)
+1All the following equations are deﬁned per head but we omit i-th head index for the sake of readability.
+2There is no need for separate scaling factors for q and k as the scaling would simply be applied element-
+wise when computing the dot product between q and k.
+4
+
+
+===== [Page 5] =====
+Normalized Transformer
+where Wu, Wν ∈Rdmodel×dMLP are the learned weight matrices. The intermediate vectors u and ν
+are combined using a gated activation function called SwiGLU deﬁned by Shazeer (2020) as:
+SwiGLU(u, ν) ←u · SiLU(ν)
+(18)
+where SiLU(ν) = ν · σ(ν), and σ(ν) is the sigmoid function. The result of the gated activation is
+then passed through a ﬁnal linear transformation WoMLP ∈RdMLP×dmodel:
+hM ←SwiGLU(u, ν)WoMLP
+(19)
+2.4.2
+NORMALIZED TRANSFORMER
+We propose to normalize matrices Wu and Wν along the embedding dimension so that the u and
+ν vectors represent the cosine similarity between h and vectors stored in Wu and Wν, respectively.
+To control their impact, we introduce scaling factors su ∈RdMLP and sν ∈RdMLP:
+u ←usu,
+(20)
+ν ←νsν
+p
+dmodel,
+(21)
+where the rescaling of ν by √dmodel is needed to beneﬁt from the non-linearity of SiLU (see the
+Appendix A.1). The output of the MLP block is invariant to rescaling of u by a scalar.
+2.5
+EFFECTIVE LEARNING RATES IN ADAM
+The core of the Adam algorithm by Kingma (2014) is as follows:
+m ←β1m + (1 −β1)g
+v ←β2v + (1 −β2)g2
+θ ←θ −αm/(√v + ǫ),
+(22)
+where θ is the parameter vector, g is the batch gradient, m is the momentum, v is the estimate
+of the per-element gradient amplitudes, α is the scheduled learning rate, ǫ is a small constant, and
+β1 < β2 are momentum factors close to 1. We cite the text of the original Adam paper using our
+notation: In more common scenarios, we will have that
+m
+√v ≈±1 since
+E[g]/
+p
+E[g2]
+ ≤1. The
+effective magnitude of the steps taken in parameter space at each timestep is approximately bounded
+by the stepsize setting α. Thus, α controls the effective step-size in the search space, while the ratio
+m
+√v can temporarily increase (respectively, decrease) the step-size if the current amplitude of per-
+parameter momentum is greater (respectively, smaller) than its estimated value over longer time
+horizon. Consider an example where θi = 0.01 and the global learning rate is 0.001. If the gradient
+amplitude remains stable (i.e., mi
+√vi ≈1), it would take 0.02−0.01
+0.001
+= 10 steps to double θi. However,
+if θi = 1.0, it would take 2.0−1.0
+0.001
+= 1000 steps to double. Even if the gradient’s amplitude is larger
+in the second case, the number of steps would only decrease if mi > √v.
+In nGPT, for any trainable vector of scaling parameters such as sa, we use two scalars sa,init and
+sa,scale. When initializing sa as a trainable parameter, its initial value is set to sa,scale. However,
+during the forward pass we restore its actual value by multiplying sa,init/sa,scale. This allows us to
+control the effective learning rate for sa by adjusting sa,scale, while keeping the global learning rate
+unchanged. For example, setting sa,init = 1 and sa,scale = 1/√dmodel ensures that this parameter
+is updated with the same effective learning rate as other normalized parameters in the network.
+2.6
+SUMMARY OF MODIFICATIONS
+The recipe to convert the baseline Transformer into the normalized Transformer is as follows:
+1. Remove all normalization layers such as RMSNorm or LayerNorm.
+2. After each training step, normalize all matrices (Einput, Eoutput, Wq, Wk, Wv, Wo, Wu,
+Wν and WoMLP) along their embedding dimension.
+3. Replace the update equations 4 and 5 by equations 10 and 11, where αA (and also αM) is
+treated with αA,init = 0.05 (in order of 1/nlayers) and αA,scale = 1/√dmodel.
+5
+
+
+===== [Page 6] =====
+Normalized Transformer
+4. Change the softmax scaling factor in attention from 1/√dk to √dk. Implement the rescal-
+ing and normalization (normalization here is optional) of q and k as in equations 15 and
+16, where sqk is treated with sqk,init = 1 and sqk,scale = 1/√dmodel.
+5. Implement the rescaling of the intermediate state of the MLP block using equations 20 and
+21, where su (and also sν) is treated with su,init = 1 and su,scale = 1
+6. Implement the rescaling of logits using equation 3, where sz is treated with sz,init = 1 and
+sz,scale = 1/√dmodel.
+7. Remove weight decay and learning rate warmup.
+3
+EXPERIMENTS
+We train both the baseline Transformer (GPT) and the normalized Transformer (nGPT) on the Open-
+WebText dataset (Gokaslan & Cohen, 2019) and evaluate them on a set of standard downstream
+tasks. We experiment with models containing 0.5B and 1B parameters, including the embeddings.
+For both GPT and nGPT, we report results using the best initial learning rate settings (see Appendix
+A.6). A detailed description of the setup and hyperparameters is in Appendix A.5.
+3.1
+ACCELERATION OF TRAINING
+0
+20
+40
+60
+80
+100
+120
+140
+160
+180
+200
+Iterations in thousands
+2
+2.1
+2.2
+2.3
+2.4
+2.5
+2.6
+2.7
+2.8
+Validation loss
+4k context: OpenWebText
+GPT with 200k budget
+nGPT with 20k budget
+nGPT with 200k budget
+Figure 1: Validation loss during training of 1B GPT and nGPT with 4k context length.
+Figure 1 presents the validation loss during the training of GPT and nGPT models with 1 billion pa-
+rameters and a sample length of 4k tokens. After 20k iterations, nGPT achieves the same validation
+loss that GPT reaches only after 200k iterations (approximately 400 billion tokens), demonstrating
+a 10x speedup in terms of iterations and tokens used.3
+0
+50
+100
+150
+200
+250
+300
+350
+400
+450
+500
+Training tokens in billions
+2
+2.05
+2.1
+2.15
+2.2
+2.25
+2.3
+2.35
+2.4
+Validation loss
+1K context: OpenWebText
+GPT 0.5B
+GPT 1B
+nGPT 0.5B
+nGPT 1B
+0
+50
+100
+150
+200
+250
+300
+350
+400
+450
+500
+Training tokens in billions
+2
+2.05
+2.1
+2.15
+2.2
+2.25
+2.3
+2.35
+2.4
+Validation loss
+4K context: OpenWebText
+GPT 0.5B
+GPT 1B
+nGPT 0.5B
+nGPT 1B
+0
+100
+200
+300
+400
+500
+600
+700
+800
+900
+1000
+Training tokens in billions
+2
+2.05
+2.1
+2.15
+2.2
+2.25
+2.3
+2.35
+2.4
+Validation loss
+8K context: OpenWebText
+GPT 0.5B
+GPT 1B
+nGPT 0.5B
+nGPT 1B
+Figure 2: Final validation loss (y-axis) for training runs with different computation budgets in tokens
+(x-axis). The training of 0.5B and 1B nGPT models is about 4x, 10x and 20x faster (in terms of
+tokens) on 1k, 4k and 8k context lengths, respectively.
+3While the time per step of nGPT is higher (80% - for 4k, and 60% - for 8k context respectively), it can be
+reduced after code optimization. Also the overhead is less signiﬁcant for larger networks (see Appendix A.4).
+6

@@ -1,0 +1,379 @@
+# Source PDF: C:\Users\Maha Mamdouh\Desktop\ML learning phase\image processing guide.pdf
+# Extracted Pages: 90-94 of 112
+
+
+===== [Page 90] =====
+…Image Processing Fundamentals 
+ 
+ 
+ 
+90 
+restoration is—starting from a recorded image c[m,n]—to produce the best 
+possible estimate â[m,n] of the original image a[m,n]. The goal of enhancement is 
+beauty; the goal of restoration is truth. 
+ 
+The measure of success in restoration is usually an error measure between the 
+original a[m,n] and the estimate â[m,n]: E{â[m,n], a[m,n]}. No mathematical 
+error function is known that corresponds to human perceptual assessment of 
+error. The mean-square error function is commonly used because: 
+ 
+ 
+1. It is easy to compute; 
+ 
+2. It is differentiable implying that a minimum can be sought; 
+ 
+3. It corresponds to “signal energy” in the total error, and; 
+ 
+4. It has nice properties vis à vis Parseval’s theorem, eqs. (22) and (23). 
+ 
+The mean-square error is defined by: 
+ 
+ 
+ 
+{
+}
+1
+1
+2
+0
+0
+1
+ˆ
+ˆ
+,
+[ , ]
+[ , ]
+M
+N
+m
+n
+a a
+a m n
+a m n
+MN
+−
+−
+=
+=
+=
+−
+∑∑
+E
+ 
+(191) 
+ 
+In some techniques an error measure will not be necessary; in others it will be 
+essential for evaluation and comparative purposes. 
+10.2.1 Unsharp masking 
+A well-known technique from photography to improve the visual quality of an 
+image is to enhance the edges of the image. The technique is called unsharp 
+masking. Edge enhancement means first isolating the edges in an image, 
+amplifying them, and then adding them back into the image. Examination of 
+Figure 33 shows that the Laplacian is a mechanism for isolating the gray level 
+edges. This leads immediately to the technique: 
+ 
+ 
+ 
+(
+)
+2
+ˆ[ , ]
+[ , ]
+•
+[ , ]
+a m n
+a m n
+k
+a m n
+=
+−
+∇
+ 
+(192) 
+ 
+The term k is the amplifying term and k > 0. The effect of this technique is shown 
+in Figure 48. 
+ 
+The Laplacian used to produce Figure 48 is given by eq. (120) and the 
+amplification term k = 1.
+
+
+===== [Page 91] =====
+…Image Processing Fundamentals 
+ 
+ 
+ 
+91 
+ 
+ 
+Original ↑ 
+↑ Laplacian-enhanced 
+Figure 48: Edge enhanced compared to original 
+10.2.2 Noise suppression 
+The techniques available to suppress noise can be divided into those techniques 
+that are based on temporal information and those that are based on spatial 
+information. By temporal information we mean that a sequence of images 
+{ap[m,n] | p=1,2,…,P} are available that contain exactly the same objects and that 
+differ only in the sense of independent noise realizations. If this is the case and if 
+the noise is additive, then simple averaging of the sequence: 
+ 
+ 
+Temporal averaging – 
+1
+1
+ˆ[ , ]
+[ , ]
+P
+p
+p
+a m n
+a
+m n
+P
+=
+=
+∑
+ 
+(193) 
+ 
+will produce a result where the mean value of each pixel will be unchanged. For 
+each pixel, however, the standard deviation will decrease from σ to 
+P
+σ
+. 
+ 
+If temporal averaging is not possible, then spatial averaging can be used to 
+decrease the noise. This generally occurs, however, at a cost to image sharpness. 
+Four obvious choices for spatial averaging are the smoothing algorithms that have 
+been described in Section 9.4 – Gaussian filtering (eq. (93)), median filtering, 
+Kuwahara filtering, and morphological smoothing (eq. (181)). 
+ 
+Within the class of linear filters, the optimal filter for restoration in the presence 
+of noise is given by the Wiener filter [2]. The word “optimal” is used here in the 
+sense of minimum mean-square error (mse). Because the square root operation is 
+monotonic increasing, the optimal filter also minimizes the root mean-square error 
+(rms). The Wiener filter is characterized in the Fourier domain and for additive 
+noise that is independent of the signal it is given by:
+
+
+===== [Page 92] =====
+…Image Processing Fundamentals 
+ 
+ 
+ 
+92 
+ 
+ 
+ 
+( , )
+( , )
+( , )
+( , )
+aa
+W
+aa
+nn
+S
+u v
+H
+u v
+S
+u v
+S
+u v
+=
++
+ 
+(194) 
+ 
+where Saa(u,v) is the power spectral density of an ensemble of random images 
+{a[m,n]} and Snn(u,v) is the power spectral density of the random noise. If we 
+have a single image then Saa(u,v) = |A(u,v)|2. In practice it is unlikely that the 
+power spectral density of the uncontaminated image will be available. Because 
+many images have a similar power spectral density that can be modeled by Table 
+4–T.8, that model can be used as an estimate of Saa(u,v). 
+ 
+A comparison of the five different techniques described above is shown in Figure 
+49. The Wiener filter was constructed directly from eq. (113) because the image 
+spectrum and the noise spectrum were known. The parameters for the other filters 
+were determined choosing that value (either σ or window size) that led to the 
+minimum rms. 
+ 
+ 
+ 
+a) Noisy image (SNR=20 dB) 
+b) Wiener filter 
+c) Gauss filter (σ = 1.0) 
+ 
+rms = 25.7 
+rms = 20.2 
+rms = 21.1 
+ 
+ 
+ 
+ d) Kuwahara filter (5 × 5) 
+e) Median filter (3 × 3) 
+f) Morph. smoothing (3 × 3) 
+ 
+rms = 22.4 
+rms = 22.6 
+rms = 26.2 
+Figure 49: Noise suppression using various filtering techniques. 
+ 
+The root mean-square errors (rms) associated with the various filters are shown in 
+Figure 49. For this specific comparison, the Wiener filter generates a lower error
+
+
+===== [Page 93] =====
+…Image Processing Fundamentals 
+ 
+ 
+ 
+93 
+than any of the other procedures that are examined here. The two linear 
+procedures, Wiener filtering and Gaussian filtering, performed slightly better than 
+the three non-linear alternatives. 
+10.2.3 Distortion suppression 
+The model presented above—an image distorted solely by noise—is not, in 
+general, sophisticated enough to describe the true nature of distortion in a digital 
+image. A more realistic model includes not only the noise but also a model for the 
+distortion induced by lenses, finite apertures, possible motion of the camera 
+and/or an object, and so forth. One frequently used model is of an image a[m,n] 
+distorted by a linear, shift-invariant system ho[m,n] (such as a lens) and then 
+contaminated by noise κ[m,n]. Various aspects of ho[m,n] and κ[m,n] have been 
+discussed in earlier sections. The most common combination of these is the 
+additive model: 
+ 
+ 
+ 
+(
+)
+[ , ]
+[ , ]
+[ , ]
+[ , ]
+o
+c m n
+a m n
+h m n
+m n
+κ
+=
+⊗
++
+ 
+(195) 
+ 
+The restoration procedure that is based on linear filtering coupled to a minimum 
+mean-square error criterion again produces a Wiener filter [2]: 
+ 
+ 
+ 
+*
+2
+*
+2
+( , )
+( , )
+( , )
+( , )
+( , )
+( , )
+( , )
+( , )
+( , )
+( , )
+o
+aa
+W
+o
+aa
+nn
+o
+nn
+o
+aa
+H
+u v S
+u v
+H
+u v
+H
+u v
+S
+u v
+S
+u v
+H
+u v
+S
+u v
+H
+u v
+S
+u v
+=
++
+=
++
+ 
+(196) 
+ 
+Once again Saa(u,v) is the power spectral density of an image, Snn(u,v) is the 
+power spectral density of the noise, and Ho(u,v) = F{ho[m,n]}. Examination of 
+this formula for some extreme cases can be useful. For those frequencies where 
+Saa(u,v) >> Snn(u,v), where the signal spectrum dominates the noise spectrum, the 
+Wiener filter is given by 1/Ho(u,v), the inverse filter solution. For those 
+frequencies where Saa(u,v) << Snn(u,v), where the noise spectrum dominates the 
+signal spectrum, the Wiener filter is proportional to Ho*(u,v), the matched filter 
+solution. For those frequencies where Ho(u,v) = 0, the Wiener filter HW(u,v) = 0 
+preventing overflow. 
+ 
+The Wiener filter is a solution to the restoration problem based upon the 
+hypothesized use of a linear filter and the minimum mean-square (or rms) error 
+criterion. In the example below the image a[m,n] was distorted by a bandpass
+
+
+===== [Page 94] =====
+…Image Processing Fundamentals 
+ 
+ 
+ 
+94 
+filter and then white noise was added to achieve an SNR = 30 dB. The results are 
+shown in Figure 50. 
+ 
+ 
+ 
+ 
+ a) Distorted, noisy image 
+b) Wiener filter 
+c) Median filter (3 × 3) 
+ 
+ 
+rms = 108.4 
+rms = 40.9 
+Figure 50: Noise and distortion suppression using the Wiener filter, eq. 
+(196) and the median filter. 
+ 
+The rms after Wiener filtering but before contrast stretching was 108.4; after 
+contrast stretching with eq. (77) the final result as shown in Figure 50b has a 
+mean-square error of 27.8. Using a 3 × 3 median filter as shown in Figure 50c 
+leads to a rms error of 40.9 before contrast stretching and 35.1 after contrast 
+stretching. Although the Wiener filter gives the minimum rms error over the set of 
+all linear filters, the non-linear median filter gives a lower rms error. The 
+operation contrast stretching is itself a non-linear operation. The “visual quality” 
+of the median filtering result is comparable to the Wiener filtering result. This is 
+due in part to periodic artifacts introduced by the linear filter which are visible in 
+Figure 50b. 
+10.3 SEGMENTATION 
+In the analysis of the objects in images it is essential that we can distinguish 
+between the objects of interest and “the rest.” This latter group is also referred to 
+as the background. The techniques that are used to find the objects of interest are 
+usually referred to as segmentation techniques – segmenting the foreground from 
+background. In this section we will two of the most common techniques—
+thresholding and edge finding— and we will present techniques for improving the 
+quality of the segmentation result. It is important to understand that: 
+• there is no universally applicable segmentation technique that will work for 
+all images, and, 
+• no segmentation technique is perfect.

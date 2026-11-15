@@ -144,22 +144,25 @@ class Plotter:
         if 'pure_loss' in df.columns:
             ax.plot(steps, _smooth(df['pure_loss'], self.smooth), color=C_VIT, linestyle='--', label='Pure EDM Loss')
         if 'loss_texture' in df.columns:
-            ax.plot(steps, _smooth(df['loss_texture'], self.smooth), color=C_UNET, linestyle=':', alpha=0.8, label='UNet Branch')
+            ax.plot(steps, _smooth(df['loss_texture'], self.smooth), color=C_VIT, linestyle=':', alpha=0.8, label='ViT Branch')
         if 'loss_structure' in df.columns:
-            ax.plot(steps, _smooth(df['loss_structure'], self.smooth), color=C_VIT, linestyle=':', alpha=0.8, label='ViT Branch')
+            ax.plot(steps, _smooth(df['loss_structure'], self.smooth), color=C_UNET, linestyle=':', alpha=0.8, label='UNet Branch')
         ax.set_title('(a) Loss Decomposition')
         ax.set_ylabel('Loss')
         ax.legend(fontsize=9)
 
         # (b) MSE
         ax = fig.add_subplot(gs[0, 2])
+        df_ckpt = _parse_jsonl(self._logs.get("checkpoints"))
         if 'denoising' in df.columns:
             ax.semilogy(steps, df['denoising'], color=C_NEUTRAL, alpha=0.3, linewidth=0.8)
-            ax.semilogy(steps, _smooth(df['denoising'], self.smooth), color=C_GOOD, linewidth=2.0, label='MSE')
-            ax.axhline(0.10, color=C_WARN, linestyle=':', linewidth=1, label='Target ~0.10')
+            ax.semilogy(steps, _smooth(df['denoising'], self.smooth), color=C_GOOD, linewidth=2.0, label='Train Batch MSE')
+        if df_ckpt is not None and 'val_probe_mse' in df_ckpt.columns:
+            ax.semilogy(df_ckpt['step'], df_ckpt['val_probe_mse'], color=C_VIT, marker='o', ms=4, linewidth=1.6, label='Val Probe MSE (Fixed sigma)')
+        ax.axhline(0.10, color=C_WARN, linestyle=':', linewidth=1, label='Target ~0.10')
         ax.set_title('(b) Reconstruction Error (log scale)')
         ax.set_ylabel('MSE')
-        ax.legend(fontsize=9)
+        ax.legend(fontsize=8)
 
         # (c) Zones
         ax = fig.add_subplot(gs[1, :2])
@@ -217,7 +220,9 @@ class Plotter:
         ax = fig.add_subplot(gs[2, 2])
         ax.axis('off')
         last = df.iloc[-1]
-        rows = [['Metric', 'Final'], ['Total Loss', f"{last.get('loss', float('nan')):.4f}"], ['MSE', f"{last.get('denoising', float('nan')):.5f}"]]
+        rows = [['Metric', 'Final'], ['Total Loss', f"{last.get('loss', float('nan')):.4f}"], ['Train MSE', f"{last.get('denoising', float('nan')):.5f}"]]
+        if df_ckpt is not None and 'val_probe_mse' in df_ckpt.columns and not df_ckpt.empty:
+            rows.append(['Val Probe MSE', f"{df_ckpt['val_probe_mse'].iloc[-1]:.5f}"])
         tbl = ax.table(cellText=rows, loc='center', cellLoc='center', bbox=[0.05, 0.1, 0.9, 0.8])
         tbl.auto_set_font_size(False)
         tbl.set_fontsize(10)

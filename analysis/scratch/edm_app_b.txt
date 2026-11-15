@@ -1,0 +1,1443 @@
+# Source PDF: C:\Users\Maha Mamdouh\Desktop\ML learning phase\scientifc papers\Elucidating the Design Space of Diffusion-Based.pdf
+# Extracted Pages: 22-29 of 47
+
+
+===== [Page 22] =====
+Next, let us rewrite f(t) in terms of s(t) based on Eq. 12:
+exp
+Z t
+0
+f(ξ) dξ
+
+=
+s(t)
+(25)
+Z t
+0
+f(ξ) dξ
+=
+log s(t)
+(26)
+d
+ Z t
+0
+f(ξ) dξ
+
+dt
+=
+d
+
+log s(t)
+
+/dt
+(27)
+f(t)
+=
+˙s(t)/s(t).
+(28)
+Similarly, we can also rewrite g(t) in terms of σ(t):
+sZ t
+0
+g(ξ)2
+s(ξ)2 dξ
+=
+σ(t)
+(29)
+Z t
+0
+g(ξ)2
+s(ξ)2 dξ
+=
+σ(t)2
+(30)
+d
+ Z t
+0
+g(ξ)2
+s(ξ)2 dξ
+
+dt
+=
+d
+
+σ(t)2
+/dt
+(31)
+g(t)2/s(t)2
+=
+2 ˙σ(t) σ(t)
+(32)
+g(t)/s(t)
+=
+p
+2 ˙σ(t) σ(t)
+(33)
+g(t)
+=
+s(t)
+p
+2 ˙σ(t) σ(t).
+(34)
+Finally, substitute f (Eq. 28) and g (Eq. 34) into the ODE of Eq. 24:
+dx
+=
+
+[f(t)] x −1
+2 [g(t)]2 ∇x log p
+x/s(t); σ(t)
+
+dt
+(35)
+=
+
+˙s(t)/s(t)
+
+x −1
+2
+h
+s(t)
+p
+2 ˙σ(t) σ(t)
+i2
+∇x log p
+x/s(t); σ(t)
+
+dt
+(36)
+=
+
+˙s(t)/s(t)
+
+x −1
+2
+h
+2 s(t)2 ˙σ(t) σ(t)
+i
+∇x log p
+x/s(t); σ(t)
+
+dt
+(37)
+=
+ ˙s(t)
+s(t) x −s(t)2 ˙σ(t) σ(t) ∇x log p
+ x
+s(t); σ(t)
+
+dt.
+(38)
+Thus we have obtained Eq. 4 in the main paper, and Eq. 1 is recovered by setting s(t) = 1:
+dx = −˙σ(t) σ(t) ∇x log p
+x; σ(t)
+
+dt.
+(39)
+Our formulation (Eq. 4) highlights the fact that every realization of the probability ﬂow ODE is simply
+a reparameterization of the same canonical ODE; changing σ(t) corresponds to reparameterizing t,
+whereas changing s(t) corresponds to reparameterizing x.
+B.3
+Denoising score matching (Eq. 2 and Eq. 3)
+For the sake of completeness, we derive the connection between score matching and denoising for a
+ﬁnite dataset. For a more general treatment and further background on the topic, see Hyvärinen [22]
+and Vincent [54].
+Let us assume that our training set consists of a ﬁnite number of samples {y1, . . . , yY }. This implies
+pdata(x) is represented by a mixture of Dirac delta distributions:
+pdata(x) = 1
+Y
+Y
+X
+i=1
+δ
+x −yi
+
+,
+(40)
+22
+
+
+===== [Page 23] =====
+which allows us to also express p(x; σ) in closed form based on Eq. 20:
+p(x; σ)
+=
+pdata ∗N
+0, σ(t)2 I
+
+(41)
+=
+Z
+Rd pdata(x0) N
+x; x0, σ2 I
+
+dx0
+(42)
+=
+Z
+Rd
+"
+1
+Y
+Y
+X
+i=1
+δ
+x0 −yi
+
+#
+N
+x; x0, σ2 I
+
+dx0
+(43)
+=
+1
+Y
+Y
+X
+i=1
+Z
+Rd N
+x; x0, σ2 I
+
+δ
+x0 −yi
+
+dx0
+(44)
+=
+1
+Y
+Y
+X
+i=1
+N
+x; yi, σ2 I
+
+.
+(45)
+Let us now consider the denoising score matching loss of Eq. 2. By expanding the expectations, we
+can rewrite the formula as an integral over the noisy samples x:
+L(D; σ)
+=
+Ey∼pdata En∼N(0,σ2I)
+
+
+D(y + n; σ) −y
+
+
+2
+2
+(46)
+=
+Ey∼pdata Ex∼N(y,σ2I)
+
+
+D(x; σ) −y
+
+
+2
+2
+(47)
+=
+Ey∼pdata
+Z
+Rd N(x; y, σ2 I)
+
+
+D(x; σ) −y
+
+
+2
+2 dx
+(48)
+=
+1
+Y
+Y
+X
+i=1
+Z
+Rd N(x; yi, σ2 I)
+
+
+D(x; σ) −yi
+
+
+2
+2 dx
+(49)
+=
+Z
+Rd
+1
+Y
+Y
+X
+i=1
+N(x; yi, σ2 I)
+
+
+D(x; σ) −yi
+
+
+2
+2
+|
+{z
+}
+=: L(D;x,σ)
+dx.
+(50)
+Eq. 50 means that we can minimize L(D; σ) by minimizing L(D; x, σ) independently for each x:
+D(x; σ) = arg minD(x;σ) L(D; x, σ).
+(51)
+This is a convex optimization problem; its solution is uniquely identiﬁed by setting the gradient w.r.t.
+D(x; σ) to zero:
+0
+=
+∇D(x;σ)
+h
+L(D; x, σ)
+i
+(52)
+0
+=
+∇D(x;σ)
+"
+1
+Y
+Y
+X
+i=1
+N(x; yi, σ2 I)
+
+
+D(x; σ) −yi
+
+
+2
+2
+#
+(53)
+0
+=
+Y
+X
+i=1
+N(x; yi, σ2 I) ∇D(x;σ)
+h
+
+D(x; σ) −yi
+
+
+2
+2
+i
+(54)
+0
+=
+Y
+X
+i=1
+N(x; yi, σ2 I)
+h
+2 D(x; σ) −2 yi
+i
+(55)
+0
+=
+"
+Y
+X
+i=1
+N(x; yi, σ2 I)
+#
+D(x; σ) −
+Y
+X
+i=1
+N(x; yi, σ2 I) yi
+(56)
+D(x; σ)
+=
+P
+i N(x; yi, σ2 I) yi
+P
+i N(x; yi, σ2 I) ,
+(57)
+which gives a closed-form solution for the ideal denoiser D(x; σ). Note that Eq. 57 is feasible to
+compute in practice for small datasets — we show the results for CIFAR-10 in Figure 1b.
+23
+
+
+===== [Page 24] =====
+Next, let us consider the score of the distribution p(x; σ) deﬁned in Eq. 45:
+∇x log p(x; σ)
+=
+∇xp(x; σ)
+p(x; σ)
+(58)
+=
+∇x
+h
+1
+Y
+P
+i N
+x; yi, σ2 I
+i
+h
+1
+Y
+P
+i N
+x; yi, σ2 I
+i
+(59)
+=
+P
+i ∇xN
+x; yi, σ2 I
+
+P
+i N
+x; yi, σ2 I
+ .
+(60)
+We can simplify the numerator of Eq. 60 further:
+∇xN
+x; yi, σ2 I
+
+=
+∇x
+"
+2πσ2−d
+2 exp ∥x −yi∥2
+2
+−2 σ2
+#
+(61)
+=
+2πσ2−d
+2 ∇x
+"
+exp ∥x −yi∥2
+2
+−2 σ2
+#
+(62)
+=
+"
+2πσ2−d
+2 exp ∥x −yi∥2
+2
+−2 σ2
+#
+∇x
+"
+∥x −yi∥2
+2
+−2 σ2
+#
+(63)
+=
+N
+x; yi, σ2 I
+
+∇x
+"
+∥x −yi∥2
+2
+−2 σ2
+#
+(64)
+=
+N
+x; yi, σ2 I
+yi −x
+σ2
+
+.
+(65)
+Let us substitute the result back to Eq. 60:
+∇x log p(x; σ)
+=
+P
+i ∇xN
+x; yi, σ2 I
+
+P
+i N
+x; yi, σ2 I
+
+(66)
+=
+P
+i N
+x; yi, σ2 I
+h
+yi−x
+σ2
+i
+P
+i N
+x; yi, σ2 I
+
+(67)
+=
+ P
+i N
+x; yi, σ2 I
+
+yi
+P
+i N
+x; yi, σ2 I
+
+−x
+!
+
+σ2.
+(68)
+Notice that the fraction in Eq. 68 is identical to Eq. 57. We can thus equivalently write Eq. 68 as
+∇x log p(x; σ) =
+D(x; σ) −x
+
+/σ2,
+(69)
+which matches Eq. 3 in the main paper.
+B.4
+Evaluating our ODE in practice (Algorithm 1)
+Let us consider x to be a scaled version of an original, non-scaled variable ˆx and substitute x = s(t) ˆx
+into the score term that appears in our scaled ODE (Eq. 4):
+∇x log p
+x/s(t); σ(t)
+
+(70)
+=
+∇[s(t)ˆx] log p
+[s(t) ˆx]/s(t); σ(t)
+
+(71)
+=
+∇s(t)ˆx log p
+ˆx; σ(t)
+
+(72)
+=
+1
+s(t)∇ˆx log p
+ˆx; σ(t)
+
+.
+(73)
+We can further rewrite this with respect to D(·) using Eq. 3:
+∇x log p
+x/s(t); σ(t)
+
+=
+1
+s(t)σ(t)2
+
+D
+ˆx; σ(t)
+
+−ˆx
+
+.
+(74)
+24
+
+
+===== [Page 25] =====
+Let us now substitute Eq. 74 into Eq. 4, approximating the ideal denoiser D(·) with our trained model
+Dθ(·):
+dx
+=
+h
+˙s(t) x/s(t) −s(t)2 ˙σ(t) σ(t)
+h
+1
+s(t)σ(t)2
+
+Dθ
+ˆx; σ(t)
+
+−ˆx
+ii
+dt
+(75)
+=
+h
+˙s(t)
+s(t) x −˙σ(t)s(t)
+σ(t)
+
+Dθ
+ˆx; σ(t)
+
+−ˆx
+i
+dt.
+(76)
+Finally, backsubstitute ˆx = x/s(t):
+dx
+=
+h
+˙s(t)
+s(t) x −˙σ(t)s(t)
+σ(t)
+
+Dθ
+[ˆx]; σ(t)
+
+−[ˆx]
+i
+dt
+(77)
+=
+h
+˙s(t)
+s(t) x −˙σ(t)s(t)
+σ(t)
+
+Dθ
+[x/s(t)]; σ(t)
+
+−[x/s(t)]
+i
+dt
+(78)
+=
+h
+˙s(t)
+s(t) x −˙σ(t)s(t)
+σ(t) Dθ
+x/s(t); σ(t)
+
++ ˙σ(t)
+σ(t) x
+i
+dt
+(79)
+=
+h
+˙σ(t)
+σ(t) + ˙s(t)
+s(t)
+
+x −˙σ(t)s(t)
+σ(t) Dθ
+x/s(t); σ(t)
+i
+dt.
+(80)
+We can equivalenty write Eq. 80 as
+dx/dt =
+ ˙σ(t)
+σ(t) + ˙s(t)
+s(t)
+
+x −˙σ(t)s(t)
+σ(t)
+Dθ
+ x
+s(t); σ(t)
+
+,
+(81)
+matching lines 4 and 7 of Algorithm 1.
+B.5
+Our SDE formulation (Eq. 6)
+We derive the SDE of Eq. 6 by the following strategy:
+• The desired marginal densities p
+x; σ(t)
+
+are convolutions of the data density pdata and an
+isotropic Gaussian density with standard deviation σ(t) (see Eq. 20). Hence, considered
+as a function of the time t, the density evolves according to a heat diffusion PDE with
+time-varying diffusivity. As a ﬁrst step, we ﬁnd this PDE.
+• We then use the Fokker–Planck equation to recover a family of SDEs for which the density
+evolves according to this PDE. Eq. 6 is obtained from a suitable parametrization of this
+family.
+B.5.1
+Generating the marginals by heat diffusion
+We consider the time evolution of a probability density q(x, t). Our goal is to ﬁnd a PDE whose
+solution with the initial value q(x, 0) := pdata(x) is q(x, t) = p
+x, σ(t)
+
+. That is, the PDE should
+reproduce the marginals we postulate in Eq. 20.
+The desired marginals are convolutions of pdata with isotropic normal distributions of time-varying
+standard deviation σ(t), and as such, can be generated by the heat equation with time-varying
+diffusivity κ(t). The situation is most conveniently analyzed in the Fourier domain, where the
+marginal densities are simply pointwise products of a Gaussian function and the transformed data
+density. To ﬁnd the diffusivity that induces the correct standard deviations, we ﬁrst write down the
+heat equation PDE:
+∂q(x, t)
+∂t
+= κ(t)∆xq(x, t).
+(82)
+The Fourier transformed counterpart of Eq. 82, where the transform is taken along the x-dimension,
+is given by
+∂ˆq(ν, t)
+∂t
+= −κ(t)|ν|2ˆq(ν, t).
+(83)
+The target solution q(x, t) and its Fourier transform ˆq(ν, t) are given by Eq. 20:
+q(x, t)
+=
+p
+x; σ(t)
+
+= pdata(x) ∗N
+0, σ(t)2 I
+
+(84)
+ˆq(ν, t)
+=
+ˆpdata(ν) exp
+
+−1
+2 |ν|2 σ(t)2
+.
+(85)
+25
+
+
+===== [Page 26] =====
+Differentiating the target solution along the time axis, we have
+∂ˆq(ν, t)
+∂t
+=
+−˙σ(t)σ(t) |ν|2 ˆpdata(ν) exp
+
+−1
+2 |ν|2 σ(t)2
+(86)
+=
+−˙σ(t)σ(t) |ν|2 ˆq(ν, t).
+(87)
+Eqs. 83 and 87 share the same left hand side. Equating them allows us to solve for κ(t) that generates
+the desired evolution:
+−κ(t)|ν|2ˆq(ν, t)
+=
+−˙σ(t)σ(t) |ν|2 ˆq(ν, t)
+(88)
+κ(t)
+=
+˙σ(t)σ(t).
+(89)
+To summarize, the desired marginal densities corresponding to noise levels σ(t) are generated by the
+PDE
+∂q(x, t)
+∂t
+= ˙σ(t)σ(t)∆xq(x, t)
+(90)
+from the initial density q(x, 0) = pdata(x).
+B.5.2
+Derivation of our SDE
+Given an SDE
+dx = f(x, t) dt + g(x, t) dωt,
+(91)
+the Fokker–Planck PDE describes the time evolution of its solution probability density r(x, t) as
+∂r(x, t)
+∂t
+= −∇x ·
+f(x, t) r(x, t)
+
++ 1
+2∇x∇x :
+D(x, t) r(x, t)
+
+,
+(92)
+where Dij = P
+k gikgjk is the diffusion tensor. We consider the special case g(x, t) = g(t) I of
+x-independent white noise addition, whereby the equation simpliﬁes to
+∂r(x, t)
+∂t
+= −∇x ·
+f(x, t) r(x, t)
+
++ 1
+2 g(t)2 ∆xr(x, t).
+(93)
+We are seeking an SDE whose solution density is described by the PDE in Eq. 90. Setting r(x, t) =
+q(x, t) and equating Eqs. 93 and 90, we ﬁnd the sufﬁcient condition that the SDE must satisfy
+−∇x ·
+f(x, t) q(x, t)
+
++ 1
+2 g(t)2 ∆xq(x, t)
+=
+˙σ(t) σ(t) ∆xq(x, t)
+(94)
+∇x ·
+f(x, t) q(x, t)
+
+=
+
+1
+2 g(t)2 −˙σ(t) σ(t)
+
+∆xq(x, t).
+(95)
+Any choice of functions f(x, t) and g(t) satisfying this equation constitute a sought after SDE. Let
+us now ﬁnd a speciﬁc family of such solutions. The key idea is given by the identity ∇x · ∇x = ∆x.
+Indeed, if we set f(x, t) q(x, t) = υ(t) ∇xq(x, t) for any choice of υ(t), the term ∆xq(x, t) appears
+on both sides and cancels out:
+∇x ·
+υ(t) ∇xq(x, t)
+
+=
+
+1
+2 g(t)2 −˙σ(t) σ(t)
+
+∆xq(x, t)
+(96)
+υ(t) ∆xq(x, t)
+=
+
+1
+2 g(t)2 −˙σ(t) σ(t)
+
+∆xq(x, t)
+(97)
+υ(t)
+=
+1
+2 g(t)2 −˙σ(t) σ(t).
+(98)
+The stated f(x, t) is in fact proportional to the score function, as the formula matches the gradient of
+the logarithm of the density:
+f(x, t)
+=
+υ(t) ∇xq(x, t)
+q(x, t)
+(99)
+=
+υ(t) ∇x log q(x, t)
+(100)
+=
+
+1
+2 g(t)2 −˙σ(t) σ(t)
+
+∇x log q(x, t).
+(101)
+26
+
+
+===== [Page 27] =====
+Substituting this back into Eq. 91 and writing p(x; σ(t)) in place of q(x, t), we recover a family of
+SDEs whose solution densities have the desired marginals with noise levels σ(t) for any choice of
+g(t):
+dx =
+
+1
+2 g(t)2 −˙σ(t) σ(t)
+
+∇x log p
+x; σ(t)
+
+dt + g(t) dωt.
+(102)
+The free parameter g(t) effectively speciﬁes the rate of noise replacement at any given time instance.
+The special case choice of g(t) = 0 corresponds to the probability ﬂow ODE. The parametrization
+by g(t) is not particularly intuitive, however. To obtain a more interpretable parametrization, we set
+g(t) =
+p
+2 β(t) σ(t), which yields the (forward) SDE of Eq. 6 in the main paper:
+dx+ = −˙σ(t)σ(t)∇x log p
+x; σ(t)
+
+dt + β(t)σ(t)2∇x log p
+x; σ(t)
+
+dt +
+p
+2β(t)σ(t) dωt.
+(103)
+The noise replacement is now proportional to the standard deviation σ(t) of the noise, with the
+proportionality factor β(t). Indeed, expanding the score function in the middle term according
+to Eq. 3 yields β(t)
+
+D
+x; σ(t)
+
+−x
+
+dt, which changes x proportionally to the negative noise
+component; the stochastic term injects new noise at the same rate. Intuitively, scaling the magnitude
+of Langevin exploration according to the current noise standard deviation is a reasonable baseline, as
+the data manifold is effectively “spread out” by this amount due to the blurring of the density.
+The reverse SDE used in denoising diffusion is simply obtained by applying the time reversal formula
+of Anderson [1] (as stated in Eq. 6 of Song et al. [49]) on Eq. 103; the entire effect of the reversal is a
+change of sign in the middle term.
+The scaled generalization of the SDE can be derived using a similar approach as with the ODE
+previously. As such, the derivation is omitted here.
+B.6
+Our preconditioning and training (Eq. 8)
+Following Eq. 2, the denoising score matching loss for a given denoiser Dθ on a given noise level σ
+is given by
+L(Dθ; σ) = Ey∼pdata En∼N(0,σ2I)
+
+
+Dθ(y + n; σ) −y
+
+
+2
+2.
+(104)
+We obtain overall training loss by taking a weighted expectation of L(Dθ; σ) over the noise levels:
+L(Dθ)
+=
+Eσ∼ptrain
+
+λ(σ) L(Dθ; σ)
+
+(105)
+=
+Eσ∼ptrain
+h
+λ(σ) Ey∼pdata En∼N(0,σ2I)
+
+
+Dθ(y + n; σ) −y
+
+
+2
+2
+i
+(106)
+=
+Eσ∼ptrain Ey∼pdata En∼N(0,σ2I)
+h
+λ(σ)
+
+
+Dθ(y + n; σ) −y
+
+
+2
+2
+i
+(107)
+=
+Eσ,y,n
+h
+λ(σ)
+
+
+Dθ(y + n; σ) −y
+
+
+2
+2
+i
+,
+(108)
+where the noise levels are distributed according to σ ∼ptrain and weighted by λ(σ).
+Using our deﬁnition of Dθ(·) from Eq. 7, we can further rewrite L(Dθ) as
+Eσ,y,n
+h
+λ(σ)
+
+
+cskip(σ)(y+n) + cout(σ)Fθ
+cin(σ)(y+n); cnoise(σ)
+
+−y
+
+
+2
+2
+i
+(109)
+=
+Eσ,y,n
+h
+λ(σ)
+
+
+cout(σ)Fθ
+cin(σ)(y+n); cnoise(σ)
+
+−
+y −cskip(σ)(y + n)
+
+
+2
+2
+i
+(110)
+=
+Eσ,y,n
+h
+λ(σ)cout(σ)2
+
+Fθ
+cin(σ)(y+n); cnoise(σ)
+
+−
+1
+cout(σ)
+y −cskip(σ)(y+n)
+
+
+2
+2
+i
+(111)
+=
+Eσ,y,n
+h
+w(σ)
+
+
+Fθ
+cin(σ)(y+n); cnoise(σ)
+
+−Ftarget(y, n; σ)
+
+
+2
+2
+i
+,
+(112)
+which matches Eq. 8 and corresponds to traditional supervised training of Fθ using standard L2 loss
+with effective weight w(·) and target Ftarget(·) given by
+w(σ) = λ(σ) cout(σ)2
+and
+Ftarget(y, n; σ) =
+1
+cout(σ)
+y −cskip(σ)(y + n)
+
+,
+(113)
+We can now derive formulas for cin(σ), cout(σ), cskip(σ), and λ(σ) from ﬁrst principles, shown in the
+“Ours” column of Table 1.
+27
+
+
+===== [Page 28] =====
+First, we require the training inputs of Fθ(·) to have unit variance:
+Vary,n
+
+cin(σ)(y + n)
+
+=
+1
+(114)
+cin(σ)2 Vary,n
+
+y + n
+
+=
+1
+(115)
+cin(σ)2σ2
+data + σ2
+=
+1
+(116)
+cin(σ)
+=
+1
+q
+σ2 + σ2
+data.
+(117)
+Second, we require the effective training target Ftarget to have unit variance:
+Vary,n
+
+Ftarget(y, n; σ)
+
+=
+1
+(118)
+Vary,n
+h
+1
+cout(σ)
+y −cskip(σ)(y + n)
+i
+=
+1
+(119)
+1
+cout(σ)2 Vary,n
+
+y −cskip(σ)(y + n)
+
+=
+1
+(120)
+cout(σ)2
+=
+Vary,n
+
+y −cskip(σ)(y + n)
+
+(121)
+cout(σ)2
+=
+Vary,n
+h1 −cskip(σ)
+
+y + cskip(σ) n
+i
+(122)
+cout(σ)2
+=
+1 −cskip(σ)
+2 σ2
+data + cskip(σ)2 σ2.
+(123)
+Third, we select cskip(σ) to minimize cout(σ), so that the errors of Fθ are ampliﬁed as little as possible:
+cskip(σ) = arg mincskip(σ) cout(σ).
+(124)
+Since cout(σ) ≥0, we can equivalently write
+cskip(σ) = arg mincskip(σ) cout(σ)2.
+(125)
+This is a convex optimization problem; its solution is uniquely identiﬁed by setting the derivative
+w.r.t. cskip(σ) to zero:
+0
+=
+d
+
+cout(σ)2
+/dcskip(σ)
+(126)
+0
+=
+d
+h1 −cskip(σ)
+2 σ2
+data + cskip(σ)2 σ2i
+/dcskip(σ)
+(127)
+0
+=
+σ2
+data d
+h1 −cskip(σ)
+2i
+/dcskip(σ) + σ2 d
+
+cskip(σ)2
+/dcskip(σ)
+(128)
+0
+=
+σ2
+data
+
+2 cskip(σ) −2
+
++ σ2 
+2 cskip(σ)
+
+(129)
+0
+=
+σ2 + σ2
+data
+
+cskip(σ) −σ2
+data
+(130)
+cskip(σ)
+=
+σ2
+data/
+σ2 + σ2
+data
+
+.
+(131)
+We can now substitute Eq. 131 into Eq. 123 to complete the formula for cout(σ):
+cout(σ)2
+=
+1 −
+
+cskip(σ)
+2 σ2
+data +
+
+cskip(σ)
+2 σ2
+(132)
+cout(σ)2
+=
+
+1 −
+
+σ2
+data
+σ2 + σ2
+data
+2
+σ2
+data +
+
+σ2
+data
+σ2 + σ2
+data
+2
+σ2
+(133)
+cout(σ)2
+=
+ σ2 σdata
+σ2 + σ2
+data
+2
++
+
+σ2
+data σ
+σ2 + σ2
+data
+2
+(134)
+cout(σ)2
+=
+σ2 σdata
+2 +
+σ2
+data σ
+2
+σ2 + σ2
+data
+2
+(135)
+cout(σ)2
+=
+(σ · σdata)2 σ2 + σ2
+data
+
+σ2 + σ2
+data
+2
+(136)
+cout(σ)2
+=
+(σ · σdata)2
+σ2 + σ2
+data
+(137)
+cout(σ)
+=
+σ · σdata
+q
+σ2 + σ2
+data.
+(138)
+28
+
+
+===== [Page 29] =====
+Fourth, we require the effective weight w(σ) to be uniform across noise levels:
+w(σ)
+=
+1
+(139)
+λ(σ) cout(σ)2
+=
+1
+(140)
+λ(σ)
+=
+1/cout(σ)2
+(141)
+λ(σ)
+=
+1
+
+σ · σdata
+p
+σ2 + σ2
+data
+2
+(142)
+λ(σ)
+=
+1
+(σ · σdata)2
+σ2 + σ2
+data
+
+(143)
+λ(σ)
+=
+σ2 + σ2
+data
+
+/(σ · σdata)2.
+(144)
+We follow previous work and initialize the output layer weights to zero. Consequently, upon
+initialization Fθ(·) = 0 and the expected value of the loss at each noise level is 1. This can be seen
+by substituting the choices of λ(σ) and cskip(σ) into Eq. 109, considered at a ﬁxed σ:
+Ey,n
+h
+λ(σ)
+
+
+cskip(σ)(y+n) + cout(σ)Fθ
+cin(σ)(y+n); cnoise(σ)
+
+−y
+
+
+2
+2
+i
+(145)
+=
+Ey,n
+ σ2 + σ2
+data
+(σ · σdata)2
+
+
+
+
+
+σ2
+data
+σ2 + σ2
+data
+(y+n) −y
+
+
+
+
+
+2
+2
+
+(146)
+=
+Ey,n
+ σ2 + σ2
+data
+(σ · σdata)2
+
+
+
+
+
+σ2
+datan −σ2y
+σ2 + σ2
+data
+
+
+
+
+
+2
+2
+
+(147)
+=
+Ey,n
+
+1
+σ2 + σ2
+data
+
+
+
+
+
+σdata
+σ n −
+σ
+σdata
+y
+
+
+
+
+
+2
+2
+
+(148)
+=
+1
+σ2 + σ2
+data
+Ey,n
+σ2
+data
+σ2 ⟨n, n⟩+ σ2
+σ2
+data
+⟨y, y⟩−2⟨y, n⟩
+
+(149)
+=
+1
+σ2 + σ2
+data
+σ2
+data
+σ2 Var(n)
+| {z }
+=σ2
++ σ2
+σ2
+data
+Var(y)
+| {z }
+=σ2
+data
+−2 Cov(y, n)
+|
+{z
+}
+=0
+
+(150)
+=
+1
+(151)
+C
+Reframing previous methods in our framework
+In this section, we derive the formulas shown in Table 1 for previous methods, discuss the corre-
+sponding original samplers and pre-trained models, and detail the practical considerations associated
+with using them in our framework.
+In practice, the original implementations of these methods differ considerably in terms of the
+deﬁnitions of model inputs and outputs, dynamic range of image data, scaling of x, and interpretation
+of σ. We eliminate this variation by standardizing on a uniﬁed setup where the model always matches
+our deﬁnition of Fθ, image data is always represented in the continuous range [−1, 1], and the details
+of x and σ are always in agreement with Eq. 4.
+We minimize the accumulation of ﬂoating point round-off errors by always executing Algorithms 1
+and 2 at double precision (float64). However, we still execute the network Fθ(·) at single precision
+(float32) to minimize runtime and remain faithful to previous work in terms of network architecture.
+C.1
+Variance preserving formulation
+C.1.1
+VP sampling
+Song et al. [49] deﬁne the VP SDE (Eq. 32 in [49]) as
+dx = −1
+2
+
+βmin + t
+βmax −βmin
+
+x dt +
+q
+βmin + t
+βmax −βmin
+
+dωt,
+(152)
+29

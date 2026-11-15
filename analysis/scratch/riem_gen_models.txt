@@ -1,0 +1,887 @@
+# Source PDF: C:\Users\Maha Mamdouh\Desktop\ML learning phase\scientifc papers\The Riemannian Geometry of Deep Generative Models.pdf
+# Extracted Pages: 1-9 of 9
+
+
+===== [Page 1] =====
+The Riemannian Geometry of Deep Generative Models
+Hang Shao
+University of Utah
+Salt Lake City, UT
+hang.shao@utah.edu
+Abhishek Kumar
+IBM Research AI
+Yorktown Heights, NY
+abhishk@us.ibm.com
+P. Thomas Fletcher
+University of Utah
+Salt Lake City, UT
+fletcher@sci.utah.edu
+Abstract
+Deep generative models learn a mapping from a low-
+dimensional latent space to a high-dimensional data space.
+Under certain regularity conditions, these models parame-
+terize nonlinear manifolds in the data space. In this paper,
+we investigate the Riemannian geometry of these generated
+manifolds. First, we develop efﬁcient algorithms for com-
+puting geodesic curves, which provide an intrinsic notion
+of distance between points on the manifold. Second, we
+develop an algorithm for parallel translation of a tangent
+vector along a path on the manifold. We show how parallel
+translation can be used to generate analogies, i.e., to trans-
+port a change in one data point into a semantically similar
+change of another data point. Our experiments on real im-
+age data show that the manifolds learned by deep genera-
+tive models, while nonlinear, are surprisingly close to zero
+curvature. The practical implication is that linear paths in
+the latent space closely approximate geodesics on the gen-
+erated manifold. However, further investigation into this
+phenomenon is warranted, to identify if there are other ar-
+chitectures or datasets where curvature plays a more promi-
+nent role. We believe that exploring the Riemannian geom-
+etry of deep generative models, using the tools developed in
+this paper, will be an important step in understanding the
+high-dimensional, nonlinear spaces these models learn.
+1. Introduction
+Learning from unlabeled raw sensory observations,
+which are often high-dimensional, is a problem of sig-
+niﬁcant importance in machine learning.
+An inﬂuential
+notion in this line of research is the manifold hypothe-
+sis, which states that these high-dimensional observations
+are concentrated around a manifold of much lower dimen-
+sionality [7, 19, 20, 21, 22].
+Indeed, the manifold hy-
+pothesis has been the basis of much of the prior work on
+the problems of unsupervised and semi-supervised learning
+[21, 19, 22, 20, 23, 1, 4, 2, 24, 18, 12].
+These problem areas have witnessed a surge in activ-
+ity following the recent success of deep generative mod-
+els in modeling the observed data with higher ﬁdelity than
+was earlier possible.
+This is particularly true for visual
+observations, where deep generative models such as vari-
+ational autoencoders (VAEs) [11, 17], generative adversar-
+ial networks (GANs) [8], PixelCNN [15], and their variants
+[16, 25, 3, 9] have been shown to generate good quality
+images. All of these models involve learning a mapping
+(termed as generator or decoder) from a lower-dimensional
+latent space to the high-dimensional space of observed data.
+This allows for generating novel data samples by ancestral
+sampling, which is seeded by samples in the latent space.
+As the learned generator in these models is able to gener-
+ate high-ﬁdelity data samples, the generator mapping can be
+argued to approximate the data manifold reasonably well.
+This has been explored in the context of semi-supervised
+learning to obtain smooth invariances for classiﬁcation via
+estimating the tangent directions to the data manifold as
+learned by the generator [12, 18]. However, the metric prop-
+erties of these generated manifolds still remain unexplored.
+In this work, we investigate the Riemannian geometry of
+the manifolds learned by these deep generative models. Our
+contributions are summarized as follows:
+• We propose an algorithm for computing geodesic paths
+between points on the generated manifold. This can be
+used to interpolate between two generated data points on
+the manifold using the least amount of change necessary,
+while enforcing that the points along the path remain on
+the manifold. The arclength of a minimal geodesic path is
+a distance metric between points on the manifold, and is
+a natural way to measure the similarity between two data
+points. While the continuous geodesic equation requires
+expensive second derivatives and matrix inversions, we
+formulate an efﬁcient numerical strategy for computing
+discretized geodesic curves that avoids these computa-
+tions. In addition to point-to-point geodesics paths, we
+show how to “shoot” a geodesic from an initial starting
+position and initial velocity (tangent vector).
+• Next, we develop an algorithm for parallel translation
+of tangent vectors along a path on the generated mani-
+1
+arXiv:1711.08014v1  [cs.LG]  21 Nov 2017
+
+
+===== [Page 2] =====
+M
+g
+Z
+X
+Figure 1: Depiction of a generative model as a mapping
+from low-dimensional latent coordinates onto an immersed
+manifold in data space.
+fold. Parallel translation moves a tangent vector contin-
+uously along a path using the minimal amount of change
+needed to keep it tangent to the manifold. This operation
+provides a means for computing analogies, i.e., taking
+the change between points a to b on the manifold (repre-
+sented as a geodesic segment) and applying that change
+to a third point c.
+• In our experiments, we show how the above tools can
+be used to explore the Riemannian geometry of the
+manifolds learned by deep generative models, and in par-
+ticular, to investigate the curvature of these manifolds.
+We demonstrate, at least for the VAE architecture used
+in our experiments, that the generated manifolds learned
+from real images used in our experiments (CelebA [13],
+SVHN [14]) have surprisingly little curvature. As a re-
+sult, straight lines in the latent space map via the gener-
+ator to curves on the manifold that are quite similar to
+geodesics. This may help explain why the latent coor-
+dinates, and interpolations between them, tend to give
+plausible changes in the generated images.
+Geodesic
+curves are in a sense the smoothest possible transitions,
+as they move at constant speed and minimize the amount
+of distance needed to travel from one point to another.
+Our conclusion is that latent coordinates that approxi-
+mate geodesics is a desirable property to have, and this
+should be checked by interrogating the Riemannian ge-
+ometry of a trained deep generative model.
+2. Deep Generative Models as Manifolds
+In this section, we illustrate the connection between deep
+generative models and manifolds. A deep generative model
+represents a mapping, g : Z →X, from some low-
+dimensional latent space Z ⊆Rd to a high-dimensional
+data space X ⊆RD (typically, d ≪D). Under certain
+conditions (described precisely below), the image of g is a
+smooth manifold, M ⊂X. As depicted in Figure 1, g maps
+linear coordinates in Z onto curvilinear coordinates on M.
+We will construct g as the composition of multiple lay-
+ers, i.e., g = g(1)◦g(2)◦· · ·◦g(l), where we use superscripts
+to denote the layer index. Each layer g(l) is an afﬁne map-
+ping, followed by a nonlinear activation function:
+g(l)
+k
+
+y(l)
+= φ
+
+W (l)
+k y(l) + b(l)
+.
+Here we have used subscripts, g(l)
+k , to denote the kth com-
+ponent of the output, and W (l)
+k , to denote the kth row of the
+weight matrix, W (l).
+The image of g is a smooth (i.e., C∞), d-dimensional,
+immersed manifold if for every point z ∈Z, the Jacobian
+of g at z, Jg(z), has rank d. As a straightforward applica-
+tion of the chain rule, this will be true when the following
+conditions are met:
+1. The activation function, φ, is a smooth, monotonic
+function.
+2. Each weight matrix W (l) has maximal rank.
+Note that condition 1 can be enforced during the mod-
+eling phase, by selecting an appropriate activation function.
+Condition 2 must be checked after training. Also, note that
+condition 2 is sufﬁcient but not necessary: we could poten-
+tially have less-than-maximal rank weight matrices in the
+middle layers, as long as the ﬁnal rank of the Jacobian is
+d. However, checking this more general condition would
+require checking the Jacobian is rank-d at every possible in-
+put z, which is not feasible. Finally, we emphasize that M
+is only guaranteed to be an immersed manifold. This means
+that it is locally diffeomorphic to d-dimensional Euclidean
+space, but globally it may have self intersections.
+The Jacobian matrix of g provides a way to map tangent
+vectors in the latent space to tangent vectors on the mani-
+fold. At any point z ∈Z, the Jacobian matrix Jg(z) is a
+linear mapping from TzZ, the tangent space of Z at z, to
+Tg(z)M, the tangent space of M at g(z). In practice, Jg(z)
+is computed as the d × D partial derivative matrix of g via
+backpropagation. A Riemannian metric provides an inner
+product structure between tangent vectors in each tangent
+space TxM. We will use the induced metric from the am-
+bient data space X. In other words, thinking of two vectors
+u, v ∈TxM as living in a linear subspace of X, we can use
+the Euclidean dot product of X to compute the Riemannian
+metric ⟨u, v⟩.
+Intuitively speaking, the curvature of a Riemannian man-
+ifold measures the extent to which the metric deviates from
+being Euclidean. For a precise mathematical explanation of
+curvature, refer to standard texts in Riemannian geometry,
+e.g., [6]. We emphasize an important distinction: just be-
+cause a manifold is ﬂat, i.e., has zero curvature, does not
+
+
+===== [Page 3] =====
+mean that it isn’t nonlinear. For example, take a sheet of
+paper and draw a straight line on it. Now bend the sheet
+of paper into any shape without creasing it. This surface
+is metrically equivalent to 2D Euclidean space: the straight
+line you drew is now a geodesic curve with the same arc
+length. In other words, the surface has zero curvature (this
+is the Gaussian curvature in the case of a 2D surface). For
+example, rolling the paper into the famous “swiss roll” re-
+sults in a surface that is highly nonlinear, but nonetheless
+has zero curvature.
+3. Riemannian Geometry Computations
+In this section we develop three algorithms for Rieman-
+nian computations on a manifold represented by a deep gen-
+erative network g. These are geodesic interpolation be-
+tween two points on the manifold, parallel translation of
+a tangent vector along a path on the manifold, and geodesic
+shooting from an initial point and velocity on the manifold.
+We begin with a general discussion of the geodesic equation
+on a Riemannian manifold.
+We will consider all objects (tangent vectors, curves, the
+Riemannian metric) to be deﬁned in the coordinate space
+Z. However, we point out that all of these objects each
+have a corresponding unique counterpart on the manifold,
+M, through the mapping g (or it’s derivative mapping). We
+represent the Riemannian metric as a symmetric, positive
+deﬁnite matrix ﬁeld, G(z), deﬁned at each point of the la-
+tent coordinate space, z ∈Z. It is given by the formula:
+G(z) = Jg(z)T Jg(z).
+Given two tangent vectors u, v ∈TzZ in coordinates, their
+inner product is ⟨u, v⟩= uT G(z)v.
+Now, consider a smooth curve γ : [a, b] →Z. Again,
+this corresponds to a curve on the manifold, g ◦γ(t) ∈M.
+The arc length of γ is deﬁned as
+L(γ) =
+Z b
+a
+q
+˙γ(t)T Gγ(t) ˙γ(t)dt.
+(1)
+A geodesic curve locally minimizes the arc length, although
+this is done through minimizing a slightly different energy
+functional:
+E(γ) = 1
+2
+Z b
+a
+˙γ(t)T Gγ(t) ˙γ(t)dt.
+(2)
+Minimizing this energy leads to geodesic curves, which also
+locally minimize the arc length, but in addition have con-
+stant speed parameterizations.
+Taking a variation of the geodesic energy functional (2)
+results in the Euler-Lagrange equation for a geodesic:
+d2γi
+dt2 = −Γi
+jk
+dγj
+dt
+dγk
+dt ,
+(3)
+where Γi
+jk are the Christoffel symbols of the metric G.
+These are deﬁned as
+Γi
+jk = 1
+2Gil
+∂Glj
+∂xk + ∂Glk
+∂xj −∂Gjk
+∂xl
+
+,
+where Gil is inverse of Gil. Geodesic paths can then be
+computed using a numerical integration of the ordinary dif-
+ferential equation (3). However, notice that computation
+of the Christoffel symbols requires taking derivatives of G
+(which involves second derivatives of the generator, g) and
+also a matrix inverse of G. As we show in the next subsec-
+tion, these expensive calculations can be avoided if we start
+from a discrete counterpart to the geodesic energy (2).
+3.1. Efﬁcient Discrete Geodesic Computation
+We begin with a discretized curve as a sequence of co-
+ordinates z0, z1, . . . , zT
+∈Z.
+We think of this as ap-
+proximating a continuous curve, γ : [0, 1] →Z. Thus,
+with T time steps, we have a discrete time interval of
+δt = 1/T. This also corresponds to a discrete curve on
+the manifold M as g(zi). Using forward ﬁnite differences,
+we get the approximate velocity of the curve at g(zi) as
+ui = (g(zi+1) −g(zi))/δt. Now the discrete analog (2)
+gives us the energy of this curve:
+Ezi = 1
+2
+T
+X
+i=0
+1
+δt∥g(zi+1) −g(zi)∥2.
+(4)
+Fixing the endpoints, z0 and zT , as our target start and
+end points of the geodesic path, we will minimize this dis-
+crete geodesic energy by taking a gradient descent in the
+remaining points on the curve, z1, . . . , zT −1. The gradient
+with respect to zi is
+∇ziE = −1
+δtJT
+g (zi) (g(zi+1) −2g(zi) + g(zi−1)) . (5)
+Notice that the gradient is a ﬁnite-difference second deriva-
+tive in the X space, followed by a Jacobian of g coming
+from the chain rule.
+The second ﬁnite difference in X
+space may have a component normal to the tangent space
+Tg(zi)M.
+However, the JT
+g will project out this normal
+component and map the gradient in X to a gradient in TziZ.
+Finally, geodesic path ﬁnding proceeds by optimizing the
+curve coordinates z1, . . . , zT −1, using gradient descent with
+the gradient in (5).
+While this gradient descent algorithm for computing dis-
+cretized geodesics avoids the expensive Christoffel symbol
+calculations, it does still require computation of the Jaco-
+bian of the generator, g. For deep generative models, this
+Jacobian can be expensive.
+However, we can make an
+additional speed up for models with a corresponding en-
+coder function, i.e., a mapping h : X →Z, such that
+h(g(z)) = z. For such models, e.g., VAEs, the encoder
+
+
+===== [Page 4] =====
+Algorithm 1: Geodesic Path
+Input: Two points,z0, zT ∈Z
+α ∈R+ is gradient descent step size
+Output: Discrete geodesic path ,z0, z1, . . . , zT ∈Z
+Initialize zi as linear interpolation between z0 and zT
+while P
+i ∥∇ziE∥2 > ϵ do
+for i ∈{1, . . . , T −1} do
+Compute the modiﬁed gradient ηi using (6)
+zi ←zi −αηi
+Jacobian is signiﬁcantly faster. Now imagine moving our
+discrete curve points, g(zi), in the negative gradient direc-
+tion along M. Mapping this direction down into Z via the
+Jacobian of h, Jh(g(zi)), will produce an equivalent direc-
+tion in Z coordinates. This results in the following modiﬁed
+gradient, which replaces JT
+g with the faster-to-compute Jh:
+ηi = −1
+δtJh(g(zi)) (g(zi+1) −2g(zi) + g(zi−1)) .
+(6)
+Although this modiﬁed gradient is no longer the gradient
+of the discrete curve energy, it does move the g(zi) in the
+same initial direction. Also, descent in this modiﬁed gradi-
+ent direction has the same ﬁxed point as gradient descent.
+The ﬁnal geodesic path algorithm is given in Algorithm 1.
+3.2. Parallel Translation
+Given a geodesic path from a point a ∈M to a point
+b ∈M, we can transfer the change from a →b into a
+change of a third point c ∈M. This type of “analogy” is
+performed in three steps: (1) compute the initial velocity to
+the geodesic from a to b, (2) parallel translate this velocity
+along the geodesic from a to c, and (3) use this velocity at
+c to shoot a geodesic segment. In Euclidean space, these
+operations would be (1) take the difference v = b −a,
+(2) consider v as a vector based at c, and (3) shoot the
+geodesic (straight line) by adding c + v. Parallel transla-
+tion for non-ﬂat manifolds moves a tangent vector along the
+manifold with as little change as possible, while still enforc-
+ing the vector stay tangent. This operation preserves the in-
+ner product between tangent vectors, and as such, preserves
+the length of a translated tangent vector. As a concrete ex-
+ample, imagine the 2D sphere with a tangent vector at the
+north pole. Now rotate the sphere and tangent vector with
+it. This is parallel translation along the path swept out by
+the rotation.
+Now, assume that we already have a discrete path
+z0, . . . zT
+∈Z in coordinates and a tangent vector in
+u0 ∈Tg(z0)M at the initial point on the manifold. A small
+step of parallel translation is approximately equivalent to
+Euclidean translation of the vector u0 from g(z0) to g(z1).
+However, the vector at this new position will be slightly out
+of the tangent space. This can be corrected by applying the
+minimal rotation to bring this vector into the tangent space.
+Note that we can do this using the singular value decompo-
+sition (SVD) of the Jacobian Jg. The left singular vectors
+U give an orthonormal basis for the tangent space. Rotation
+onto this basis is equivalent to a projection (multiplication
+by U T U) followed by a rescaling of the vector back to it’s
+original length. Repeating this for process for each time
+step along the curve gives our parallel translation routine,
+summarized in Algorithm 2.
+Algorithm 2: Parallel Translation
+Input: Discrete path: z0, z1, . . . , zT ∈Z, and tangent
+vector: v0 ∈Tz0Z
+Output: Tangent vector vT ∈TzT Z
+Initialize: u0 = Jg(z0)v0
+for i = 0, . . . , T −1 do
+xi = g(zi)
+Compute SVD: Jg(zi+1) = UΣV T
+ui+1 = U T Uui
+ui+1 =
+∥ui∥
+∥ui+1∥ui+1
+vT = Jh(xT )uT
+3.3. Geodesic Shooting
+Given a starting point x0 ∈M and a starting velocity
+u0 ∈Tx0M, there is a unique geodesic γ(t) ∈M, with
+these initial conditions γ(0) = x0 and ˙γ(0) = u0. (Techni-
+cally, such a geodesic is only guaranteed to exist for some
+ﬁnite time.) In Euclidean space, this intuitively says that
+given a starting point and velocity, there is only one straight
+line with those initial conditions.
+To compute geodesic shooting, that is, a geodesic path
+from initial conditions, we will use the connection between
+the geodesic equation and parallel translation from the pre-
+vious subsection. The geodesic equation says that the ve-
+locity of a geodesic moves by parallel translation along the
+geodesic. Therefore, we can compute a discrete geodesic
+step by taking a small step in the current velocity direction,
+followed by updating the velocity to this new point by par-
+allel translation. This process is detailed in Algorithm 3.
+4. Experiments
+In this section, we conduct an extensive empirical study
+of the proposed algorithms for various Riemannian geome-
+try computations in the context of deep generative models.
+We work with variational autoencoder (VAE) [11, 17] as
+our generative model of choice, however, the proposed al-
+gorithms are equally applicable to other popular generative
+models, such as generative adversarial network [8] and Pix-
+elCNN [15].
+
+
+===== [Page 5] =====
+Figure 2: Comparing linear interpolation with geodesic interpolation (Algorithm 1) for a pair of points on the manifold M
+induced by the generator of the VAE, which is trained on the data from a hyperbolic paraboloid. Left: True surface of the
+hyperbolic paraboloid, Middle: Surface of M (range of the VAE’s learned generator mapping, g : Z →X) overlaid with the
+curves for linear and geodesic interpolation, Right: Linear and geodesic interpolation curves in Z.
+Algorithm 3: Geodesic Shooting
+Input: Initial point z0 ∈Z, and initial velocity
+u0 ∈Tg(z0)M
+Output: Final point on geodesic segment: zT ∈Z
+Discrete timestep: δt = 1
+T
+for i = 0, . . . , T −1 do
+xi+1 = xi + δtui
+zi+1 = h(xi+1)
+xi+1 = g(zi+1)
+Compute SVD: Jg(zi+1) = UΣV T
+ui+1 = U T Uui
+ui+1 =
+∥ui∥
+∥ui+1∥ui+1
+VAE Encoder architecture
+Conv 4 × 4 × 32 (stride 2), Batch norm, ELU
+Conv 4 × 4 × 32 (stride 2), Batch norm, ELU
+Conv 4 × 4 × 64 (stride 2), Batch norm, ELU
+Conv 4 × 4 × 64 (stride 2), Batch norm, ELU
+FC 256, Batch norm, ELU
+FC 32 (Mean) ∥FC 32, Sigmoid (Std. dev.)
+Table 1: Architectural details of the VAE model used for
+CelebA and SVHN datasets. The architecture of the gen-
+erator is reverse of the encoder with Conv layers replaced
+with transposed convolutions (Deconv) and an additional ﬁ-
+nal Deconv layer of size 4 × 4 × 3.
+4.1. Synthetic Manifold
+Since it is difﬁcult to visualize high dimensional real data
+as manifolds, we illustrate the geodesic traversal using a
+simple analytically deﬁned manifold. In particular, we use
+a hyperbolic paraboloid which is a 2-D surface in three di-
+mensions, deﬁned as the set {(a, b, c) : a = z1, b = z2, c =
+(z2
+1 −z2
+2), (z1, z2) ∈R2}. We sample data from this man-
+ifold using ancestral sampling, with z1, z2 ∼N(0, 1) and
+c = (z2
+1 −z2
+2). We sample 50k points on this manifold
+and train a VAE on this data with latent dimension of 2.
+The encoder h is a two layer neural network with the fully-
+connected hidden layer of size 100 (FC-100) having ELU
+activations. The encoder outputs the mean (FC-2) and vari-
+ance (FC-2, followed by Sigmoid) of the approximate pos-
+terior. The decoder g has reverse architecture of the encoder
+(FC-100, ELU, FC-3) and maps the two dimensional latents
+to three dimensional points on the manifold. We use expo-
+nential linear units (ELU) [5] so that the resulting generator
+mapping is differentiable (C1). Although the use of ELUs
+does not result in a C∞mapping, it does ensure that we gen-
+erate a C1 manifold. Also, all of our proposed algorithms
+are valid because they require at most ﬁrst derivatives of the
+generator. We train this using minibatch stochastic gradient
+descent with batch size of 100 and learning rate of 0.0001
+for 100k minibatch iterations.
+We pick two points reasonably far away on the analyti-
+cally deﬁned hyperbolic paraboloid, x = (−3, −3, 0) and
+y = (3, −3, 0), and map these to the latent space of the
+trained VAE using the encoder as zx = h(x) and zy = h(y),
+where h in this context represents the mean of the approx-
+imate posterior. The corresponding points on the manifold
+are obtained as g(zx) and g(zy). We use Algorithm 1 to es-
+timate the geodesic connecting the points g(zx) and g(zy),
+and compare it with the curve traced on the generator’s man-
+ifold by linear interpolation between zx and zy.
+Fig. 2 visualizes the true shape of our analytically de-
+ﬁned hyperbolic paraboloid (left-most plot) along with the
+shape of the manifold as learned by the VAE’s generator
+(middle plot). We also visualize the geodesic and linear in-
+terpolation curves between the points g(zx) and g(zy) on
+the learned manifold (middle plot), and the same set of
+curves between zx and zy in the two dimensional latent
+
+
+===== [Page 6] =====
+65.84
+65.17
+56.34
+53.76
+82.71
+77.01
+Figure 3:
+Linear and geodesic interpolation results for
+CelebA dataset.
+Rows 1, 3, 5: linear; Rows 2, 4, 6:
+geodesic; Column 1: arc length.
+space (right-most plot).
+This clearly brings out the dif-
+ferences between linear and geodesic interpolation paths,
+with a shorter geodesic curve on the manifold (about 35%
+smaller arclength than the linear curve) being traced by a
+longer curve in the latent space.
+4.2. Real Manifolds
+In this section, we investigate the Riemannian geometry
+of the generated manifolds learned on real images by car-
+rying out computations such as geodesic interpolation and
+geodesic mean, and comparing these with the correspond-
+ing linear counterparts in Z space. We use two real image
+datasets in our experiments:
+CelebA[13].
+It consists of 202, 599 RGB face images
+of celebrities.
+We use center-cropped images of shape
+64 × 64 × 3 as used in several earlier works, using 80%
+of these for training the VAE.
+SVHN [14].
+It consists of house numbers obtained from
+Google Street View images. We use about 530k cropped
+digits of shape 32 × 32 × 3 for training that are provided as
+part of the dataset.
+Implementation details.
+Architecture of the encoder
+(h : X →Z) for both CelebA and SVHN is shown in
+Table 1. The architecture for the generator (g : Z →X) is
+reverse of the encoder architecture with an additional trans-
+posed convolution layer that outputs the RGB image. The
+latent dimension is kept at 32 for both datasets. The model
+is trained for 50k minibatch iterations (batch size of 100)
+using ADAM [10] with the learning rate of 0.0002.
+4.2.1
+Geodesic Interpolation
+We use Algorithm 1 to estimate the geodesic curve connect-
+ing a given pair of images on the generated manifold, dis-
+cretizing it at 10 points (T = 10). To get an image on the
+18.10
+17.88
+24.03
+23.88
+15.94
+15.66
+Figure 4:
+Linear and geodesic interpolation results for
+SVHN dataset. Rows 1, 3, 5: linear; Rows 2, 4, 6: geodesic;
+Column 1: arc length.
+generated manifold, we pick a real image x from the dataset
+and use g(h(x)) to get the corresponding point on the gen-
+erated manifold. Fig 3 and 4 show a few images (equally
+spaced in Z space) on the linear and geodesic interpolation
+curves along with their arclengths, for CelebA and SVHN,
+respectively. Although, the geodesic curve on the manifold
+gives a shorter arclength than linear interpolation in Z space,
+the difference is not as pronounced as observed in our ear-
+lier experiment with synthetic manifold. This suggests that
+the generated manifolds learned by our VAE architecture
+for CelebA and SVHN, although nonlinear, have very little
+curvature.
+4.2.2
+Fr´echet Means
+We take a step further and look at the Fr´echet mean of a
+chosen set of points on the generated manifold, comparing
+it with the linear mean in Z space. The Fr´echet mean of
+a set is a point on the manifold which minimizes the total
+sum-of-squared geodesic distance to all the points in the set.
+In our setting, if z1, . . . , zN ∈Z are input data points, the
+Fr´echet mean is deﬁned as the solution to the optimization
+problem:
+ˆµ = arg min
+µ∈Z
+N
+X
+i=1
+d(µ, zi)2,
+where d(µ, zi) is the geodesic distance, i.e., the arc length
+of path computed using Algorithm 1. We optimize this least
+squares problem using gradient descent in the latent coordi-
+nates for µ.
+A set of real images from CelebA is constructed by ran-
+domly selecting images from the dataset that all have the
+same value for a chosen pair of attributes. We construct
+four such sets, each consisting of 100 images, correspond-
+ing to attributes (black hair, mouth open), (black hair, mouth
+
+
+===== [Page 7] =====
+Figure 5: Linear mean (top) and Geodesic mean (bottom) in
+Z space for the four groups of images from CelebA. From
+left to right: (black hair, mouth close), (black hair, mouth
+open), (blond hair, mouth close), (blond hair, mouth open).
+closed), (blond hair, mouth open) and (blond hair, mouth
+closed), respectively. We ﬁnd the corresponding points on
+the VAE’s generated manifold by applying function g◦h on
+each of these images. Fig. 5 visualizes the Fr´echet means
+and linear means for these four groups of images. Here the
+Fr´echet means are similar in appearance to the linear means
+in the latent space. Again, this indicates that there may be
+limited curvature in the manifold. However, there are cer-
+tainly subtle differences (particularly in the color) that indi-
+cates curvature is playing at least some role.
+4.2.3
+Geodesic Distance and Attribute Groupings
+In this section, we analyze how well are the geodesic dis-
+tances aligned with the groupings of the images based on
+the ground truth attributes. We reuse the four groups of
+images constructed in the earlier section for CelebA for this
+experiment. In addition, we also construct ten groups of im-
+ages for SVHN, with each group consisting of 50 randomly
+sampled images of a digit. We apply g ◦h on each of these
+points to get corresponding points on the generated man-
+ifold, and compute linear and geodesic distances for each
+pair of these points. This gives us linear and geodesic dis-
+tance matrices of size 400 × 400 for CelebA and 500 × 500
+for SVHN. We calculate R2 scores for each distance ma-
+trix, R2 = 1 −
+P
+(ij:li=lj ) d2(xi,xj)
+PN
+i,j=1 d2(xi,xj) , where li is the attribute
+label for xi and N is just total number of data points. The
+R2 score essentially measures the ratio of the intra-group
+squared distances and total squared distances, with a higher
+R2 value indicating better agreement between the attribute
+based grouping and the distances. As R2 score is already
+normalized by the sum of all squared distances, it is di-
+rectly comparable across linear and geodesic distance ma-
+trices. As shown in Table 2, we obtain slightly higher R2
+scores with geodesic distances compared to the linear dis-
+tances, indicating that geodesic distances group similar im-
+ages slightly closer together than linear distances.
+We also use multidimensional scaling (MDS) to embed
+the points into two dimensions based on these distance ma-
+Geodesic
+Linear
+CelebA
+0.7782278
+0.7638913
+SVHN
+0.9024925
+0.9021349
+Table 2: R2 Scores with geodesic and linear distance matri-
+ces (the higher the better)
+trices, which are visualized in Fig. 6 for CelebA. The em-
+bedding based on geodesic distances visually seem to give
+a slightly tighter concentration around the groups, com-
+pared to the embedding based on linear distances. We also
+calculate the eigenvalues for the MDS matrices and plot
+them in Fig. 7. The eigenvalues of MDS explain whether
+the data can be isometrically embedded in Euclidean space
+(i.e., while preserving the distance metric between pairs of
+points). If all eigenvalues are non-negative, then this Eu-
+clidean embedding is possible, and the dimension of the
+Euclidean space is the number of nonzero eigenvalues. The
+presence of negative eigenvalues demonstrate that the space
+has nonzero curvature, and exact Euclidean embedding is
+impossible. The magnitude of the negative eigenvalues is
+a measure of how far the manifold distances are deviating
+from Euclidean, i.e., it is a measure of how much curva-
+ture the manifold has. As expected, the linear distance ma-
+trix resulted in exactly 32 positive eigenvalues, with exactly
+zero eigenvalues after 32. The geodesic distance matrix has
+negative eigenvalues, but they have very small magnitude
+compared with the positive eigenvalues. This strongly indi-
+cates that the generated manifold has some curvature, but it
+is close to being zero.
+4.2.4
+Geodesic Analogy
+The analogy problem is deﬁned as a : b :: c :?. In our
+context, a, b and c are images and we want to ﬁnd an im-
+age that is related to c in the same way as a is related to
+b. We reuse the four CelebA groups constructed in the ear-
+lier experiments. We take a to be the geodesic mean of the
+group (blond hair, mouth closed) and b to be the geodesic
+mean of the group (blond hair, mouth open). We take c to be
+a randomly selected test image with attributes (blond hair,
+mouth closed). For geodesic analogy, we ﬁrst compute the
+geodesic between a and b. The initial velocity vector at a is
+then parallel translated to c along the geodesic connecting a
+and c using Algorithm 2. We then use Algorithm 3 to shoot
+a geodesic of same arc length as the a-b geodesic along this
+parallel translated vector. The end point of this geodesic is
+expected to have a similar semantic relation to c, as b is re-
+lated to a (i.e., change in the binary mouth attribute from
+close to open).
+We also try a linear analogy operation in Z space. We
+compute the difference (zb −za) (where a = g(za),
+b = g(zb)), and add the resulting vector to zc ∈Z cor-
+
+
+===== [Page 8] =====
+factor(group)
+black hair+mouth closed
+black hair+mouth open
+blond hair+mouth closed
+blond hair+mouth open
+factor(group)
+black hair+mouth closed
+black hair+mouth open
+blond hair+mouth closed
+blond hair+mouth open
+Figure 6: MDS embedding for linear (left) and geodesic (right) distance matrices, for four groups of images from CelebA.
+0
+100
+200
+300
+400
+0
+1000
+3000
+5000
+indices
+MDS Eigenvalue
+geodesic distance
+linear distance
+380
+385
+390
+395
+400
+−80
+−60
+−40
+−20
+0
+indices
+MDS Eigenvalue
+geodesic distance
+linear distance
+Figure 7: Eigenvalues of the MDS matrices for the four groups of images from CelebA dataset (400 total images). Left: all
+400 eigenvalues. Right: Zooming in on lowest eigenvalues. Note that the vertical axis scale is much smaller in the right plot.
+Figure 8:
+Linear mean vector analogy (rows 1,3) vs.
+geodesic parallel translated vector analogy (rows 2,4). First
+two rows change black hair to blond, and the last two rows
+change closed mouth to open.
+responding to the test image c (i.e., c = g(zc)). The an-
+swer to the linear analogy problem is then taken to be the
+image y = g(zb −za + zc).
+Fig. 8 shows the results
+for geodesic and linear analogies for two different attribute
+combinations. The linear analogy is visually quite close to
+the geodesic analogy (with subtle differences), which again
+suggests that the generated manifold has very low curvature.
+5. Conclusion
+In this paper we have introduced methods for explor-
+ing the Riemannian geometry of manifolds learned by deep
+generative models. Our experiments show that these mod-
+els represent real image data with manifolds that have sur-
+prisingly little curvature. Consequently, straight lines in the
+latent space are relatively close to geodesic curves on the
+manifold. This fact may explain why traversal in the la-
+tent space results in visually plausible changes to the gen-
+erated data: curvilinear distances in the original data met-
+ric are roughly preserved. However, our experiments were
+limited to a single type of deep network (VAE) and two
+real image data sets (CelebA and SVHN). Further investiga-
+tion into this phenomenon is warranted, to identify if there
+are other architectures or datasets where curvature plays a
+more prominent role. Also, even for the results presented
+here, the role of curvature should not be completely dis-
+counted: there are still differences between latent distances
+and geodesic distances that may have more nuanced effects
+in certain applications. We believe that exploring the Rie-
+mannian geometry of deep generative models, using the
+tools developed in this paper, will be an important step in
+understanding the high-dimensional, nonlinear spaces these
+models learn.
+
+
+===== [Page 9] =====
+References
+[1] M. Belkin and P. Niyogi. Semi-supervised learning on rie-
+mannian manifolds.
+Machine learning, 56(1-3):209–239,
+2004. 1
+[2] M. Belkin, P. Niyogi, and V. Sindhwani. Manifold regular-
+ization: A geometric framework for learning from labeled
+and unlabeled examples. Journal of machine learning re-
+search, 7(Nov):2399–2434, 2006. 1
+[3] D. Berthelot, T. Schumm, and L. Metz. Began: Boundary
+equilibrium generative adversarial networks. arXiv preprint
+arXiv:1703.10717, 2017. 1
+[4] L. Cayton. Algorithms for manifold learning. Univ. of Cali-
+fornia at San Diego Tech. Rep, 12:1–17, 2005. 1
+[5] D.-A. Clevert, T. Unterthiner, and S. Hochreiter. Fast and
+accurate deep network learning by exponential linear units
+(elus). arXiv preprint arXiv:1511.07289, 2015. 5
+[6] M. do Carmo. Riemannian Geometry. Birkhauser, 1992. 3
+[7] C. Fefferman, S. Mitter, and H. Narayanan. Testing the man-
+ifold hypothesis. Journal of the American Mathematical So-
+ciety, 29(4):983–1049, 2016. 1
+[8] I. Goodfellow,
+J. Pouget-Abadie,
+M. Mirza,
+B. Xu,
+D. Warde-Farley, S. Ozair, A. Courville, and Y. Bengio. Gen-
+erative adversarial nets. In Advances in neural information
+processing systems, pages 2672–2680, 2014. 1, 4
+[9] T. Karras, T. Aila, S. Laine, and J. Lehtinen. Progressive
+growing of gans for improved quality, stability, and variation.
+arXiv preprint arXiv:1710.10196, 2017. 1
+[10] D. Kingma and J. Ba. Adam: A method for stochastic opti-
+mization. arXiv preprint arXiv:1412.6980, 2014. 6
+[11] D. P. Kingma and M. Welling. Auto-encoding variational
+bayes. arXiv preprint arXiv:1312.6114, 2013. 1, 4
+[12] A. Kumar, P. Sattigeri, and P. T. Fletcher. Improved semi-
+supervised learning with gans using manifold invariances. In
+NIPS, 2017. 1
+[13] Z. Liu, P. Luo, X. Wang, and X. Tang. Deep learning face at-
+tributes in the wild. In Proceedings of the IEEE International
+Conference on Computer Vision, pages 3730–3738, 2015. 2,
+6
+[14] Y. Netzer, T. Wang, A. Coates, A. Bissacco, B. Wu, and A. Y.
+Ng. Reading digits in natural images with unsupervised fea-
+ture learning. In NIPS workshop on deep learning and un-
+supervised feature learning, volume 2011, page 5, 2011. 2,
+6
+[15] A. v. d. Oord, N. Kalchbrenner, and K. Kavukcuoglu. Pixel
+recurrent neural networks. arXiv preprint arXiv:1601.06759,
+2016. 1, 4
+[16] A. Radford, L. Metz, and S. Chintala. Unsupervised repre-
+sentation learning with deep convolutional generative adver-
+sarial networks. arXiv preprint arXiv:1511.06434, 2015. 1
+[17] D. J. Rezende, S. Mohamed, and D. Wierstra. Stochastic
+backpropagation and approximate inference in deep genera-
+tive models. arXiv preprint arXiv:1401.4082, 2014. 1, 4
+[18] S. Rifai, Y. Dauphin, P. Vincent, Y. Bengio, and X. Muller.
+The manifold tangent classiﬁer. In NIPS, 2011. 1
+[19] S. T. Roweis and L. K. Saul. Nonlinear dimensionality reduc-
+tion by locally linear embedding. science, 290(5500):2323–
+2326, 2000. 1
+[20] L. K. Saul and S. T. Roweis. Think globally, ﬁt locally: un-
+supervised learning of low dimensional manifolds. Journal
+of machine learning research, 4(Jun):119–155, 2003. 1
+[21] J. B. Tenenbaum. Mapping a manifold of perceptual observa-
+tions. In Advances in neural information processing systems,
+pages 682–688, 1998. 1
+[22] J. B. Tenenbaum, V. De Silva, and J. C. Langford. A global
+geometric framework for nonlinear dimensionality reduc-
+tion. science, 290(5500):2319–2323, 2000. 1
+[23] P. Vincent and Y. Bengio. Manifold parzen windows. In
+Advances in neural information processing systems, pages
+849–856, 2003. 1
+[24] K. Q. Weinberger and L. K. Saul. Unsupervised learning
+of image manifolds by semideﬁnite programming. Interna-
+tional journal of computer vision, 70(1):77–90, 2006. 1
+[25] S. Zhao, J. Song, and S. Ermon.
+Towards deeper under-
+standing of variational autoencoding models. arXiv preprint
+arXiv:1702.08658, 2017. 1

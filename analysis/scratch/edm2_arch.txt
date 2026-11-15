@@ -1,0 +1,1637 @@
+# Source PDF: C:\Users\Maha Mamdouh\Desktop\ML learning phase\scientifc papers\EDM_2 Analyzing and Improving the Training Dynamics of Diffusion Models.pdf
+# Extracted Pages: 24-31 of 39
+
+
+===== [Page 24] =====
+Encoder block
+Decoder block
+1
+768
+Embedding
+1000
+SiLU
+Conv 3×3
+SiLU
+×
+SiLU
+Conv 3×3
++1
+Rout×Cout
+Rout×Cout
+Concat
+Up 2×2
+Down 2×2
+Rin×Cin
+Rout×(Cin+Cskip)
+SiLU
+Conv 3×3
+Conv 1×1
+PixNorm
+Linear
++
+SiLU
+Reshape
+Matmul
+×
+Softmax
+Matmul
+Reshape
+Conv 1×1
+PixNorm
++
+Rin×(Cin×3)
+Q
+K
+V
+Rin×Cin
+Input
+Output
+Split
+Conv 1×1
+Dropout
+Dropout
+Config F: Remove group normalizations
+To encoder and 
+decoder blocks
+Attention
+Noise
+level
+Class
+label
+Rin
+2×Nh
+Rin
+2×Nh
+Fixed-function
+Learned
+Not always present
+Learned, forced
+weight norm.
+Cout
+Linear
+192
+Fourier
+cnoise
+×
+1000
+Noisy
+image
+cskip
++
+Denoised
+image
+Conv 3×3
+642×192
+642×4
+Out
+cout
+cin
+DecA
+DecA
+DecA
+DecA
+Dec
+Dec
+Dec
+Enc
+Enc
+Enc
+Enc
+Enc
+EncD
+EncA
+EncA
+EncA
+EncD
+EncA
+EncA
+EncA
+EncD
+DecA
+DecA
+DecA
+DecA
+Dec
+Dec
+Dec
+Dec
+642×192
+322×192
+162×384
+82×576
+Dec
+DecU
+DecU
+DecU
+DecA
+642×192
+642×192
+642×192
+322×384
+322×384
+322×384
+162×576
+162×576
+162×576
+82×768
+82×768
+82×768
+82×768
+82×768
+82×768
+82×768
+82×768
+82×768
+162×768
+162×576
+162×576
+162×576
+162×576
+322×576
+322×384
+322×384
+322×384
+322×384
+642×384
+642×192
+642×192
+642×192
+642×192
+In
+Out
+Enc
+Dec
+642×4
+642×4
+Linear
+×
++1
+Linear
+Rout×Cout
+Cout
+Conv 3×3
+Conv 1×1
+768
+Embedding
+768
+Embedding
++
+Attention
+Output
++
+Output
+Skip
+Attention
+Skip
+Input
+Rout×Cout
+Rin×Cin
+Rin×Cin
+Input
+642×4
+642×4
+768
+Conv 3×3
+642×192
+Concat
+1
+642×4
+In
+Nh = Cin / Nc
+Nc = 64
+Rin×Nh×Nc×3
+1
+Nc
+Rin×Nh×Nc
+Number of GPUs
+32
+Learning rate max (αref)
+0.0100
+Adam β1
+0.9
+FID
+2.71
+Minibatch size
+2048
+Learning rate decay (tref)
+70000
+Adam β2
+0.99
+EMA length (σrel)
+0.100
+Duration (Mimg)
+2147.5
+Learning rate rampup (Mimg)
+10
+Loss scaling
+1
+Model capacity (Mparams)
+280.2
+Mixed-precision (FP16)
+full
+Noise distribution mean (Pmean)
+−0.4
+Attention res.
+16, 8
+Model complexity (Gflops)
+102.1
+Dropout probability
+10%
+Noise distribution std. (Pstd)
+1.0
+Attention blocks
+15
+Sampling cost (Tflops)
+7.69
+Figure 21. Full architecture diagram and hyperparameters for CONFIG F (Remove group normalizations).
+we scale the incoming one-hot class labels by
+√
+N so that
+the result is of unit variance, i.e., 1
+N
+P
+i a2
+i = 1.
+Finally, we replace ADM’s original timestep embedding
+layer with the more standard Fourier features [81]. Con-
+cretely, we compute feature vector b based on the incoming
+scalar a = cnoise(σ) as
+b =
+
+
+cos
+2π(f1 a + φ1)
+
+cos
+2π(f2 a + φ2)
+
+...
+cos
+2π(fNa + φN)
+
+
+,
+(35)
+where fi ∼N(0, 1) and φi ∼U(0, 1).
+(36)
+After initialization, we treat the frequencies {fi} and
+phases {φi} as constants.
+B.4. Magnitude-preserving learned layers
+(CONFIG D)
+In CONFIG D, we modify all learned layers according to our
+magnitude-preserving design principle as shown in Figure 19.
+Let us consider a fully-connected layer with input activations
+a = [aj]⊤and output activations b = [bi]⊤. The operation
+of the layer is
+b = Wa ,
+(37)
+where W = [wi] is a trainable weight matrix. We can equiv-
+alently write this in terms of a single output element:
+bi = wi a.
+(38)
+The same definition extends to convolutional layers by
+applying Equation 38 independently to each output element.
+In this case, the elements of a correspond to the activations
+of each input pixel within the support for the convolution
+kernel, i.e., dim(a) = Nj = Nc k2, where Nc is the number
+of input channels and k is the size of the convolution kernel.
+Our goal is to modify Equation 38 so that it preserves the
+overall magnitude of the input activations, without looking at
+their actual contents. Let us start by calculating the standard
+deviation of bi, assuming that {ai} are mutually uncorrelated
+and of equal standard deviation σa:
+σbi =
+p
+Var[bi]
+(39)
+=
+p
+Var[wi a]
+(40)
+24
+
+
+===== [Page 25] =====
+Encoder block
+Decoder block
+1
+768
+Embedding
+1000
+Linear
+MP-SiLU
+192
+MP-Fourier
+MP-Add
+MP-SiLU
+Conv 3×3
+×
+MP-SiLU
+Conv 3×3
++1
+Rout×Cout
+Rout×Cout
+MP-Cat
+Up 2×2
+MP-Add
+MP-Add
+MP-SiLU
+Conv 3×3
+Dropout
+Dropout
+Reshape
+Matmul
+×
+Softmax
+Matmul
+Reshape
+Conv 1×1
+PixNorm
+Rin×(Cin×3)
+Q
+K
+V
+Rin×Cin
+Input
+Output
+Split
+Conv 1×1
+MP-Add
+Config G: Magnitude-preserving fixed-function layers
+To encoder and 
+decoder blocks
+Attention
+Noise
+level
+Class
+label
+Rin
+2×Nh
+Rin
+2×Nh
+Fixed-function
+Learned
+Not always present
+Learned, forced
+weight norm.
+Cout
+Linear
+cnoise
+×
+1000
+Noisy
+image
+cskip
++
+Denoised
+image
+Conv 3×3
+642×192
+642×4
+Out
+cout
+cin
+DecA
+DecA
+DecA
+DecA
+Dec
+Dec
+Dec
+Enc
+Enc
+Enc
+Enc
+Enc
+EncD
+EncA
+EncA
+EncA
+EncD
+EncA
+EncA
+EncA
+EncD
+DecA
+DecA
+DecA
+DecA
+Dec
+Dec
+Dec
+Dec
+642×192
+322×192
+162×384
+82×576
+Dec
+DecU
+DecU
+DecU
+DecA
+642×192
+642×192
+642×192
+322×384
+322×384
+322×384
+162×576
+162×576
+162×576
+82×768
+82×768
+82×768
+82×768
+82×768
+82×768
+82×768
+82×768
+82×768
+162×768
+162×576
+162×576
+162×576
+162×576
+322×576
+322×384
+322×384
+322×384
+322×384
+642×384
+642×192
+642×192
+642×192
+642×192
+In
+Out
+Enc
+Dec
+642×4
+642×4
+Gain
+Linear
+Gain
+×
++1
+Linear
+Rout×Cout
+Cout
+Gain
+MP-SiLU
+Conv 3×3
+Conv 1×1
+768
+Embedding
+768
+Embedding
+Attention
+Output
+Output
+Skip
+Attention
+Skip
+Input
+Down 2×2
+Conv 1×1
+PixNorm
+Rout×Cout
+Rin×Cin
+Rout×(Cin+Cskip)
+Rin×Cin
+Rin×Cin
+Input
+642×4
+642×4
+768
+Conv 3×3
+642×192
+Concat
+1
+642×4
+In
+Nh = Cin / Nc
+Nc = 64
+Rin×Nh×Nc×3
+1
+Nc
+Rin×Nh×Nc
+Number of GPUs
+32
+Learning rate max (αref)
+0.0100
+Adam β1
+0.9
+FID
+2.56
+Minibatch size
+2048
+Learning rate decay (tref)
+70000
+Adam β2
+0.99
+EMA length (σrel)
+0.130
+Duration (Mimg)
+2147.5
+Learning rate rampup (Mimg)
+10
+Loss scaling
+1
+Model capacity (Mparams)
+280.2
+Mixed-precision (FP16)
+full
+Noise distribution mean (Pmean)
+−0.4
+Attention res.
+16, 8
+Model complexity (Gflops)
+102.2
+Dropout probability
+0%
+Noise distribution std. (Pstd)
+1.0
+Attention blocks
+15
+Sampling cost (Tflops)
+7.70
+Figure 22. Full architecture diagram and hyperparameters for CONFIG G (Magnitude-preserving fixed-function layers).
+=
+rX
+jw2
+ij Var[aj]
+(41)
+=
+rX
+jw2
+ij σ2a
+(42)
+= ∥wi∥2 σa.
+(43)
+To make Equation 38 magnitude-preserving, we scale its
+output so that it has the same standard deviation as the input:
+ˆbi = σa
+σbi
+bi
+(44)
+=
+σa
+∥wi∥2 σa
+wi a
+(45)
+=
+wi
+∥wi∥2
+| {z }
+=: ˆwi
+a.
+(46)
+In other words, we simply normalize each wi to unit length
+before use. In practice, we introduce ϵ = 10−4 to avoid
+numerical issues, similar to Equations 29 and 30:
+ˆwi =
+wi
+∥wi∥2 + ϵ.
+(47)
+Given that ˆbi is now agnostic to the scale of wi, we ini-
+tialize wi,j ∼N(0, 1) so that the weights of all layers are
+roughly of the same magnitude. This implies that in the
+early stages of training, when the weights remain close to
+their initial magnitude, the updates performed by Adam [40]
+will also have roughly equal impact across the entire model,
+similar to the concept of equalized learning rate [33]. Since
+the weights are now larger in magnitude, we have to increase
+the learning rate as well. We therefore set αref = 0.0100
+instead of 0.0002.
+Comparison to previous work.
+Our approach is closely
+related to weight normalization [71] and weight standardiza-
+tion [62]. Reusing the notation from Equation 46, Salimans
+and Kingma [71] define weight normalization as
+ˆwi =
+gi
+∥wi∥2
+wi,
+(48)
+where gi is a learned per-channel scaling factor that is ini-
+tialized to one. The original motivation of Equation 48 is to
+reparameterize the weight tensor in order to speed up con-
+vergence, without affecting its expressive power. As such,
+the value of gi is free to drift over the course of training,
+25
+
+
+===== [Page 26] =====
+potentially leading to imbalances in the overall activation
+magnitudes. Our motivation, on the other hand, is to explic-
+itly avoid such imbalances by removing any direct means for
+the optimization to change the magnitude of ˆbi.
+Qiao et al. [62], on the other hand, define weight stan-
+dardization as
+ˆwi = wi −µi
+σi
+, where
+(49)
+µi =
+1
+N
+X
+jwi,j
+(50)
+σi =
+r
+1
+N
+X
+jw2
+i,j −µ2
+i + ϵ ,
+(51)
+intended to serve as a replacement for batch normalization in
+the context of micro-batch training. In practice, we suspect
+that Equation 49 would probably work just as well as Equa-
+tion 46 for our purposes. However, we prefer to keep the
+formula as simple as possible with no unnecessary moving
+parts.
+Effect on the gradients.
+One particularly useful property
+of Equation 46 is that it projects the gradient of wi to be
+perpedicular to wi itself. Let us derive a formula for the
+gradient of loss L with respect to wi:
+∇wiL = ∇wi ˆwi · ∇ˆwiL
+(52)
+= ∇wi
+
+wi
+∥wi∥2
+
+∇ˆwiL.
+(53)
+We will proceed using the quotient rule
+f
+g
+′
+= f ′g −fg′
+g2
+,
+(54)
+where
+f = wi,
+f ′ = ∇wiwi
+= I
+(55)
+g = ∥wi∥2 , g′ = ∇wi ∥wi∥2 =
+w⊤
+i
+∥wi∥2
+.
+(56)
+Plugging this back into Equation 53 gives us
+∇wiL =
+f ′g −fg′
+g2
+
+∇ˆwiL
+(57)
+=
+
+I ∥wi∥2 −wi
+w⊤
+i
+∥wi∥2
+∥wi∥2
+2
+
+∇ˆwiL
+(58)
+=
+1
+∥wi∥2
+"
+I −wiw⊤
+i
+∥wi∥2
+2
+#
+∇ˆwiL.
+(59)
+The bracketed expression in Equation 59 corresponds
+to a projection matrix that keeps the incoming vector oth-
+erwise unchanged, but forces it to be perpendicular to wi,
+i.e.,
+
+wi, ∇wiL
+
+= 0. In other words, gradient descent
+optimization will not attempt to modify the length of wi
+directly. However, the length of wi can still change due to
+discretization errors resulting from finite step size.
+B.5. Controlling effective learning rate (CONFIG E)
+In CONFIG D, we have effectively constrained all weight
+vectors of our model to lie on the unit hypersphere, i.e.,
+∥ˆwi∥2 = 1, as far as evaluating Dθ(x; σ) is concerned.
+However, the magnitudes of the raw weight vectors, i.e.,
+∥wi∥2, are still relevant during training due to their effect on
+∇wiL (Equation 59). Even though we have initialized wi so
+that these magnitudes are initially balanced across the layers,
+there is nothing to prevent them from drifting away from this
+ideal over the course of training. This is problematic since
+the relative impact of optimizer updates, i.e., the effective
+learning rate, can vary uncontrollably across the layers and
+over time. In CONFIG E, we eliminate this drift through
+forced weight normalization as shown in Figure 20, and gain
+explicit control over the effective learning rate.
+Growth of weight magnitudes.
+As noted by Salimans and
+Kingma [71], Equations 46 and 59 have the side effect that
+they cause the norm of wi to increase monotonically after
+each training step. As an example, let us consider standard
+gradient descent with learning rate α. The update rule is
+defined as
+w′
+i = wi −α∇wiL
+(60)
+wi ←w′
+i.
+(61)
+We can use the Pythagorean theorem to calculate the
+norm of the updated weight vector w′
+i:
+
+
+w′
+i
+
+
+2
+2 =
+
+
+wi −α∇wiL
+
+
+2
+2
+(62)
+=
+
+
+wi
+
+
+2
+2 + α2
+
+∇wiL
+
+
+2
+2 −2α
+
+wi,∇wiL
+
+|
+{z
+}
+= 0
+(63)
+=
+
+
+wi
+
+
+2
+2 + α2
+
+∇wiL
+
+
+2
+2
+(64)
+≥
+
+
+wi
+
+
+2
+2.
+(65)
+In other words, the norm of wi will necessarily increase at
+each step unless ∇wiL = 0. A similar phenomenon has been
+observed with optimizers like Adam [40], whose updates
+do not maintain strict orthogonality, as well as in numerous
+scenarios that do not obey Equation 46 exactly. The effect is
+apparent in our CONFIG C (Figure 3) as well.
+Forced weight normalization.
+Given that the normaliza-
+tion and initialization discussed in Appendix B.4 are already
+geared towards constraining the weight vectors to a hyper-
+sphere, we take this idea to its logical conclusion and perform
+the entire optimization strictly under such a constraint.
+Concretely, we require ∥wi∥2 =
+p
+Nj to be true for each
+layer after each training step, where Nj is the dimension of
+wi, i.e., the fan-in. Equation 59 already constrains ∇wiL to
+lie on the tangent plane with respect to this constraint; the
+only missing piece is to guarantee that the constraint itself is
+26
+
+
+===== [Page 27] =====
+Algorithm 1 PyTorch code for forced weight normalization.
+def normalize(x, eps=1e−4):
+dim = list(range(1, x.ndim))
+n = torch.linalg.vector_norm(x, dim=dim, keepdim=True)
+alpha = np.sqrt(n.numel() / x.numel())
+return x / torch.add(eps, n, alpha=alpha)
+class Conv2d(torch.nn.Module):
+def __init__(self, C_in, C_out, k):
+super().__init__()
+w = torch.randn(C_out, C_in, k, k)
+self.weight = torch.nn.Parameter(w)
+def forward(self, x):
+if self.training:
+with torch.no_grad():
+self.weight.copy_(normalize(self.weight))
+fan_in = self.weight[0].numel()
+w = normalize(self.weight) / np.sqrt(fan_in)
+x = torch.nn.functional.conv2d(x, w, padding=’same’)
+return x
+satisfied by Equation 61. To do this, we modify the formula
+to forcefully re-normalize w′
+i before assigning it back to wi:
+wi ←
+p
+Nj
+w′
+i
+∥w′
+i∥2
+.
+(66)
+Note that Equation 66 is agnostic to the exact definition
+of w′
+i, so it is readily compatible with most of the commonly
+used optimizers. In theory, it makes no difference whether
+the normalization is done before or after the actual training
+step. In practice, however, the former leads to a very simple
+and concise PyTorch implementation, shown in Algorithm 1.
+Learning rate decay.
+Let us step back and consider CON-
+FIG D again for a moment, focusing on the overall effect
+that ∥wi∥2 had on the training dynamics. Networks where
+magnitudes of weights have no effect on activations have
+previously been studied by, e.g., van Laarhoven [46]. In
+these networks, the only meaningful progress is made in
+the angular direction of weight vectors. This has two con-
+sequences for training dynamics: First, the gradients seen
+by the optimizer are inversely proportional to the weight
+magnitude. Second, the loss changes slower at larger mag-
+nitudes, as more distance needs to be covered for the same
+angular change. Effectively, both of these phenomena can
+be interpreted as downscaling the effective learning rate as
+a function of the weight magnitude. Adam [40] counteracts
+the first effect by approximately normalizing the gradient
+magnitudes, but it does not address the second.
+From this perspective, we can consider CONFIG D to have
+effectively employed an implicit learning rate decay: The
+larger the weights have grown (Figure 3), the smaller the
+effective learning rate. In general, learning rate decay is
+considered desirable in the sense that it enables the training
+to converge closer and closer to the optimum despite the
+(a) Forced WN only
+(b) Forced + standard WN
+Figure 23. Illustration of the importance of performing “standard”
+weight normalization in addition to forcing the weights to a prede-
+fined norm. The dashed circle illustrates Adam’s target variance for
+updates — the proportions are greatly exaggerated and the effects of
+momentum are ignored. (a) Forced weight normalization without
+the standard weight normalization. The raw weight vector wi is up-
+dated by adding the gradient ∇wi after being scaled by Adam, after
+which the result is normalized back to the hypersphere (solid arc)
+yielding new weight vector w′
+i. Adam’s variance estimate includes
+the non-tangent component of the gradient, and the resulting weight
+update is significantly smaller than intended. (b) With standard
+weight normalization, the gradient ∇wi is obtained by projecting
+the raw gradient ∇ˆ
+wi onto the tangent plane perpendicular to wi.
+Adam’s variance estimate now considers this projected gradient,
+resulting in the correct step size; the effect of normalization after
+update is close to negligible from a single step’s perspective.
+stochastic nature of the gradients [40, 71]. However, we ar-
+gue that the implicit form of learning rate decay imposed by
+Equation 65 is not ideal, because it can lead to uncontrollable
+and unequal drift between layers.
+With forced weight normalization in CONFIG E and on-
+wards, the drift is eliminated and the effective learning rate
+is directly proportional to the specified learning rate α. Thus,
+in order to have the learning rate decay, we have to explicitly
+modify the value of α over time. We choose to use the com-
+monly advocated inverse square root decay schedule [40]:
+α(t) =
+αref
+p
+max(t/tref, 1)
+,
+(67)
+where the learning rate initially stays at αref and then starts
+decaying after tref training iterations. The constant learning
+rate schedule of CONFIGS A–D can be seen as a special case
+of Equation 67 with tref = ∞.
+In the context of Table 1, we use αref = 0.0100 and
+tref = 70000. We have, however, found that the optimal
+choices depend heavily on the capacity of the network as
+well as the dataset (see Table 6).
+Discussion.
+It is worth noticing that we normalize the
+weight vectors twice during each training step: first to obtain
+ˆwi in Equation 46 and then to constrain w′
+i in Equation 66.
+This is also reflected by the two calls to normalize() in
+Algorithm 1.
+The reason why Equation 46 is still necessary despite
+Equation 66 is that it ensures that Adam’s variance esti-
+mates are computed for the actual tangent plane steps. In
+27
+
+
+===== [Page 28] =====
+other words, Equation 46 lets Adam “know” that it is sup-
+posed to operate under the fixed-magnitude constraint. If we
+used Equation 66 alone, without Equation 46, the variance
+estimates would be corrupted by the to-be erased normal
+component of the raw gradient vectors, leading to consid-
+erably smaller updates of an uncontrolled magnitude. See
+Figure 23 for an illustration.
+Furthermore, we intentionally force the raw weights wi
+to have the norm
+p
+Nj, while weight normalization further
+scales them to norm 1. The reason for this subtle but im-
+portant difference is, again, compatibility with the Adam
+optimizer. Adam approximately normalizes the gradient up-
+dates so that they are proportional to
+p
+Nj. We normalize
+the weights to the same scale, so that the relative magnitude
+of the update becomes independent of Nj. This eliminates
+an implicit dependence between the learning rate and the
+layer size. Optimizers like LARS [89] and Fromage [3] build
+on a similar motivation, and explicitly scale the norm of the
+gradient updates to a fixed fraction of the weight norm.
+Finally, Equation 46 is also quite convenient due to its
+positive interaction with EMA. Even though the raw values
+of wi are normalized at each training step by Equation 66,
+their weighted averages are not. To correctly account for our
+fixed-magnitude constraint, the averaging must also happen
+along the surface of the corresponding hypersphere. How-
+ever, we do not actually need to change the averaging itself
+in any way, because this is already taken care of by Equa-
+tion 46: Even if the magnitudes of the weight vectors change
+considerably as a result of averaging, they are automatically
+re-normalized upon use.
+Previous work.
+Several previous works have analyzed
+the consequences of weight magnitude growth under dif-
+ferent settings and proposed various remedies. Weight de-
+cay has often been identified as a solution for keeping the
+magnitudes in check, and its interplay with different nor-
+malization schemes and optimizers has been studied exten-
+sively [27, 44, 46–48, 65, 86, 91]. Cho and Lee [11] and
+van Laarhoven [46] consider more direct approaches where
+the weights are directly constrained to remain in the unit
+norm hypersphere, eliminating the growth altogether. Arpit
+et al. [1] also normalize the weights directly, motivated by
+a desire to reduce the parameter space. Various optimiz-
+ers [3, 4, 50, 89, 90] also aim for similar effects through
+weight-relative scaling of the gradient updates.
+As highlighted by the above discussion, the success of
+these approaches can depend heavily on various small but
+important nuances that may not be immediately evident. As
+such, we leave a detailed comparison of these approaches as
+future work.
+B.6. Removing group normalizations (CONFIG F)
+In CONFIG F, our goal is to remove the group normalization
+layers that may negatively impact the results due to the fact
+that they operate across the entire image. We also make a
+few minor simplifications to the architecture. These changes
+can be seen by comparing Figures 20 and 21.
+Dangers of global normalization.
+As has been previously
+noted [35, 36], global normalization that operates across the
+entire image should be used cautiously. It is firmly at odds
+with the desire for the model to behave consistently across
+geometric transformations [36, 83] or when synthesizing
+objects in different contexts. Such consistency is easiest
+to achieve if the internal representations of the image con-
+tents are capable of being as localized as they need to be,
+but global normalization entangles the representations of ev-
+ery part of the image by eliminating the first-order statistics
+across the image. Notably, while attention allows the repre-
+sentations to communicate with each other in a way that best
+fits the task, global normalization forces communication to
+occur, with no way for individual features to avoid it.
+This phenomenon has been linked to concrete image arti-
+facts in the context of GANs. Karras et al. [35] found that
+the AdaIN operation used in StyleGAN was destroying vital
+information, namely the relative scales of different feature
+maps, which the model counteracted by creating strong lo-
+calized spikes in the activations. These spikes manifested
+as artifacts, and were successfully eliminated by remov-
+ing global normalization operations. In a different context,
+Brock et al. [9] show that normalization is not necessary for
+obtaining high-quality results in image classification. We
+see no reason why it should be necessary or even beneficial
+in diffusion models, either.
+Our approach.
+Having removed the drift in activation
+magnitudes, we find that we can simply remove all group
+normalization layers with no obvious downsides. In particu-
+lar, doing this for the decoder improves the FID considerably,
+which we suspect to be related to the fact that the absolute
+scale of the individual output pixels is quite important for
+the training loss (Equation 13). The network has to start
+preparing the correct scales towards the end of the U-Net,
+and explicit normalization is likely to make this more chal-
+lenging.
+Even though explicit normalization is no longer strictly
+necessary, we have found that we can further improve the
+results slightly through pixelwise feature vector normaliza-
+tion (Equation 30). Our hypothesis is that a small amount
+of normalization helps by counteracting correlations that
+would otherwise violate the independence assumption be-
+hind Equation 43. We find that the best results are obtained
+by normalizing the incoming activations at the beginning of
+each encoder block. This guarantees that the magnitudes on
+28
+
+
+===== [Page 29] =====
+the main path remain standardized despite the series of cu-
+mulative adjustments made by the residual and self-attention
+blocks. Furthermore, this also appears to help in terms of
+standardizing the magnitudes of the decoder — presumably
+due to the presence of the U-Net skip connections.
+Architectural simplifications.
+In addition to reworking
+the normalizations, we make four minor simplifications to
+other parts of the architecture:
+1. Unify the upsampling and downsampling operations of
+the encoder and decoder blocks by placing them onto the
+main path.
+2. Slightly increase the expressive power of the encoder
+blocks by moving the 1×1 convolution to the beginning
+of the main path.
+3. Remove the SiLU activation in the final output block.
+4. Remove the second fully-connected layer in the embed-
+ding network.
+These changes are more or less neutral in terms of the FID,
+but we find it valuable to keep the network as simple as
+possible considering future work.
+B.7. Magnitude-preserving fixed-function layers
+(CONFIG G)
+In CONFIG G, we complete the effort that we started in
+CONFIG D by extending our magnitude-preserving design
+principle to cover the remaining fixed-function layers in
+addition to the learned ones. The exact set of changes can
+be seen by comparing Figures 21 and 22.
+We will build upon the concept of expected magnitude
+that we define by generalizing Equation 3 for multivariate
+random variable a:
+M[a] =
+v
+u
+u
+t 1
+Na
+Na
+X
+i=1
+E
+
+a2
+i
+
+.
+(68)
+If the elements of a have zero mean and equal variance,
+we have M[a]2 = Var[ai].
+If a is non-random, Equa-
+tion 68 simplifies to M[a] = ∥a∥2 /√Na. We say that a
+is standardized iff M[a] = 1.
+Concretely, we aim to achieve two things: First, every
+input to the network should be standardized, and second,
+every operation in the network should be such that if its
+input is standardized, the output is standardized as well. If
+these two requirements are met, it follows that all activations
+throughout the entire network are standardized.
+Similar to Appendix B.4, we wish to avoid having to look
+at the actual values of activations, which necessitates making
+certain simplifying statistical assumptions about them. Even
+though these assumptions are not strictly true in practice, we
+find that the end result is surprisingly close to our ideal, as
+can be seen in the “Activations (mean)” plot for CONFIG G
+in Figure 15.
+Fourier features.
+Considering the inputs to our network,
+the noisy image and the class label are already standardized
+by virtue of having been scaled by cin(σ) (Equation 7) and
+√
+N (Appendix B.3), respectively. The Fourier features (Ap-
+pendix B.3), however, are not. Let us compute the expected
+magnitude of b (Equation 35) with respect to the frequencies
+and phases (Equation 36):
+M[b]2 =
+1
+Nb
+Nb
+X
+i=1
+E
+
+cos
+2π(fia + φi)
+2
+(69)
+= E
+
+cos
+2π(f1a + φ1)
+2
+(70)
+= E
+hcos(2πφ1)
+2i
+(71)
+= E
+h
+1
+2
+1 + cos(4πφ1)
+i
+(72)
+=
+1
+2 + 1
+2 E
+
+cos(4πφ1)
+
+|
+{z
+}
+= 0
+(73)
+=
+1
+2.
+(74)
+To standardize the output, we thus scale Equation 35 by
+1/M[b] =
+√
+2:
+MP-Fourier(a) =
+
+
+√
+2 cos
+2π(f1 a + φ1)
+
+√
+2 cos
+2π(f2 a + φ2)
+
+...
+√
+2 cos
+2π(fNa + φN)
+
+
+.
+(75)
+SiLU.
+Similar reasoning applies to the SiLU nonlinearity
+(Equation 9) as well, used throughout the network. Assum-
+ing that a ∼N(0, I):
+M
+
+silu(a)
+2 =
+1
+Na
+Na
+X
+i=1
+E
+hsilu(ai)
+2i
+(76)
+= E
+"
+a1
+1 + e−a1
+2#
+(77)
+=
+Z ∞
+−∞
+N(x; 0, 1) x2
+(1 + e−x)2
+dx
+(78)
+≈0.3558
+(79)
+M
+
+silu(a)
+
+≈
+√
+0.3558 ≈0.596.
+(80)
+Dividing the output accordingly, we obtain
+MP-SiLU(a) = silu(a)
+0.596
+=
+
+ai
+0.596 · (1 + e−ai)
+
+. (81)
+29
+
+
+===== [Page 30] =====
+Sum.
+Let us consider the weighted sum of two random
+vectors, i.e., c = waa + wbb. We assume that the elements
+within each vector have equal expected magnitude and that
+E[aibi] = 0 for every i. Now,
+M[c]2 =
+1
+Nc
+Nc
+X
+i=1
+E
+
+(waai + wbbi)2
+(82)
+=
+1
+Nc
+Nc
+X
+i=1
+E
+
+w2
+aa2
+i + w2
+bb2
+i + 2wawbaibi
+
+(83)
+=
+1
+Nc
+Nc
+X
+i=1
+h
+w2
+aE
+
+a2
+i
+
+| {z }
+= M[a]2
++w2
+b E
+
+b2
+i
+
+| {z }
+= M[b]2
++2wawb E
+
+aibi
+
+| {z }
+= 0
+i
+(84)
+=
+1
+Nc
+Nc
+X
+i=1
+
+w2
+aM[a]2 + w2
+bM[b]2
+(85)
+= w2
+aM[a]2 + w2
+bM[b]2.
+(86)
+If the inputs are standardized, Equation 86 further simpli-
+fies to M[c] =
+p
+w2a + w2
+b. A standardized version of c is
+then given by
+ˆc =
+c
+M[c] = waa + wbb
+p
+w2a + w2
+b
+.
+(87)
+Note that Equation 87 is agnostic to the scale of wa and
+wb. Thus, we can conveniently define them in terms of blend
+factor t ∈[0, 1] that can be adjusted on a case-by-case basis.
+Setting wa = (1 −t) and wb = t, we arrive at our final
+definition:
+MP-Sum(a, b, t) =
+(1 −t) a + t b
+p
+(1 −t)2 + t2 .
+(88)
+We have found that the best results are obtained by setting
+t = 0.3 in the encoder, decoder, and self-attention blocks,
+so that the residual path contributes 30% to the result while
+the main path contributes 70%. In the embedding network
+t = 0.5 seems to work well, leading to equal contribution
+between the noise level and the class label.
+Concatenation.
+Next, let us consider the concatenation of
+two random vectors a and b, scaled by constants wa and wb,
+respectively. The result is given by c = waa ⊕wbb, which
+implies that
+M[c]2 =
+PNc
+i=1 E
+
+c2
+i
+
+Nc
+(89)
+=
+PNa
+i=1 E
+
+w2
+aa2
+i
+
++ PNb
+i=1 E
+
+w2
+bb2
+i
+
+Na + Nb
+(90)
+= w2
+aNaM[a]2 + w2
+bNbM[b]2
+Na + Nb
+.
+(91)
+Note that the contribution of a and b in Equation 91
+is proportional to Na and Nb, respectively. If Na ≫Nb,
+for example, the result will be dominated by a while the
+contribution of b is largely ignored. In our architecture
+(Figure 22), this situation can arise at the beginning of the
+decoder blocks when the U-Net skip connection is concate-
+nated into the main path. We argue that the balance between
+the two branches should be treated as an independent hy-
+perparameter, as opposed to being tied to their respective
+channel counts.
+We first consider the case where we require the two inputs
+to contribute equally, i.e.,
+w2
+aNaM[a]2 = w2
+bNbM[b]2 = C2,
+(92)
+where C is an arbitrary constant. Solving for wa and wb:
+wa =
+C
+M[a] ·
+1
+√Na
+(93)
+wb =
+C
+M[b] ·
+1
+√Nb
+(94)
+Next, we introduce blend factor t ∈[0, 1] to allow adjusting
+the balance between a and b on a case-by-case basis, similar
+to Equation 88:
+ˆwa = wa (1 −t) =
+C
+M[a] · 1 −t
+√Na
+(95)
+ˆwb = wb t
+=
+C
+M[b] ·
+t
+√Nb
+.
+(96)
+If the inputs are standardized, i.e., M[a] = M[b] = 1,
+we can solve for the value of C that leads to the output being
+standardized as well:
+1 = M[c]2
+(97)
+=
+ˆw2
+aNaM[a]2 + ˆw2
+bNbM[b]2
+Na + Nb
+(98)
+=
+ˆw2
+aNa + ˆw2
+bNb
+Na + Nb
+(99)
+=
+h
+C2 (1−t)2
+Na
+i
+Na +
+h
+C2 t2
+Nb
+i
+Nb
+Na + Nb
+(100)
+= C2 (1 −t)2 + t2
+Na + Nb
+,
+(101)
+which yields
+C =
+s
+Na + Nb
+(1 −t)2 + t2 .
+(102)
+Combining Equation 102 with Equations 95 and 96, we
+arrive at our final definition:
+MP-Cat(a, b, t) =
+s
+Na + Nb
+(1 −t)2 + t2 ·
+"
+1 −t
+√Na
+a⊕
+t
+√Nb
+b
+#
+.
+(103)
+30
+
+
+===== [Page 31] =====
+In practice, we have found that the behavior of the model
+is quite sensitive to the choice of t and that the best results are
+obtained using t = 0.5. We hope that the flexibility offered
+by Equation 103 may prove useful in the future, especially
+in terms of exploring alternative network architectures.
+Learned gain.
+While our goal of standardizing activations
+throughout the network is beneficial for the training dynam-
+ics, it can also be harmful in cases where it is necessary to
+have M[a]̸ = 1 in order to satisfy the training loss.
+We identify two such instances in our network: the raw
+pixels (Fθ) produced by the final output block (“Out”), and
+the learned per-channel scaling in the encoder and decoder
+blocks. In order to allow M[a] to deviate from 1, we intro-
+duce a simple learned scaling layer at these points:
+Gain(a) = g a,
+(104)
+where g is a learned scalar that is initialized to 0. We have not
+found it necessary to introduce multiple scaling factors on
+a per-channel, per-noise-level, or per-class basis. Note that
+g = 0 implies Fθ(x; σ) = 0, meaning that Dθ(x; σ) = x at
+initialization, similar to CONFIGS A–B (see Appendix B.1).
+C. Post-hoc EMA details
+As discussed in Section 3, our goal is to be able to select the
+EMA length, or more generally, the model averaging profile,
+after a training run has completed. This is achieved by stor-
+ing a number of pre-averaged models during training, after
+which these pre-averaged models can be linearly combined
+to obtain a model whose averaging profile has the desired
+shape and length.
+As a related contribution, we present the power function
+EMA profile that automatically scales according to training
+time and has zero contribution at t = 0.
+In this section, we first derive the formulae related to
+the traditional exponential EMA from first principles, after
+which we do the same for the power function EMA. We then
+discuss how to determine the appropriate linear combination
+of pre-averaged models stored in training snapshots in order
+to match a given averaging profile, and specifically, to match
+the power function EMA with a given length.
+C.1. Definitions
+Let us denote the weights of the network as a function of
+training time by θ(t), so that θ(0) corresponds to the ini-
+tial state and θ(tc) corresponds to the most recent state. tc
+indicates the current training time in arbitrary units, e.g.,
+number of training iterations. As always, the training itself
+is performed using θ(tc), but evaluation and other down-
+stream tasks use a weighted average instead, denoted by
+ˆθ(tc). This average is typically defined as a sum over the
+training iterations:
+ˆθ(tc) =
+tc
+X
+t=0
+ptc(t) θ(t),
+(105)
+where ptc is a time-dependent response function that sums
+to one, i.e., P
+t ptc(t) = 1.
+Instead of operating with discretized time steps, we sim-
+plify the derivation by treating θ, ˆθ, and ptc as continuous
+functions defined over t ∈R≥0. A convenient way to gen-
+eralize Equation 105 to this case is to interpret ptc as a
+continuous probability distribution and define ˆθ(tc) as the
+expectation of θ(tc) with respect to that distribution:
+ˆθ(tc) = Et∼ptc(t)
+
+θ(t)
+
+.
+(106)
+Considering the definition of ptc(t), we can express a
+large class of practically relevant response functions in terms
+of a canonical response function f(t):
+ptc(t) =
+(
+f(t) / g(tc)
+if 0 ≤t ≤tc
+0
+otherwise
+,
+(107)
+where g(tc) =
+Z tc
+0
+f(t) dt.
+(108)
+To characterize the properties, e.g., length, of a given re-
+sponse function, we consider its standard distribution statis-
+tics:
+µtc = E[t] and σtc =
+p
+Var[t] for t ∼ptc(t). (109)
+These two quantities have intuitive interpretations: µtc indi-
+cates the average delay imposed by the response function,
+while σtc correlates with the length of the time period that is
+averaged over.
+C.2. Traditional EMA profile
+The standard choice for the response function is the ex-
+ponential moving average (EMA) where ptc decays expo-
+nentially as t moves farther away from tc into the past, of-
+ten parameterized by EMA half-life λ. In the context of
+Equation 107, we can express such exponential decay as
+ptc(t) = f(t)/g(tc), where
+f(t) =
+(
+2t/λ
+if t > 0
+λ
+ln 2 δ(t)
+otherwise
+(110)
+g(tc) = λ 2tc/λ
+ln 2 ,
+(111)
+and δ(t) is the Dirac delta function.
+The second row of Equation 110 highlights an inconve-
+nient aspect about the traditional EMA. The exponential
+response function is infinite in the sense that it expects to be
+31

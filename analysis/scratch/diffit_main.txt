@@ -1,0 +1,301 @@
+# Source PDF: C:\Users\Maha Mamdouh\Desktop\ML learning phase\scientifc papers\DiffiT Diffusion Vision Transformers for Image Generation.pdf
+# Extracted Pages: 1-6 of 31
+
+
+===== [Page 1] =====
+DiffiT: Diffusion Vision Transformers for Image
+Generation
+Ali Hatamizadeh, Jiaming Song, Guilin Liu, Jan Kautz, Arash Vahdat
+NVIDIA
+{ahatamizadeh, jiamings, guilinl, jkautz, avahdat}@nvidia.com
+https://github.com/NVlabs/DiffiT
+Fig. 1 – Uncurated generated images by latent DiffiT on ImageNet [15] dataset.
+Abstract. Diffusion models with their powerful expressivity and high
+sample quality have achieved State-Of-The-Art (SOTA) performance in
+the generative domain. The pioneering Vision Transformer (ViT) has
+also demonstrated strong modeling capabilities and scalability, especially
+for recognition tasks. In this paper, we study the effectiveness of ViTs
+in diffusion-based generative learning and propose a new model denoted
+as Diffusion Vision Transformers (DiffiT). Specifically, we propose a
+methodology for finegrained control of the denoising process and introduce
+the Time-dependant Multihead Self Attention (TMSA) mechanism. DiffiT
+is surprisingly effective in generating high-fidelity images with significantly
+better parameter efficiency. We also propose latent and image space DiffiT
+models and show SOTA performance on a variety of class-conditional
+and unconditional synthesis tasks at different resolutions. The Latent
+DiffiT model achieves a new SOTA FID score of 1.73 on ImageNet-
+256 dataset while having 19.85%, 16.88% less parameters than other
+Transformer-based diffusion models such as MDT and DiT, respectively.
+arXiv:2312.02139v3  [cs.CV]  29 Aug 2024
+
+
+===== [Page 2] =====
+2
+Hatamizadeh et al.
+1
+Introduction
+Diffusion models [28,68,71] have revolutionized the domain of generative learning,
+with successful frameworks in the front line such as DALL·E 3 [58], Imagen [27]
+and Stable diffusion [59,60] and achieving state-of-the-art (SOTA) performance in
+various tasks. They have enabled generating diverse complex scenes in high fidelity
+which were once considered out of reach for prior models. Specifically, synthesis
+in diffusion models is formulated as an iterative process in which random image-
+shaped Gaussian noise is denoised gradually towards realistic samples [28,68,71].
+The core building block in this process is a denoising autoencoder network that
+takes a noisy image and predicts the denoising direction, equivalent to the score
+function [32,76]. This network, which is shared across different time steps of the
+denoising process, is often a variant of Convolutional Neural Network (CNN)-
+based U-Net [28,61]. However, with a lack of standard design pattern, several
+architecture variants [16,53,70] have been proposed for the denoising network.
+Vision Transformers (ViTs) [20] have demonstrated SOTA performance for
+various recognition tasks and offer compelling advantages such as long-range
+dependency modeling and scalability. Recently, a number of efforts such as
+Diffusion Transformers (DiT) [56] and Masked Diffusion Transformer (MDT) [23]
+DiffiT- w TMSA
+DiffiT- wo TMSA
+Fig. 2 – Side-by-side qualitative comparison of at-
+tention maps during the denoising process for mod-
+els with and without TMSA. The denoising process
+starts from the top row in each column.
+have proposed to leverage the
+strong modeling capability and
+scalability of ViTs for diffusion-
+based image generation. In DiT
+and MDT, Adaptive LayerNorm
+(AdaLN) [57] is used for in-
+put noise conditioning. How-
+ever, this scheme significantly
+increases the number of param-
+eters and does not effectively
+model the unique temporal dy-
+namics of the denoising pro-
+cess [13,44]. Specifically, in the
+beginning of denoising, the high-
+frequency content of the im-
+age is completely perturbed as
+the denoising network primarily
+focuses on predicting the low-
+frequency content. Towards the
+end of denoising, in which most
+of the image structure is gener-
+ated, the network tends to focus
+on predicting high-frequency de-
+tails. The conditioning in DiT
+is realized by modulating the in-
+put with channel-wise scale and
+shift parameters predicted by adaLN layers. However, this mechanism cannot
+
+
+===== [Page 3] =====
+Diffusion Vision Transformers for Image Generation
+3
+optimally capture the dynamics of the denoising process since it does not ef-
+fectively model the joint spatial and temporal dependencies. In this work, we
+introduce the Time-dependant Multihead Self-Attention (TMSA) mechanism
+which allows for fine-grained control over spatial and temporal dependencies and
+their interaction during the denoising process. Specifically, our TMSA proposes
+to integrate the temporal component into the self-attention where the key, query,
+and value weights are adapted per time step during denoising. This allows the
+denoising network to dynamically change its attention mechanism in different
+stages by considering both spatial and temporal components and their correspon-
+dence. In Fig. 2, we visualize attention maps from a token at the center of a
+feature map to all surrounding tokens during the sampling trajectory of a models
+that are trained on CIFAR10 [45] dataset. The DiffiT model with TMSA has a
+better image generation quality and its attention maps demonstrate a progressive
+localization towards detailed salient features. However, the model without TMSA
+is not capable of recovering such details.
+In addition, employing TMSA significantly improves the parameter efficiency
+as it only learns three temporal components for query, key and value in each block.
+In comparison, AdaLN requires learning the shift, scale and gate parameters
+for self-attention as well as MLP (i.e. six components per Transformer block).
+We also extend TMSA to a window-based scheme without cross-communication
+among the local regions. This design is surprisingly effective and decreases the
+computational cost of self-attention by reducing the token sequence length.
+Using TMSA as a core building block, we introduce a novel ViT-based diffusion
+model, called DiffiT (pronounced di-feet), for image generation in latent and
+image space. DiffiT achieves a new SOTA performance in terms of FID score using
+ImageNet-256 [15] dataset (see Fig.1) with 19.85%, 16.88% less parameters than
+MDT and DiT models, respectively. DiffiT also achieves SOTA performance for
+image space generation tasks on FFHQ-64 [36] and CIFAR10 [45] datasets.
+The following summarizes our contributions in this work:
+– We introduce TMSA which is a novel time-dependent self-attention mech-
+anism and is specifically tailored to capture both temporal and spatial
+dependencies as well as their interaction. Our proposed time-dependent
+self-attention dynamically adapts its behavior over sampling time steps.
+– We introduce a new ViT-based diffusion model, denoted as DiffiT, which
+unifies the design patterns of denoising networks and can be used in a variety
+of image generation tasks in the latent and image space.
+– We demonstrate that DiffiT can achieve SOTA performance on a variety of
+datasets for both conditional and unconditional generation tasks in the latent
+and image space. The latent DiffiT model achieves a new FID score of 1.73
+with significantly less number of parameters than competing approaches.
+2
+Related Work
+Diffusion Image Generation Diffusion models [28,68,71] have driven significant
+advances in various domains, such as text-to-image generation [8,58,63], natural
+
+
+===== [Page 4] =====
+4
+Hatamizadeh et al.
+language processing [49], text-to-speech synthesis [43], 3D point cloud genera-
+tion [82,83,89], time series modeling [72], molecular conformal generation [79], and
+machine learning security [54]. These models synthesize samples via an iterative
+denoising process and thus are also known in the community as noise-conditioned
+score networks. Since its initial success on small-scale datasets like CIFAR-10 [28],
+diffusion models have been gaining popularity compared to other existing families
+of generative models. Compared with variational autoencoders [42], diffusion
+models divide the synthesis procedure into small parts that are easier to optimize,
+and have better coverage of the latent space [4,67,74]; compared with generative
+adversarial networks [25], diffusion models have better training stability and are
+much easier to invert [22, 69]. Diffusion models are also well-suited for image
+restoration, editing and re-synthesis tasks with minimal modifications to the
+existing architecture [5,6,14,22,37–39,52,62,75], making it well-suited for various
+downstream applications.
+Transformers in Generative Modeling Transformer-based models have achieved
+competitive performance in different generative learning models in the visual
+domain [12, 17, 18, 29, 84, 85]. A number of transformer-based architectures
+have emerged for GANs [47,48,80,87]. TransGAN [33] proposed to use a pure
+transformer-based generator and discriminator architecture for pixel-wise image
+generation. Gansformer [31] introduced a bipartite transformer that encourages
+the similarity between latent and image features. Styleformer [55] uses Linform-
+ers [77] to scale the synthesis to higher resolution images. Recently, a number of
+efforts [9,23,50,56] have leveraged Transformer-based architectures for diffusion
+models and achieved competitive performance. In particular, DiT [56] proposed
+a latent diffusion model in which the regular U-Net backbone is replaced with a
+Transformer. Using the DiT architecture, MDT [23] introduced a masked latent
+modeling approach to effectively capture contextual information. In comparison
+to DiT, although MDT achieves faster learning speed and better FID scores on
+ImageNet-256 dataset [15], it has a more complex training pipeline. Recently
+with a similar architecture to DiT, SiT [51] was proposed to incorporate flow
+matching [1,2]. Unlike DiT, MDT or SiT, the proposed DiffiT does not use shift
+and scale, as in AdaLN formulation, for conditioning. Instead, DiffiT proposes
+a time-dependent self-attention (i.e. TMSA) to jointly learn the spatial and
+temporal dependencies. In addition, DiffiT proposes both image and latent space
+models for different image generation tasks with different resolutions with SOTA
+performance.
+3
+Methodology
+3.1
+Diffusion Model Preliminaries
+Diffusion models [28,68,71] are a family of generative models that synthesize
+samples via an iterative denoising process. Given a data distribution as q0(z0),
+a family of random variables zt for t ∈[0, T] are defined by injecting Gaussian
+noise to z0, i.e., qt(zt) =
+R
+q(zt|z0)q0(z0)dz0, where q(zt|z0) = N(z0, σ2
+t I) is a
+
+
+===== [Page 5] =====
+Diffusion Vision Transformers for Image Generation
+5
+Gaussian distribution. Typically, σt is chosen as a non-decreasing sequence such
+that σ0 = 0 and σT being much larger than the data variance. This is called the
+“Variance-Exploding” noising schedule in the literature [71]; for simplicity, we use
+these notations throughout the paper, but we note that it can be equivalently
+converted to other commonly used schedules (such as “Variance-Preserving” [28])
+by simply rescaling the data with a scaling term, dependent on t [34,69].
+The distributions of these random variables are the marginal distributions
+of forward diffusion processes (Markovian or not [69]) that gradually reduces
+the “signal-to-noise” ratio between the data and noise. As a generative model,
+diffusion models are trained to approximate the reverse diffusion process, that is,
+to transform from the initial noisy distribution (that is approximately Gaussian)
+to a distribution that is close to the data one.
+Training Despite being derived from different perspectives, diffusion models can
+generally be written as learning the following denoising autoencoder objective [76]
+  \bb {E}_{q_0(\rvz _0), t \si m p(t) , \ep silo
+n \sim \gN (0, \mI )}[\lambda (t) \norm {\epsilon - \epsilon _\theta (\rvz _0 + \sigma _t \epsilon , t)}_2^2] .
+(1)
+Intuitively, given a noisy sample from q(zt) (generated via zt := z0+σtϵ), a neural
+network ϵθ is trained to predict the amount of noise added (i.e., ϵ). Equivalently,
+the neural network can also be trained to predict z0 instead [28,64]. The above
+objective is also known as denoising score matching [76], where the goal is to
+try to fit the data score (i.e., ∇zt log q(zt)) with a neural network, also known
+as the score network sθ(zt, t). The score network can be related to ϵθ via the
+relationship sθ(zt, t) := −ϵθ(zt, t)/σt.
+Sampling Samples from the diffusion model can be simulated by the following
+family of stochastic differential equations that solve from t = T to t = 0 [19,26,
+34,86]:
+  \ di ff \ rvz = - (\ dot {
+\
+sigma }_t + \beta _t) \sigma _t s_\theta (\rvz , t) \diff t + \sqrt {2 \beta _t} \sigma _t \diff \omega _t, \label {eq:score-sde}
+(2)
+where ωt is the reverse standard Wiener process, and βt is a function that describes
+the amount of stochastic noise during the sampling process. If βt = 0 for all t,
+then the process becomes a probabilistic ordinary differential equation [3] (ODE),
+and can be solved by ODE integrators such as denoising diffusion implicit models
+(DDIM [69]). Otherwise, solvers for stochastic differential equations (SDE) can be
+used, including the one for the original denoising diffusion probabilistic models
+(DDPM [28]). Typically, ODE solvers can converge to high-quality samples in
+fewer steps and SDE solvers are more robust to inaccurate score models [34].
+3.2
+DiffiT Model
+Time-dependent Self-Attention At every layer, our transformer block receives
+{xs}, a set of tokens arranged spatially on a 2D grid in its input. It also receives
+
+
+===== [Page 6] =====
+6
+Hatamizadeh et al.
+𝐻× 𝑊× 3
+Encoder
+Patch Embed
+Layer Norm
++
+Time 
+Embedding
+TMSA
+Layer Norm
+MLP
++
+Latent DiffiT 
+Transformer Block
+× 𝑁
+Decoder
+Unpatchify
++
+𝐻× 𝑊× 3
+ℎ× 𝑤× 𝐶
+Label 
+Embedding
+Fig. 3 – Overview of the latent DiffiT framework.
+xt, a time token representing the time step. Similar to
+[28], we obtain the
+time token by feeding positional time embeddings to a small MLP with swish
+activation [21]. This time token is passed to all layers in our denoising network.
+We introduce our time-dependent multi-head self-attention, which captures both
+long-range spatial and temporal dependencies by projecting feature and time
+token embeddings in a shared space. Specifically, time-dependent queries q, keys
+k and values v in the shared space are computed by a linear projection of spatial
+and time embeddings xs and xt via
+  \ mathb f {q_s}
+ &=
+ \ m athbf {x_s} 
+\ma
+th b f {W} _ {qs} + \mathbf {x_t} \mathbf {W}_{qt}, \label {eq:q} \\ \mathbf {k_s} &= \mathbf {x_s} \mathbf {W}_{ks} + \mathbf {x_t} \mathbf {W}_{kt}, \label {eq:k} \\ \mathbf {v_s} &= \mathbf {x_s} \mathbf {W}_{vs} + \mathbf {x_t} \mathbf {W}_{vt}, \label {eq:v}
+(5)
+where Wqs, Wqt, Wks, Wkt, Wvs, Wvt denote spatial and temporal linear
+projection weights for their corresponding queries, keys, and values respectively.
+We note that the operations listed in Eq. 3 to 5 are equivalent to a linear
+projection of each spatial token, concatenated with the time token. As a result,
+key, query, and value are all linear functions of both time and spatial tokens and
+they can adaptively modify the behavior of attention for different time steps.
+We define Q := {qs}, K := {ks}, and V := {vs} which are stacked form of
+query, key, and values in rows of a matrix. The self-attention is then computed
+as follows
+  \attention ( \m a thbf {Q
+}, \
+m
+a
+t h
+b
+f {K}, \mathbf {V}) = \softmax \left (\frac {\mathbf {Q} \mathbf {K}^\top }{\sqrt {d}} + \mathbf {B} \right ) \mathbf {V}. \label {eq:selfattn}
+(6)
+In which, d is a scaling factor for keys K, and B corresponds to a relative position
+bias [66]. For computing the attention, the relative position bias allows for the
+encoding of information across each attention head. Note that although the
+relative position bias is implicitly affected by the input time embedding, directly
+integrating it with this component may result in sub-optimal performance as it
+needs to capture both spatial and temporal information. Please see Sec. 5.4 for
+more analysis.

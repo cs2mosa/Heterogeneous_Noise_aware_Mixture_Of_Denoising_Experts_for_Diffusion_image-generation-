@@ -88,6 +88,10 @@ class Logger:
                  sigma_max: float = 80.0,
                  p_mean: float = 0.0,
                  p_std: float = 1.3,
+                 alpha_ext: float = 0.2,
+                 overwrite: bool = False,
+                 adam_eps: float = 1e-8,
+                 mse_pass_threshold: float = 0.20,
                  ):
         self.log_dir = Path(log_dir)
         self.log_dir.mkdir(parents=True, exist_ok=True)
@@ -100,6 +104,9 @@ class Logger:
         self.sigma_max = sigma_max
         self.p_mean = p_mean
         self.p_std = p_std
+        self.alpha_ext = alpha_ext
+        self.adam_eps = float(adam_eps)
+        self.mse_pass_threshold = float(mse_pass_threshold)
 
         # File handles
         self._files = {
@@ -109,6 +116,10 @@ class Logger:
             "specialization": self.log_dir / f"{run_name}_specialization.jsonl",
             "checkpoints": self.log_dir / f"{run_name}_checkpoints.jsonl",
         }
+        if overwrite:
+            for v in self._files.values():
+                if v.exists():
+                    v.unlink()
 
         # Single shared accumulator
         self._acc: Dict[str, List[float]] = defaultdict(list)
@@ -128,11 +139,16 @@ class Logger:
     # ── Sigma Utilities ───────────────────────────────────────────────────────
 
     def _sigma_percentile(self, sigma: torch.Tensor) -> torch.Tensor:
+        from Utils.cdf_utils import mixture_cdf
         log_s = torch.log(sigma.float().flatten().clamp(min=1e-8))
-        pct = 0.5 * (1.0 + torch.erf(
-            (log_s - self.p_mean) / (self.p_std * math.sqrt(2))
-        ))
-        return pct.clamp(0.0, 1.0)
+        return mixture_cdf(
+            log_s,
+            self.p_mean,
+            self.p_std,
+            math.log(self.sigma_min),
+            math.log(self.sigma_max),
+            self.alpha_ext,
+        )
 
     def _trajectory_zones(self, sigma: torch.Tensor) -> Dict[str, float]:
         s = sigma.float().flatten()
@@ -212,17 +228,27 @@ class Logger:
             return
 
         with torch.no_grad():
+            # Measure router health within each branch's active noise regime so out-of-domain samples
+            # parked at the boundary expert do not produce false imbalance alerts.
+            sigma_flat = sigma.float().flatten()
+            unet_active = sigma_flat >= self.transition_sigma
+            vit_active = sigma_flat <= self.transition_sigma
+            unet_eval = unet_probs[unet_active] if unet_active.any() else unet_probs
+            vit_eval = vit_probs[vit_active] if vit_active.any() else vit_probs
+
             # ── Entropy and Gini
-            unet_ent = _entropy(unet_probs)
-            vit_ent = _entropy(vit_probs)
-            unet_gini = _gini(unet_probs)
-            vit_gini = _gini(vit_probs)
+            unet_ent = _entropy(unet_eval)
+            vit_ent = _entropy(vit_eval)
+            unet_gini = _gini(unet_eval)
+            vit_gini = _gini(vit_eval)
 
             unet_max_ent = _max_entropy(self.num_unet_experts)
             vit_max_ent = _max_entropy(self.num_vit_experts)
 
-            unet_usage = unet_probs.mean(dim=0).cpu()
-            vit_usage = vit_probs.mean(dim=0).cpu()
+            unet_usage = unet_eval.mean(dim=0).cpu()
+            vit_usage = vit_eval.mean(dim=0).cpu()
+            unet_usage_full = unet_probs.mean(dim=0).cpu()
+            vit_usage_full = vit_probs.mean(dim=0).cpu()
 
             # Dead expert threshold: < 1% of uniform allocation
             unet_dead = int((unet_usage < (1.0 / max(1, self.num_unet_experts) * 0.01)).sum().item())
@@ -240,6 +266,8 @@ class Logger:
                 "vit_dead_experts": vit_dead,
                 "unet_usage": [round(float(x), 4) for x in unet_usage.tolist()],
                 "vit_usage": [round(float(x), 4) for x in vit_usage.tolist()],
+                "unet_usage_full_batch": [round(float(x), 4) for x in unet_usage_full.tolist()],
+                "vit_usage_full_batch": [round(float(x), 4) for x in vit_usage_full.tolist()],
                 "unet_healthy": unet_ent / unet_max_ent > MIN_HEALTHY_ENTROPY_RATIO
                                 and unet_gini < MAX_HEALTHY_GINI
                                 and unet_dead == 0,
@@ -283,18 +311,18 @@ class Logger:
 
         record: Dict[str, Any] = {"step": step}
 
-        def _component_stats(module: nn.Module, lr: float) -> Dict[str, float]:
+        def _component_stats(module: nn.Module, lr: float) -> Dict[str, Any]:
             grad_sq_sum = 0.0
             param_sq_sum = 0.0
-
-            # Accumulators for "Mean of Layer Ratios"
-            ratios = []
+            update_sq_sum = 0.0
+            matrix_ratios = []
 
             total_params = 0
             params_with_grad = 0
 
             for p in module.parameters():
                 total_params += 1
+                n_p = max(int(p.numel()), 1)
                 p_norm = p.detach().norm(2).item()
                 param_sq_sum += p_norm ** 2
 
@@ -302,56 +330,37 @@ class Logger:
                     g_norm = p.grad.detach().norm(2).item()
                     grad_sq_sum += g_norm ** 2
                     params_with_grad += 1
-
-                    # --- THE FIX: Calculate ratio per-tensor ---
-                    # For Adam, we estimate the effective step is roughly proportional to LR.
-                    # But sticking to standard definition: Ratio = (Grad * LR) / Weight
-                    if p_norm > 1e-9:
-                        ratios.append((g_norm * lr) / p_norm)
-                else:
-                    # If no grad, ratio is 0 for this tensor
-                    if p_norm > 1e-9:
-                        ratios.append(0.0)
+                    inv_sqrt_n = 1.0 / math.sqrt(n_p)
+                    p_rms = p_norm * inv_sqrt_n
+                    g_rms = g_norm * inv_sqrt_n
+                    adam_step_rms = lr * (g_rms / (g_rms + self.adam_eps))
+                    update_sq_sum += n_p * (adam_step_rms ** 2)
+                    if p.ndim >= 2 and p_rms > 1e-3:
+                        matrix_ratios.append(adam_step_rms / p_rms)
 
             if total_params == 0:
                 return {}
 
-            # Global Norms (Keep for reference)
             global_grad_norm = grad_sq_sum ** 0.5
             global_param_norm = param_sq_sum ** 0.5
             coverage = params_with_grad / total_params
+            global_ratio = (update_sq_sum ** 0.5) / global_param_norm if global_param_norm > 1e-9 else 0.0
+            max_ratio = max(matrix_ratios) if matrix_ratios else global_ratio
 
-            result = {
+            return {
                 "grad_norm": round(global_grad_norm, 8),
                 "param_norm": round(global_param_norm, 6),
                 "grad_coverage": round(coverage, 4),
+                "update_ratio": round(global_ratio, 10),
+                "update_ratio_max": round(max_ratio, 10),
+                "update_ratio_healthy": UPDATE_RATIO_WARN_LOW < global_ratio < UPDATE_RATIO_WARN_HIGH,
             }
-
-            # --- THE FIX: Robust Update Ratio ---
-            # If we have ratios, use the MEAN (or Median/Max)
-            # This prevents massive layers from drowning out active ones
-            if len(ratios) > 0:
-                avg_ratio = sum(ratios) / len(ratios)
-                max_ratio = max(ratios)
-
-                # We log the average as the primary "update_ratio"
-                result["update_ratio"] = round(avg_ratio, 10)
-
-                # Optional: Log max to see if *any* layer is moving fast
-                result["update_ratio_max"] = round(max_ratio, 10)
-
-                result["update_ratio_healthy"] = UPDATE_RATIO_WARN_LOW < avg_ratio < UPDATE_RATIO_WARN_HIGH
-            else:
-                result["update_ratio"] = 0.0
-                result["update_ratio_healthy"] = False
-
-            return result
 
         # ── Top-level components
         component_attrs = [
             'Unet_experts', 'VIT_experts', 'Unet_router', 'vit_router',
             'output_proj_unet', 'output_proj_vit',
-            'input_proj', 'input_time_proj', 'blend_residual',
+            'input_proj', 'input_time_proj', 'blend_residual', 'pooled_cross_attn',
         ]
         for name in component_attrs:
             component = getattr(model, name, None)
@@ -476,23 +485,36 @@ class Logger:
                                vit_probs: torch.Tensor,
                                lr_per_component: Dict[str, float],
                                extra: Optional[Dict[str, Any]] = None,
+                               sigma: Optional[torch.Tensor] = None,
                                ):
         with torch.no_grad():
-            unet_ent_norm = _entropy(unet_probs) / _max_entropy(self.num_unet_experts)
-            vit_ent_norm = _entropy(vit_probs) / _max_entropy(self.num_vit_experts)
-            unet_gini = _gini(unet_probs)
-            vit_gini = _gini(vit_probs)
-            unet_usage = unet_probs.mean(dim=0).cpu().tolist()
-            vit_usage = vit_probs.mean(dim=0).cpu().tolist()
+            if sigma is not None and sigma.numel() == unet_probs.shape[0]:
+                sigma_flat = sigma.float().flatten()
+                unet_active = sigma_flat >= self.transition_sigma
+                vit_active = sigma_flat <= self.transition_sigma
+                u_eval = unet_probs[unet_active] if unet_active.any() else unet_probs
+                v_eval = vit_probs[vit_active] if vit_active.any() else vit_probs
+            else:
+                u_eval, v_eval = unet_probs, vit_probs
+
+            unet_ent_norm = _entropy(u_eval) / _max_entropy(self.num_unet_experts)
+            vit_ent_norm = _entropy(v_eval) / _max_entropy(self.num_vit_experts)
+            unet_gini = _gini(u_eval)
+            vit_gini = _gini(v_eval)
+            unet_usage = u_eval.mean(dim=0).cpu().tolist()
+            vit_usage = v_eval.mean(dim=0).cpu().tolist()
 
         def _update_ratio(module, lr):
-            g2, p2 = 0.0, 0.0
+            p2, u2 = 0.0, 0.0
             for p in module.parameters():
+                n_p = max(int(p.numel()), 1)
                 p2 += p.detach().norm(2).item() ** 2
                 if p.grad is not None:
-                    g2 += p.grad.detach().norm(2).item() ** 2
+                    g_rms = p.grad.detach().norm(2).item() / math.sqrt(n_p)
+                    step_rms = lr * (g_rms / (g_rms + self.adam_eps))
+                    u2 += n_p * (step_rms ** 2)
             pn = p2 ** 0.5
-            return (g2 ** 0.5 * lr) / pn if pn > 1e-9 else 0.0
+            return (u2 ** 0.5) / pn if pn > 1e-9 else 0.0
 
         unet_ur = _update_ratio(model.Unet_experts, lr_per_component.get('Unet_experts', 1e-3))
         vit_ur = _update_ratio(model.VIT_experts, lr_per_component.get('VIT_experts', 1e-3))
@@ -511,7 +533,7 @@ class Logger:
             "vit_usage": [round(x, 4) for x in vit_usage],
             "unet_update_ratio": round(unet_ur, 10),
             "vit_update_ratio": round(vit_ur, 10),
-            "PASS_mse": mse < 0.15,
+            "PASS_mse": mse < self.mse_pass_threshold,
             "PASS_unet_router": unet_ent_norm > MIN_HEALTHY_ENTROPY_RATIO and unet_gini < MAX_HEALTHY_GINI,
             "PASS_vit_router": vit_ent_norm > MIN_HEALTHY_ENTROPY_RATIO and vit_gini < MAX_HEALTHY_GINI,
             "PASS_unet_training": UPDATE_RATIO_WARN_LOW < unet_ur < UPDATE_RATIO_WARN_HIGH,

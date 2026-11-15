@@ -1,0 +1,396 @@
+# Source PDF: C:\Users\Maha Mamdouh\Desktop\ML learning phase\deep learning math books\deep learning architectures , a mathematical approach.pdf
+# Extracted Pages: 125-130 of 768
+
+
+===== [Page 125] =====
+100
+Deep Learning Architectures, A Mathematical Approach
+This provides a closed-form expression for xn+1. Taking the limit using The-
+orem 4.4.5 we obtain
+x∗
+=
+lim
+n→∞xn+1 = x0 + v0
+μ
+1 −μ −η
+ 
+n≥0
+μn 
+n≥0
+bn
+
+=
+x0 + v0
+μ
+1 −μ −
+η
+1 −μ
+
+n≥0
+∥∇f(xn)∥.
+Remark 4.4.7 An improvement of the classical momentum method has been
+proposed by Nesterov [91]. This is obtained by modifying the momentum
+method the argument of the gradient; instead of computing it at the current
+position xn, it is evaluated at the corrected value xn + μvn:
+xn+1
+=
+xn + vn+1
+(4.4.30)
+vn+1
+=
+μvn −η∇f(xn + μvn).
+(4.4.31)
+The Nesterov Accelerated Gradient (abbreviated as NAG) is a ﬁrst-order
+optimization method with better convergence rate than the gradient descent.
+Compared with the momentum method, NAG changes velocity v in a more
+responsive way, fact that makes the method more stable, especially for larger
+value of μ.
+4.5
+AdaGrad
+A modiﬁed stochastic gradient descent method with an adaptive learning
+rate was published in 2011 under the name of AdaGrad (Adaptive Gradient),
+see Duchi et al. [34]. If C(x) denotes the cost function, which is subject to
+minimization, with x ∈RN, then the gradient vector evaluated at step t is
+denoted by gt = ∇C(x(t)). We consider the N × N matrix
+Gt =
+t
+
+τ=1
+gτgT
+τ
+and consider the update
+x(t + 1) = x(t) −ηG−1/2
+t
+gt,
+where η > 0 is the learning rate. For discrete time steps this can be written
+equivalently as
+xn+1 = xn −ηG−1/2
+n
+gn.
+
+
+===== [Page 126] =====
+Finding Minima Algorithms
+101
+Since G−1/2
+t
+is computationally impractical in high dimensions, the update
+can be done using only the diagonal elements of the matrix
+x(t + 1) = x(t) −η diag(Gt)−1/2gt.
+The diagonal elements of Gt can be calculated by
+(Gt)jj =
+t
+
+τ=1
+(gτ,1)2,
+where we use that
+gτgT
+τ =
+⎛
+⎜
+⎝
+gτ,1
+...
+gτ,N
+⎞
+⎟
+⎠(gτ,1, . . . , gτ,N) =
+⎛
+⎝
+(gτ,1)2
+· · ·
+· · ·
+· · ·
+· · ·
+· · ·
+· · ·
+· · ·
+(gτ,N)2
+⎞
+⎠.
+4.6
+RMSProp
+The Root Mean Square Propagation, or RMSProp, is a variant of the gradient
+descent method with adaptive learning rate, which is obtained if the gradient
+is divided by a running average of its magnitude, see Tieleman and Hinton
+[118], 2012 .
+If C(x) denotes the cost function, and gt = ∇C(x(t)) is its gradient
+evaluated at time step t, then the running average is deﬁned recursively by
+v(t) = γv(t −1) + (1 −γ)g2
+t−1,
+where γ ∈(0, 1) is the forgetting factor, which controls the exponential
+decay rate and the vector g2
+t−1 denotes the elementwise square of the gra-
+dient gt−1.6 It can be shown inductively that the exponential moving average
+of the squared gradient v(t) is given by
+v(t) = γtv(0) + (1 −γ)
+t
+
+i=1
+γt−ig2
+i .
+Since the coeﬃcients sum up to 1, namely
+γt + (1 −γ)
+t
+
+i=1
+γt−i = 1,
+6For discrete time steps this can be written equivalently as
+vn = γvn−1 + (1 −γ)(gn−1)2.
+
+
+===== [Page 127] =====
+102
+Deep Learning Architectures, A Mathematical Approach
+it follows that v(t) is a weighted mean of v(0) (which is usually taken equal
+to zero) and all the squared gradients until step t, giving larger weights to
+more recent gradients.
+The minimum of the cost function, x∗= arg minx C(x), is obtained by the
+approximation sequence (x(t))t≥1 deﬁned recursively by the updating rule
+x(t + 1) = x(t) −η
+gt
+
+|v(t)|
+,
+(4.6.32)
+where η > 0 is a learning rate. We note that v(t) can be interpreted as an
+estimation of the second moment (uncentered variance) of the gradient. The
+equation (4.6.32) can be seen as a gradient descent variant where the gradient
+gt is scaled by its standard deviation estimation,
+
+|v(t)|.
+Example 4.6.1 We shall track mathematically the minimum of the real-
+valued function C(x) = 1
+2x2 using the RMSProp method. The gradient in
+this case is gt = x(t) and the moving average is given by
+v(t) = (1 −γ)
+t
+
+i=1
+γt−ix(i)2,
+where we considered v(0) = 0. The sequence that estimates the minimum
+x∗= arg minx C(x) is given recursively by
+x(t + 1) = x(t) −η
+x(t)
+
+|v(t)|
+= x(t)
+
+1 −η
+1
+
+|v(t)|
+
+.
+We denote ρt = 1 −η/
+
+|v(t)| and assume that 0 < ρt < ρ < 1. Then the
+relation x(t + 1) = x(t)ρt together with the initial condition x(0) > 0 implies
+that the sequence x(t) is decreasing and bounded from below by 0, satisfying
+the inequality
+0 < x(t) < x(0)ρt.
+Talking the limit and using the Squeeze Theorem yields x∗= limt→∞x(t) = 0,
+namely the minimum of C(x) = 1
+2x2 is reached for x = 0.
+Now, we go back and show the double inequality 0 < ρt < ρ < 1. The ﬁrst
+inequality, 0 < ρt, is equivalent to
+η
+√
+v(t) < 1. In order to show this inequality,
+we shall assume that x(t) does not converge to 0 (because otherwise we
+already arrived to the conclusion), namely there is ϵ > 0 such that x(t)2 > ϵ,
+for all t ≥1. This implies that there is N > 1 such that v(t) > ϵ
+2, for all
+t > N. This fact follows from the computation
+v(t)
+=
+(1 −γ)
+t
+
+i=1
+γt−ix(i)2 > ϵ(1 −γ)
+t
+
+i=1
+γt−i
+=
+ϵ(1 −γ)1 −γt
+1 −γ = ϵ(1 −γt) > ϵ
+2,
+
+
+===== [Page 128] =====
+Finding Minima Algorithms
+103
+where we choose N such that γt < 1
+2 for t > N. The previous inequality
+implies
+η
+v(t) < 2η
+ϵ < 1,
+∀t > N,
+where we chose the learning rate satisfying η < ϵ
+2.
+The second inequality, ρt < ρ < 1, is equivalent to v(t) <
+
+η
+1−ρ
+2
+, i.e.,
+to the boundness of the sequence v(t). A suﬃcient condition for this is the
+boundness of the approximation sequence, |x(t)| < M, for all t. This can be
+shown as in the following
+v(t)
+=
+(1 −γ)
+t
+
+i=1
+γt−ix(i)2 < M2(1 −γ)
+t
+
+i=1
+γt−i
+=
+M2(1 −γt) < M2.
+4.7
+Adam
+This adaptive learning method was inspired by the previous AdaGrad and
+RMSProp methods and was introduced in 2014 by Diederik and Ba [31]. The
+method uses the estimation of the ﬁrst and second moment of the gradient
+by exponential moving averages and then apply some bias corrections.
+The cost function, C(x), subject to minimization, may have some stochas-
+ticity build in and is assumed to be diﬀerentiable with respect to x. We are
+interested in the minimum x∗= arg minx E[C(x)].
+For this, we denote the gradient of the cost function at the time step t by
+gt = ∇C(x(t)). We consider two exponential decay rates for the moment esti-
+mates, β1, β2 ∈[0, 1), ﬁx an initial vector x(0) = x0, initialize the moments
+by m(0) = 0 and v(0) = 0, and consider the moments updates
+m(t)
+=
+β1m(t −1) + (1 −β1)gt
+v(t)
+=
+β2v(t −1) + (1 −β2)(gt)2,
+where (gt)2 denotes the elementwise square of the vector gt. The moments
+m(t) and v(t) can be interpreted as biased estimates of the ﬁrst moment
+(mean) and second moment (uncentered variance) of the gradient given by
+exponential moving averages. The bias can be corrected as in the following.
+We can write inductively
+m(t)
+=
+(1 −β1)
+t
+
+i=1
+βt−i
+1
+gi
+v(t)
+=
+(1 −β2)
+t
+
+i=1
+βt−i
+2
+(gi)2.
+
+
+===== [Page 129] =====
+104
+Deep Learning Architectures, A Mathematical Approach
+Applying the expectation operator and assuming that the ﬁrst and second
+moments are stationary, we obtain
+E[m(t)]
+=
+(1 −β1)
+t
+
+i=1
+βt−i
+1
+E[gi] = (1 −βt
+1)E[gt]
+E[v(t)]
+=
+(1 −β2)
+t
+
+i=1
+βt−i
+2
+E[[(gi)2] = (1 −βt
+2)E[(gt)2].
+Therefore, the bias-corrected moments are
+m(t)
+=
+m(t)/(1 −βt
+1)
+v(t)
+=
+v(t)/(1 −βt
+2).
+The ﬁnal recursive formula is given by
+x(t + 1) = x(t) −η
+m(t)
+
+|v(t)| + ϵ
+,
+with ϵ > 0 a small scalar used to prevent division by zero. Some default
+settings for the aforementioned hyperparameters used in [31] are η = 0.001,
+β1 = 0.9, β2 = 0.99, and ϵ = 10−8.
+4.8
+AdaMax
+Adaptive Maximum method, or AdaMax, is a variant of Adam based on the
+inﬁnity norm, [31]. The model is deﬁned by the following set of iterations:
+m(t)
+=
+β1m(t −1) + (1 −β1)gt
+u(t)
+=
+max(β2u(t −1), |g(t)|)
+x(t)
+=
+x(t −1) −
+η
+1 −βt
+1
+m(t)
+u(t −1),
+with moment initializations m(0) = u(0) = 0. We note that in this case there
+is no correction needed for the bias.
+4.9
+Simulated Annealing Method
+Another method for ﬁnding global minima of a given function is the simu-
+lated annealing (SA) introduced to neural networks in 1983 by Kirkpatrick
+et al. [63]. The method is inspired by a metallurgical process called anneal-
+ing. During this process, the metal is tempered, i.e., is overheated and after
+
+
+===== [Page 130] =====
+Finding Minima Algorithms
+105
+Figure 4.14: Potential function, phase space representation and ﬁnal distri-
+bution of particles.
+that is slowly cooled. By this procedure the crystalline structure of the metal
+reaches a global minimum energy, the method being used to eliminate even-
+tual defects in the metal, making it stronger.
+Since the kinetic energy of a molecule is proportional to the absolute
+temperature, see Einstein [38], then the metal molecules get excited at high
+temperatures, and then, during the cooling process, they loose energy and will
+ﬁnally end up at positions of global minimum energy in the crystal lattice.
+We shall discuss this behavior in the following from both the kinematics and
+thermodynamics points of view.
+4.9.1
+Kinematic Approach for SA
+Consider the energy potential z = f(x), which has some local minima and also
+a global minimum. Assume that the metal molecules have a dynamics induced
+by this potential. For a ﬁxed temperature, T, each particle has constant total
+energy. Consequently, it has to move along constant energy level curves in
+the phase space, see section 4.3. When the temperature increases, the kinetic
+energy of particles increases too, and hence they will translate up to higher
+energy levels.
+When the temperature is slowly decreased, the kinetic energy of particles
+decreases too, the eﬀect on particles movement being similar to the eﬀect of a
+damping factor. This brings the particle to a lower level of energy, hopefully

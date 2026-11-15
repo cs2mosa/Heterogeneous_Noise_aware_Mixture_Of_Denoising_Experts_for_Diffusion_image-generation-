@@ -1,0 +1,156 @@
+# Source PDF: C:\Users\Maha Mamdouh\Desktop\ML learning phase\deep learning math books\Introduction to Riemannian Manifolds.pdf
+# Extracted Pages: 148-151 of 447
+
+
+===== [Page 148] =====
+136
+5 The Levi-Civita Connection
+The coordinate map can also be written
+' W E
+
+q;v1E1jq CCvnpEnpjq
+
+7!
+
+x1.q/;:::;xp.q/;v1;:::;vnp
+: (5.25)
+Coordinates of this form are called Fermi coordinates, after the Italian physicist
+Enrico Fermi (1901–1954), who ﬁrst introduced them in the special case in which
+P is the image of a geodesic in M. The generalization to arbitrary submanifolds
+was ﬁrst introduced by Alfred Gray [Gra82]. (See also [Gra04] for a detailed study
+of the geometry of tubular neighborhoods.)
+Here is the analogue of Proposition 5.24 for Fermi coordinates.
+Proposition 5.26 (Properties of Fermi Coordinates). Let P be an embedded
+p-dimensional submanifold of a Riemannian n-manifold .M;g/, let U be a nor-
+mal neighborhood of P in M, and let
+
+x1;:::;xp;v1;:::;vnp
+be Fermi coordi-
+nates on an open subset U0  U . For convenience, we also write xpCj D vj for
+j D 1;:::;np.
+(a) P \U0 is the set of points where xpC1 D  D xn D 0.
+(b) At each point q 2 P \U0, the metric components satisfy the following:
+gij D gji D
+(
+0;
+1  i  p and p C1  j  n;
+ıij ;
+p C1  i;j  n:
+(c) For every q 2 P \ U0 and v D v1E1jq C  C vnpEnpjq 2 NqP , the
+geodesic v starting at q with initial velocity v is the curve with coordinate
+expression v.t/ D
+
+x1.q/;:::;xp.q/;tv1;:::;tvnp
+.
+(d) At each q 2 P \U0, the Christoffel symbols in these coordinates satisfy k
+ij D0,
+provided p C1  i;j  n.
+(e) At each q2P \U0, the partial derivatives @igjk.q/ vanish for pC1  i;j;k
+n.
+Proof. Problem 5-18.
+ut
+Geodesics of the Model Spaces
+In this section we determine the geodesics of the three types of frame-homogeneous
+Riemannian manifolds deﬁned in Chapter 3. We could, of course, compute the
+Christoffel symbols of these metrics in suitable coordinates, and try to ﬁnd the
+geodesics by solving the appropriate differential equations; but for these spaces,
+much easier methods are available based on symmetry and other geometric consid-
+erations.
+
+
+===== [Page 149] =====
+Geodesics of the Model Spaces
+137
+Euclidean Space
+On Rn with the Euclidean metric, Proposition 5.12 shows that the Levi-Civita
+connection is the Euclidean connection. Therefore, as one would expect, constant-
+coefﬁcient vector ﬁelds are parallel, and the Euclidean geodesics are straight lines
+with constant-speed parametrizations (Exercises 4.29 and 4.30). Every Euclidean
+space is geodesically complete.
+Spheres
+Because the round metric on the sphere Sn.R/ is induced by the Euclidean metric on
+RnC1, it is easy to determine the geodesics on a sphere using Corollary 5.2. Deﬁne
+a great circle on Sn.R/ to be any subset of the form Sn.R/\˘, where ˘  RnC1
+is a 2-dimensional linear subspace.
+Proposition 5.27. A nonconstant curve on Sn.R/ is a maximal geodesic if and only
+if it is a periodic constant-speed curve whose image is a great circle. Thus every
+sphere is geodesically complete.
+Proof. Let p 2 Sn.R/ be arbitrary. Because f .x/ D jxj2 is a deﬁning function for
+Sn.R/, a vector v 2 TpRnC1 is tangent to Sn.R/ if and only if dfp.v/ D 2hv;pi D
+0, where we think of p as a vector by means of the usual identiﬁcation of RnC1 with
+TpRnC1. Thus TpSn.R/ is exactly the set of vectors orthogonal to p.
+Suppose v is an arbitrary nonzero vector in TpSn.R/. Let a D jvj=R and yv D v=a
+(so jyvj D R), and consider the smooth curve  W R ! RnC1 given by
+.t/ D .cosat/p C.sinat/yv:
+By direct computation, j.t/j2 D R2, so .t/ 2 Sn.R/ for all t. Moreover,
+0.t/ D a.sinat/p Ca.cosat/yv;
+00.t/ D a2.cosat/p a2.sinat/yv:
+Because 00.t/ is proportional to .t/ (thinking of both as vectors in RnC1), it fol-
+lows that 00.t/ is xg-orthogonal to T.t/Sn.R/, so  is a geodesic in Sn.R/ by Corol-
+lary 5.2. Since .0/ D p and 0.0/ D ayv D v, it follows that  D v.
+Each v is periodic of period 2=a, and has constant speed by Corollary 5.6 (or
+by direct computation). The image of v is the great circle formed by the intersection
+of Sn.R/ with the linear subspace spanned by fp; yvg, as you can check.
+Conversely, suppose C is a great circle formed by intersecting Sn.R/ with a
+2-dimensional subspace ˘, and let fv;wg be an orthonormal basis for ˘. Then C
+is the image of the geodesic with initial point p D Rw and initial velocity v.
+ut
+
+
+===== [Page 150] =====
+138
+5 The Levi-Civita Connection
+x
+y
+z
+p
+v
+Fig. 5.5: A great hyperbola
+Fig. 5.6: Geodesics of Kn.R/
+Fig. 5.7: Geodesics of Bn.R/
+Hyperbolic Spaces
+The geodesics of hyperbolic spaces can be determined by an analogous procedure
+using the hyperboloid model.
+Proposition 5.28. A nonconstant curve in a hyperbolic space is a maximal geodesic
+if and only if it is a constant-speed embedding of R whose image is one of the
+following:
+(a) HYPERBOLOID MODEL: The intersection of Hn.R/ with a 2-dimensional lin-
+ear subspace of Rn;1, called a great hyperbola (Fig. 5.5).
+(b) BELTRAMI–KLEIN MODEL: The interior of a line segment whose endpoints
+both lie on @Kn.R/ (Fig. 5.6).
+
+
+===== [Page 151] =====
+Geodesics of the Model Spaces
+139
+Fig. 5.8: Geodesics of Un.R/
+(c) BALL MODEL: The interior of a diameter of Bn.R/, or the intersection of
+Bn.R/ with a Euclidean circle that intersects @Bn.R/ orthogonally (Fig. 5.7).
+(d) HALF-SPACE MODEL: The intersection of Un.R/ with one of the following: a
+line parallel to the y-axis or a Euclidean circle with center on @Un.R/ (Fig.
+5.8).
+Every hyperbolic space is geodesically complete.
+Proof. We begin with the hyperboloid model, for which the proof is formally quite
+similar to what we just did for the sphere. Since the Riemannian connection on
+Hn.R/ is equal to the tangential connection by Proposition 5.12, it follows from
+Corollary 5.2 that a smooth curve  W I ! Hn.R/ is a geodesic if and only if its
+acceleration 00.t/ is everywhere xq-orthogonal to T.t/Hn.R/ (where xq D xq.n;1/ is
+the Minkowski metric).
+Let p 2 Hn.R/ be arbitrary. Note that f .x/ D xq.x;x/ is a deﬁning function
+for Hn.R/, and (3.10) shows that the gradient of f at p is equal to 2p (where
+we regard p as a vector in TpRn;1 as before). It follows that a vector v 2 TpRn;1
+is tangent to Hn.R/ if and only if xq.p;v/ D 0. Let v 2 TpHn.R/ be an arbitrary
+nonzero vector. Put a D jvjxq=R D xq.v;v/1=2=R and yv D v=a, and deﬁne  W R !
+Rn;1 by
+.t/ D .coshat/p C.sinhat/yv:
+Direct computation shows that  takes its values in Hn.R/ and that its accel-
+eration vector is everywhere proportional to .t/. Thus 00.t/ is xq-orthogonal to
+T.t/Hn.R/, so  is a geodesic in Hn.R/ and therefore has constant speed. Because
+it satisﬁes the initial conditions .0/ D p and 0.0/ D v, it is equal to v. Note that
+v is a smooth embedding of R into Hn.R/ whose image is the great hyperbola
+formed by the intersection between Hn.R/ and the plane spanned by fp; yvg.
+Conversely, suppose ˘ is any 2-dimensional linear subspace of Rn;1 that has
+nontrivial intersection with Hn.R/. Choose p 2 ˘ \ Hn.R/, and let v be another
+nonzerovectorin˘ thatis xq-orthogonaltop,whichimpliesv 2 TpHn.R/.Usingthe
+computation above, we see that the image of the geodesic v is the great hyperbola
+formed by the intersection of ˘ with Hn.R/.

@@ -41,11 +41,12 @@ class TestGradientFlow(unittest.TestCase):
         zero_init_layers = {
             "unet_proj_gate": net.unet_proj_gate,
             "vit_proj_gate": net.vit_proj_gate,
-            "blend_gate": net.blend_gate,
-            "time_proj_gate": net.time_proj_gate,
         }
         if net._cross_attn_enabled:
             zero_init_layers["out_proj_gate"] = net.pooled_cross_attn.out_proj_gate
+
+        self.assertAlmostEqual(net.blend_gate.item(), 0.1, places=6)
+        self.assertAlmostEqual(net.time_proj_gate.item(), 0.1, places=6)
         for name, param in zero_init_layers.items():
             with self.subTest(layer=name):
                 self.assertTrue(torch.all(param.data == 0.0),

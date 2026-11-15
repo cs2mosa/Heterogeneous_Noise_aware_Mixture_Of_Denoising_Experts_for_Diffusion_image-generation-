@@ -1,0 +1,424 @@
+# Source PDF: C:\Users\Maha Mamdouh\Desktop\ML learning phase\deep learning math books\information-geometry-and-its-applications-1st-ed.pdf
+# Extracted Pages: 356-361 of 376
+
+
+===== [Page 356] =====
+13.6 Dual Geometry Derived from Game Theory
+353
+s(x, ξ) = c(ξ)
+
+∂ξl(x, ξ) + a(x, ξ)
+
+,
+(13.228)
+E
+
+a(x, ξ)∂ξl(x, ξ)T 
+= 0.
+(13.229)
+We may put c(ξ) = 1, since the estimating equation is the same for any c(ξ). Then,
+we have
+K(ξ) = E
+
+∂ξ∂ξl(x, ξ) + ∂ξa(x, ξ)
+
+= −G(ξ),
+(13.230)
+because
+0 = E [s(x, ξ)] = E
+
+∂ξl(x, ξ) + ∂ξa(x, ξ)
+
+(13.231)
+and
+E
+
+∂ξl(x, ξ)
+
+= 0.
+(13.232)
+The term a is explicitly given by
+a(x, ξ) = s(x, ξ) −G(ξ)−1E
+
+s(x, ξ)∂ξl(x, ξ)T 
+∂ξl(x, ξ).
+(13.233)
+Hence, we have
+V = G + E
+
+a(x, ξ)a(x, ξ)T 
+(13.234)
+and
+E
+
+εεT 
+= G−1 + G−1AG−1,
+(13.235)
+where
+A = E
+
+a(x, ξ)a(x, ξ)T 
+.
+(13.236)
+Therefore, the asymptotic error covariance increases by GAG−1. The estimator is
+Fisher efﬁcient when and only when a(x, ξ) = 0.
+13.6.2
+Hyvärinen Score
+Hyvärinen (2005, 2007) proposed an interesting game-score given by
+S(x, q) = ¨l(x) + 1
+2
+˙l(x)
+2 ,
+(13.237)
+where l(x) = log q(x) and ˙ denotes the differentiation with respect to x. When x is
+a vector, it is
+S(x, q) = Δl(x, ξ) + 1
+2 |∇l(x, ξ)|2 ,
+(13.238)
+
+
+===== [Page 357] =====
+354
+13
+Signal Processing and Optimization
+where Δ is the Laplacian and ∇is the gradient with respect to x. The related game-
+entropy is
+H[p(x)] = −1
+2
+
+p(x)
+˙l(x)
+2 dx
+(13.239)
+and the divergence is
+D [p(x) : q(x)] = Ep [S(x, q) −S(x, p)] .
+(13.240)
+Lemma 13.3 The Hyvärinen divergence is rewritten as
+D [p(x) : q(x)] = 1
+2
+
+p(x)
+" d
+dx log p(x) −d
+dx log q(x)
+#2
+dx.
+(13.241)
+Proof We calculate Ep [S(x, q)] by putting
+lp(x) = log p(x),
+lq(x) = log q(x).
+(13.242)
+Then
+Ep [S(x, q)] =
+
+p(x)
+"
+¨lq(x) + 1
+2
+˙lq(x)
+2#
+dx
+=
+ "
+−˙p(x)˙lq(x) + 1
+2 p(x)
+˙lq(x)
+2#
+dx
+= 1
+2Ep
+
+˙lq(x)
+2 −2˙lq(x)˙lp(x)
+
+,
+(13.243)
+where the formula of partial integration is used. Ep [S(x, p)] is calculated similarly,
+and we have (13.241).
+The Hyvärinen divergence is not a Bregman divergence and hence the geometry
+derived from it is not dually ﬂat. Note that it does not depend on the normalizing
+constant of q, because
+D[p(x) : cq(x)] = D[p(x) : q(x)]
+(13.244)
+for any c. Hence, it can be used for estimation when the normalization factor is
+difﬁcult to calculate.
+For parametric family of probability distributions p(x, ξ), the Hyvärinen estimat-
+ing function is given by
+s(x, ξ) = ∇S {x, p(x, ξ)} = ∂ξ¨l(x, ξ) + ˙l(x, ξ)∂ξ˙l(x, ξ).
+(13.245)
+It is a homogeneous estimating function, because it does not depend on the normal-
+ization factor c(ξ) of a probability distribution. For example, an exponential family
+
+
+===== [Page 358] =====
+13.6 Dual Geometry Derived from Game Theory
+355
+is written as
+p(x, θ) = exp {θ · x + k(x) −ψ(θ)} ,
+(13.246)
+but ˙l and ¨l do not include ψ(θ). Hence, one can easily obtain an estimator without
+calculating ψ(θ). Calculation of the normalization factor ψ is computationally heavy
+in Bayesian inference, so the Hyvärinen score is useful in such a case.
+We give a simple illustrative example.
+Example 13.1 Consider a simple exponential family,
+p(x, θ) = exp
+
+−θx3 −ψ(θ)
+
+,
+θ > 0, x > 0.
+(13.247)
+We can calculate ψ in this case as
+ψ(θ) = 1
+3 log θ + c.
+(13.248)
+Therefore, the η-coordinate is
+η = 1
+3
+1
+θ.
+(13.249)
+The MLE is given by
+ˆθmle =
+N
+3 ( x3
+i
+.
+(13.250)
+The Hyvärinen score is
+s(x, θ) = −6x −9θx4.
+(13.251)
+Hence, the related estimator is
+ˆθ = 2
+3
+( xi
+( x4
+i
+,
+(13.252)
+which is asymptotically unbiased but is not efﬁcient, because the score s(x, θ) is not
+included in the space of
+∂θ log p(x, θ) = x3 −ψ′(ξ).
+(13.253)
+The following theorem shows the case when the Hyvärinen estimator is Fisher
+efﬁcient. See Hyvärinen (2005).
+Theorem 13.5 TheHyvärinenestimatorisFisherefﬁcientformultivariateGaussian
+distributions and is not efﬁcient for other distributions.
+Proof Both s(x, ξ) and ∂ξl(x, ξ) are quadratic functions of x in the multi-variate
+Gaussian case, ∂ξl(x, ξ) spanning all the quadratic functions of x. Hence, s(x, ξ) is
+included in the space spanned by ∂ξl(x, ξ) and a(x, ξ) = 0. On the other hand, this
+occurs only for multivariate Gaussian distributions.
+□
+
+
+===== [Page 359] =====
+356
+13
+Signal Processing and Optimization
+Parry et al. (2012) and Hyvärinen (2007) extend the Hyvärinen score applicable
+to the case of discrete x such as a graphical model. We show another new idea.
+Consider the case where x is a discrete random variable having a graphical struc-
+ture. When x′ and x are connected by a branch, x′ is a neighbor of x, x′ ∈Nx, where
+Nx is the set of neighbors of x. A typical example is a Boltzmann machine, where
+x′ is a neighbor of x when one and only one component of x′ is different from x.
+Hence, the graph is represented by an n-cube.
+The graph Laplacian Δ is an operator, acting on function f (x) as
+Δf (x) =
+1
+|Nx|
+
+x′∈Nx
+
+f (x) −f
+
+x′
+,
+(13.254)
+where |Nx| is the cardinality of Nx. It can be rewritten as
+Δf (x) =
+
+x′
+C
+
+x, x′
+f
+
+x′
+,
+(13.255)
+where
+C
+
+x, x′
+=
+⎧
+⎨
+⎩
+1
+|Nx|, x′ ∈Nx,
+−1,
+x′ = x,
+0,
+otherwise.
+(13.256)
+An interesting property is shown in the following lemma.
+Lemma
+
+x
+Δf (x)h(x) =
+
+f (x)Δ′h(x),
+(13.257)
+where
+Δ′ f (x) =
+
+x′
+C
+
+x′, x
+
+f
+
+x′
+.
+(13.258)
+When the graph is homogeneous, having constant |Nx|,
+Δ′ = Δ.
+(13.259)
+Proof From
+
+x
+Δf (x)h(x) =
+
+x,x′
+f
+
+x′
+C
+
+x, x′
+h(x),
+(13.260)
+(13.257) follows immediately.
+
+
+===== [Page 360] =====
+13.6 Dual Geometry Derived from Game Theory
+357
+We deﬁne a new game score when x is discrete and the graph is homogenous,
+that is, Δ = Δ′, by
+S(x, p) =
+"Δp(x)
+p(x)
+#2
+−2Δ
+"Δp(x)
+p(x)
+#
+.
+(13.261)
+This does not depend on the normalization factor of p(x). The estimating function
+s(x, ξ) is deﬁned in the parametric case as
+s(x, ξ) = ∇ξS {x, p(x, ξ)} .
+(13.262)
+This gives the estimating equation
+
+s (xi, ξ) = 0
+(13.263)
+not depending on the normalization factor.
+The meaning of this score is given by the following theorem.
+Theorem 13.6 The divergence derived from the score (13.261) is
+D
+
+ξ : ξ′
+= Eξ
+⎡
+⎣
+&
+Δp(x, ξ)
+p(x, ξ) −Δp
+
+x, ξ′
+p
+
+x, ξ′
+'2⎤
+⎦.
+(13.264)
+Proof We calculate Eξ
+
+S
+
+x, p
+
+x, ξ′
+as before. However we use
+
+x
+p(x, ξ)Δ
+&
+Δp
+
+x, ξ′
+p
+
+x, ξ′
+'
+=
+
+x
+Δp(x, ξ)Δp
+
+x, ξ′
+p
+
+x, ξ′
+= Eξ
+ 
+Δp(x, ξ)
+p(x, ξ)
+Δp
+
+x, ξ′
+p
+
+x, ξ′
+!
+,
+(13.265)
+instead of the formula of partial integration used in the continuous case. We then
+have the theorem.
+We can calculate the efﬁciency of the derived estimator by calculating a(x, ξ).
+Remarks
+The last chapter deals with miscellaneous subjects concerning signal processing.
+PCA is an old subject but is still active. We have focused on the dynamics of learning
+for PCA from the point of view of geometry. ICA is a relatively newly developed
+subject, in which non-Gaussianity of distributions plays an important role. Infor-
+mation geometry elucidates its structure. The natural gradient in the manifold of
+matrices is useful for this purpose. Moreover, it is formulated as a semi-parametric
+
+
+===== [Page 361] =====
+358
+13
+Signal Processing and Optimization
+statistical problem, so that a general form of estimating functions is given by infor-
+mation geometry. We can stabilize and accelerate its learning dynamics by using the
+Newton method in the manifold of matrices. We have further touched upon the NMF
+problem.
+Sparse signal processing is a hot topic on which many researchers are working.
+We are not able to overview most of the excellent results in this ﬁeld. Instead, we
+have touched upon the minimization problem from the information geometry point
+of view. The Minkovskian gradient is a new topic, reinterpreting the L1-constrained
+minimization. The problem of minimization under L p(0 < p < 1) is another inter-
+esting subject. See Xu et al. (2012), Yukawa and Amari (2015) and Jeong et al.
+(2015), for example.
+Convex programming is a big ﬁeld in operations research. We discussed only
+the interior point method, in which information geometry plays an interesting role.
+Another important topic related to optimization is the stochastic relaxation frame-
+work which is useful even for discrete optimization (Malagò et al. 2013), touched
+upon in the previous chapter. We also touched upon an information geometry frame-
+work given by game theory (Dawid 2007). The Hyvärinen score S(x, p) when x
+is discrete is a new idea emerged at the last stage in preparing the monograph. The
+dual geometry derived from the Hyvärinen score is an interesting subject in future
+research.

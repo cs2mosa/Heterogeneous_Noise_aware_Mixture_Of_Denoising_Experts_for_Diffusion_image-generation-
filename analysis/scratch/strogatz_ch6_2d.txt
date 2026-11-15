@@ -1,0 +1,917 @@
+# Source PDF: C:\Users\Maha Mamdouh\Desktop\ML learning phase\deep learning math books\Nonlinear_Dynamics_and_Chaos_2018_Steven_H._Strogatz.pdf
+# Extracted Pages: 166-175 of 532
+
+
+===== [Page 166] =====
+151
+6.3 FIXED POINTS AND LINEARIZATION
+But that part of our story comes later. First we must become better acquainted 
+with fixed points.
+6.3 Fixed Points and Linearization
+In this section we extend the linearization technique developed earlier for one- 
+dimensional systems (Section 2.4). The hope is that we can approximate the phase 
+portrait near a fixed point by that of a corresponding linear system.
+Linearized System
+Consider the system
+x
+f x y
+
+( , )
+y
+g x y
+
+( , )
+and suppose that ( x*, y*) is a fixed point, i.e.,
+f  ( x*, y*)  0, 
+g( x*, y*)  0. 
+Let
+u  x  x *, 
+v  y  y *
+denote the components of a small disturbance from the fixed point. To see whether 
+the disturbance grows or decays, we need to derive differential equations for u and 
+v. Let’s do the u-equation first:
+
+
+u
+x
+
+  
+ 
+ 
+ 
+(since x * is a constant)
+   =
++
++
+f x
+u y
+v
+( *
+, *
+) 
+ 
+ 
+(by substitution)
+   =
++
+∂
+∂+ ∂
+∂+
+f x
+y
+u
+f
+x
+v f
+y
+O u v
+uv
+( *, *)
+(
+,
+,
+)
+2
+2
+ (Taylor series expansion)
+   =
+∂
+∂+ ∂
+∂+
+u
+f
+x
+v f
+y
+O u v
+uv
+(
+,
+,
+)
+2
+2
+ 
+ 
+(since f  ( x*, y*) 0).
+To simplify the notation, we have written sf / sx and sf / sy, but please remem-
+ber that these partial derivatives are to be evaluated at the fixed point ( x*, y*); 
+thus they are numbers, not functions. Also, the shorthand notation O ( u2, v2, uv ) 
+denotes quadratic terms in u and v. Since u and v are small, these quadratic terms 
+are extremely small.
+
+
+===== [Page 167] =====
+152 
+PHASE PLANE
+Similarly we find
+v
+u
+g
+x
+v g
+y
+O u v
+uv
+=
+∂
+∂+ ∂
+∂+
+(
+,
+,
+).
+2
+2
+Hence the disturbance ( u, v ) evolves according to
+
+
+u
+v
+u
+v
+f
+x
+f
+y
+g
+x
+g
+y
+⎛
+⎝
+⎜⎜⎜⎜
+⎞
+⎠
+⎟⎟⎟⎟=
+⎛
+⎝
+⎜⎜⎜⎜⎜
+⎞
+⎠
+⎟⎟⎟⎟⎟
+⎛
+⎝
+⎜⎜⎜⎜
+⎞
+⎠
+∂
+∂
+∂
+∂
+∂
+∂
+∂
+∂
+⎟⎟⎟⎟  quadratic terms. 
+(1)
+The matrix
+A
+f
+x
+f
+y
+g
+x
+g
+y
+x
+y
+=
+⎛
+⎝
+⎜⎜⎜⎜⎜
+⎞
+⎠
+⎟⎟⎟⎟⎟
+∂
+∂
+∂
+∂
+∂
+∂
+∂
+∂
+( *, *)
+is called the Jacobian matrix at the fixed point ( x*, y*). It is the multivariable ana-
+log of the derivative f
+x
+′( *) seen in Section 2.4.
+Now since the quadratic terms in (1) are tiny, it’s tempting to neglect them alto-
+gether. If we do that, we obtain the linearized system
+
+
+u
+v
+u
+v
+f
+x
+f
+y
+g
+x
+g
+y
+⎛
+⎝
+⎜⎜⎜⎜
+⎞
+⎠
+⎟⎟⎟⎟=
+⎛
+⎝
+⎜⎜⎜⎜⎜
+⎞
+⎠
+⎟⎟⎟⎟⎟
+⎛
+⎝
+⎜⎜⎜⎜
+⎞
+⎠
+∂
+∂
+∂
+∂
+∂
+∂
+∂
+∂
+⎟⎟⎟⎟ 
+(2)
+whose dynamics can be analyzed by the methods of Section 5.2.
+The Effect of Small Nonlinear Terms
+Is it really safe to neglect the quadratic terms in (1)? In other words, does the 
+linearized system give a qualitatively correct picture of the phase portrait near 
+( x*, y*) ? The answer is yes, as long as the fixed point for the linearized system is not 
+one of the borderline cases discussed in Section 5.2. In other words, if the linearized 
+system predicts a saddle, node, or a spiral, then the fixed point really is a saddle, 
+node, or spiral for the original nonlinear system. See Andronov et al. (1973) for a 
+proof of this result, and Example 6.3.1 for a concrete illustration.
+The borderline cases (centers, degenerate nodes, stars, or non-isolated fixed 
+points) are much more delicate. They can be altered by small nonlinear terms, as 
+we’ll see in Example 6.3.2 and in Exercise 6.3.11.
+EXAMPLE 6.3.1:
+Find all the fixed points of the system x
+x
+x
+= −+
+3 , y
+y
+= −2
+, and use lineariza-
+tion to classify them. Then check your conclusions by deriving the phase portrait 
+for the full nonlinear system.
+
+
+===== [Page 168] =====
+153
+6.3 FIXED POINTS AND LINEARIZATION
+Solution: Fixed points occur where x  0 and y  0 simultaneously. Hence we 
+need x  0 or x  o1, and y  0. Thus, there are three fixed points: (0, 0), (1, 0), and 
+(1, 0). The Jacobian matrix at a general point ( x, y ) is
+A
+x
+x
+x
+x
+y
+y
+x
+y
+y
+=
+⎛
+⎝
+⎜⎜⎜⎜⎜
+⎞
+⎠
+⎟⎟⎟⎟⎟
+= −+
+−
+⎛
+⎝
+⎜⎜⎜⎜
+⎞
+⎠
+⎟⎟⎟
+∂
+∂
+∂
+∂
+∂
+∂
+∂
+∂
+
+
+
+
+1
+3
+0
+0
+2
+2
+⎟.
+Next we evaluate A at the fixed points. At (0, 0) , we find A = −
+−
+⎛
+⎝
+⎜⎜⎜⎜
+⎞
+⎠
+⎟⎟⎟⎟
+1
+0
+0
+2 , so (0, 0) is 
+a stable node. At (o1, 0), A =
+−
+⎛
+⎝
+⎜⎜⎜⎜
+⎞
+⎠
+⎟⎟⎟⎟
+2
+0
+0
+2 , so both (1, 0) and (1, 0) are saddle points.
+Now because stable nodes and saddle points are not borderline cases, we can 
+be certain that the fixed points for the full nonlinear system have been predicted 
+correctly.
+This conclusion can be checked explicitly for the nonlinear system, since the x 
+and y equations are uncoupled; the system is essentially two independent first-order 
+systems at right angles to each other. In the y-direction, all trajectories decay expo-
+nentially to y  0. In the x-direction, the trajectories are attracted to x  0 and 
+repelled from x  o1. The vertical lines x  0 and x  o1 are invariant, because 
+x  0 on them; hence any trajectory that starts on these lines stays on them for-
+ever. Similarly, y  0 is an invariant horizontal line. As a final observation, we note 
+that the phase portrait must be symmetric in both the x and y axes, since the equa-
+tions are invariant under the transformations x l x and y l y. Putting all this 
+information together, we arrive at the phase portrait shown in Figure 6.3.1.
+y
+x
+Figure 6.3.1
+This picture confirms that (0, 0) is a stable node, and (o1, 0) are saddles, as 
+expected from the linearization. ■
+The next example shows that small nonlinear terms can change a center into a 
+spiral.
+
+
+===== [Page 169] =====
+154 
+PHASE PLANE
+EXAMPLE 6.3.2:
+Consider the system
+x
+y
+ax x
+y
+= −+
++
+(
+)
+2
+2
+y
+x
+ay x
+y
+=
++
++
+ 
+(
+)
+2
+2
+where a is a parameter. Show that the linearized system incorrectly predicts that 
+the origin is a center for all values of a, whereas in fact the origin is a stable spiral 
+if a  0 and an unstable spiral if a  0.
+Solution: To obtain the linearization about ( x*, y*)  (0, 0), we can either com-
+pute the Jacobian matrix directly from the definition, or we can take the following 
+shortcut. For any system with a fixed point at the origin, x and y represent devia-
+tions from the fixed point, since u  x  x*  x and v  y  y*  y; hence we can 
+linearize by simply omitting nonlinear terms in x and y . Thus the linearized sys-
+tem is x
+y
+= −, y
+x
+
+. The Jacobian is
+A =
+−
+⎛
+⎝
+⎜⎜⎜⎜
+⎞
+⎠
+⎟⎟⎟⎟
+0
+1
+1
+0
+which has U  0, %  1  0, so the origin is always a center, according to the 
+linearization.
+To analyze the nonlinear system, we change variables to polar coordinates. Let 
+x  r cos R, y  r sin R. To derive a differential equation for r, we note x2  y2  r2, 
+so xx
+yy
+rr
+
+
+
++
+=
+. Substituting for x and y yields
+rr
+x
+y
+ax x
+y
+y x
+ay x
+y
+a x
+y
+ar
+ =
+−+
++
+(
+) +
++
++
+(
+)
+=
++
+=
+(
+)
+(
+)
+.
+2
+4
+2
+2
+2
+2
+2
+2
+ 
+(
+)
+Hence r
+ar
+
+3. In Exercise 6.3.12, you are asked to derive the following differential 
+equation for R:
+
+
+
+R =
+−
+xy
+yx
+r2
+.
+After substituting for x and y we find R 1. Thus in polar coordinates the orig-
+inal system becomes
+
+
+r
+ar
+
+
+3
+R
+1.
+
+
+===== [Page 170] =====
+155
+6.3 FIXED POINTS AND LINEARIZATION
+The system is easy to analyze in this form, because the radial and angular 
+motions are independent. All trajectories rotate about the origin with constant 
+angular velocity R 1.
+The radial motion depends on a, as shown in Figure 6.3.2.
+a < 0
+a = 0
+a > 0
+Figure 6.3.2
+If a  0, then r ( t ) l 0 monotonically as t l d. In this case, the origin is a 
+stable spiral. (However, note that the decay is extremely slow, as suggested by the 
+computer-generated trajectories shown in Figure 6.3.2.) If a  0, then r ( t )  r0  for 
+all t and the origin is a center. Finally, if a  0 , then r ( t ) ld monotonically and 
+the origin is an unstable spiral.
+We can see now why centers are so delicate: all trajectories are required to close 
+perfectly after one cycle. The slightest miss converts the center into a spiral. ■
+Similarly, stars and degenerate nodes can be altered by small nonlinearities, 
+but unlike centers, their stability doesn’t change. For example, a stable star may 
+be changed into a stable spiral (Exercise 6.3.11) but not into an unstable spiral. 
+This is plausible, given the classification of linear systems in Figure 5.2.8: stars and 
+degenerate nodes live squarely in the stable or unstable region, whereas centers live 
+on the razor’s edge between stability and instability.
+If we’re only interested in stability, and not in the detailed geometry of the tra-
+jectories, then we can classify fixed points more coarsely as follows:
+Robust cases:
+Repellers (also called sources): both eigenvalues have positive real part. 
+Attractors (also called sinks): both eigenvalues have negative real part. 
+Saddles: one eigenvalue is positive and one is negative.
+Marginal cases:
+Centers: both eigenvalues are pure imaginary.
+Higher-order and non-isolated fixed points: at least one eigenvalue is 
+zero.
+Thus, from the point of view of stability, the marginal cases are those where at least 
+one eigenvalue satisfies Re ( M )  0.
+
+
+===== [Page 171] =====
+156 
+PHASE PLANE
+Hyperbolic Fixed Points, Topological Equivalence, and 
+Structural Stability
+If Re ( M ) v 0 for both eigenvalues, the fixed point is often called hyperbolic. (This 
+is an unfortunate name—it sounds like it should mean “saddle point”—but it has 
+become standard.) Hyperbolic fixed points are sturdy; their stability type is unaf-
+fected by small nonlinear terms. Nonhyperbolic fixed points are the fragile ones.
+We’ve already seen a simple instance of hyperbolicity in the context of vector 
+fields on the line. In Section 2.4 we saw that the stability of a fixed point was 
+accurately predicted by the linearization, as long as f
+x
+′( *)
+.
+v 0 This condition is 
+the exact analog of Re ( M ) v 0.
+These ideas also generalize neatly to higher-order systems. A fixed point of an 
+nth-order system is hyperbolic if all the eigenvalues of the linearization lie off the 
+imaginary axis, i.e., Re ( Mi ) v 0 for i  1, ..., n. The important Hartman-Grobman 
+theorem states that the local phase portrait near a hyperbolic fixed point is “topo-
+logically equivalent” to the phase portrait of the linearization; in particular, the 
+stability type of the fixed point is faithfully captured by the linearization. Here 
+topologically equivalent means that there is a homeomorphism (a continuous defor-
+mation with a continuous inverse) that maps one local phase portrait onto the 
+other, such that trajectories map onto trajectories and the sense of time (the direc-
+tion of the arrows) is preserved.
+Intuitively, two phase portraits are topologically equivalent if one is a distorted ver-
+sion of the other. Bending and warping are allowed, but not ripping, so closed orbits 
+must remain closed, trajectories connecting saddle points must not be broken, etc.
+Hyperbolic fixed points also illustrate the important general notion of struc-
+tural stability. A phase portrait is structurally stable if its topology cannot be 
+changed by an arbitrarily small perturbation to the vector field. For instance, the 
+phase portrait of a saddle point is structurally stable, but that of a center is not: 
+an arbitrarily small amount of damping converts the center to a spiral.
+6.4 Rabbits versus Sheep
+In the next few sections we’ll consider some simple examples of phase plane anal-
+ysis. We begin with the classic Lotka-Volterra model of competition between two 
+species, here imagined to be rabbits and sheep. Suppose that both species are 
+competing for the same food supply (grass) and the amount available is limited. 
+Furthermore, ignore all other complications, like predators, seasonal effects, and 
+other sources of food. Then there are two main effects we should consider:
+1. Each species would grow to its carrying capacity in the absence of the 
+other. This can be modeled by assuming logistic growth for each spe-
+cies (recall Section 2.3). Rabbits have a legendary ability to repro-
+duce, so perhaps we should assign them a higher intrinsic growth rate.
+
+
+===== [Page 172] =====
+157
+6.4 RABBITS VERSUS SHEEP
+2. When rabbits and sheep encounter each other, trouble starts. 
+Sometimes the rabbit gets to eat, but more usually the sheep nudges the 
+rabbit aside and starts nibbling (on the grass, that is). We’ll assume that 
+these conflicts occur at a rate proportional to the size of each popula-
+tion. (If there were twice as many sheep, the odds of a rabbit encoun-
+tering a sheep would be twice as great.) Furthermore, we assume that 
+the conflicts reduce the growth rate for each species, but the effect is 
+more severe for the rabbits.
+A specific model that incorporates these assumptions is
+
+
+x
+x
+x
+y
+y
+y
+x
+y
+=
+−−
+=
+−−
+(
+)
+(
+)
+3
+2
+2
+where
+x ( t )  population of rabbits,
+y ( t )  population of sheep
+and x, y p 0. The coefficients have been chosen to reflect this scenario, but are 
+otherwise arbitrary. In the exercises, you’ll be asked to study what happens if the 
+coefficients are changed.
+To find the fixed points for the system, we solve x  0 and y  0 simultane-
+ously. Four fixed points are obtained: (0, 0), (0, 2), (3, 0), and (1, 1). To classify them, 
+we compute the Jacobian:
+A
+x
+y
+x
+y
+x
+y
+x
+x
+x
+y
+y
+x
+y
+y
+=
+⎛
+⎝
+⎜⎜⎜⎜⎜
+⎞
+⎠
+⎟⎟⎟⎟⎟
+=
+−
+−
+−
+−
+−−
+⎛
+⎝
+⎜
+∂
+∂
+∂
+∂
+∂
+∂
+∂
+∂
+
+
+
+
+3
+2
+2
+2
+2
+2
+⎜⎜⎜
+⎞
+⎠
+⎟⎟⎟⎟.
+Now consider the four fixed points in turn:
+( , ) :
+.
+0 0
+3
+0
+0
+2
+Then A =
+⎛
+⎝
+⎜⎜⎜⎜
+⎞
+⎠
+⎟⎟⎟⎟
+The eigenvalues are M  3, 2 so (0, 0) is an unstable node. Trajectories leave 
+the origin parallel to the eigenvector for M  2, i.e. tangential 
+to v  (0, 1), which spans the y-axis. (Recall the general rule: at 
+a node, trajectories are tangential to the slow eigendirection, 
+which is the eigendirection with the smallest |M|.) Thus, the phase 
+portrait near (0, 0) looks like Figure 6.4.1.
+( , ) :
+.
+0
+1
+0
+2
+2
+2
+Then A = −
+−
+−
+⎛
+⎝
+⎜⎜⎜⎜
+⎞
+⎠
+⎟⎟⎟⎟
+y
+x
+Figure 6.4.1
+
+
+===== [Page 173] =====
+158 
+PHASE PLANE
+This matrix has eigenvalues M  1, 2, as can be seen from 
+inspection, since the matrix is triangular. Hence the fixed point 
+is a stable node. Trajectories approach along the eigendirec-
+tion associated with M  1; you can check that this direction 
+is spanned by v  (l, 2). Figure 6.4.2 shows the phase portrait 
+near the fixed point (0, 2).
+(3, 0): Then A = −
+−
+−
+⎛
+⎝
+⎜⎜⎜⎜
+⎞
+⎠
+⎟⎟⎟⎟
+3
+6
+0
+1 and M 3, 1.
+This is also a stable node. The trajectories approach along 
+the slow eigendirection spanned by v  (3, 1), as shown in 
+Figure 6.4.3.
+(1, 1): Then A = −
+−
+−
+−
+⎛
+⎝
+⎜⎜⎜⎜
+⎞
+⎠
+⎟⎟⎟⎟
+1
+2
+1
+1 , which has U  2, %  l, and 
+M = −±
+1
+2.
+Hence this is a saddle point. As you can check, the phase por-
+trait near (1, 1) is as shown in Figure 6.4.4.
+Combining Figures 6.4.1–6.4.4, we get Figure 6.4.5, which 
+already conveys a good sense of the entire phase portrait. 
+Furthermore, notice that the x and y axes contain straight-line 
+trajectories, since x  0 when x  0, and y  0 when y  0.
+Now we use common sense to fill in the rest 
+of the phase portrait (Figure 6.4.6). For example, 
+some of the trajectories starting near the origin 
+must go to the stable node on the x-axis, while 
+others must go to the stable node on the y-axis. 
+In between, there must be a special trajectory that 
+can’t decide which way to turn, and so it dives into 
+the saddle point. This trajectory is part of the sta-
+ble manifold of the saddle, drawn with a heavy line 
+in Figure 6.4.6.
+The other branch of the stable manifold con-
+sists of a trajectory coming in “from infinity.” A 
+computer-generated phase portrait (Figure 6.4.7) 
+confirms our sketch.
+y
+x
+Figure 6.4.2
+y
+x
+Figure 6.4.3
+y
+x
+Figure 6.4.4
+y
+x
+Figure 6.4.5
+y
+x
+stable
+manifold
+Figure 6.4.6
+
+
+===== [Page 174] =====
+159
+6.4 RABBITS VERSUS SHEEP
+sheep
+rabbits
+2
+1
+1
+2
+3
+Figure 6.4.7
+The phase portrait has an interesting biological interpretation. It shows that 
+one species generally drives the other to extinction. Trajectories starting below the 
+stable manifold lead to eventual extinction of the sheep, while those starting above 
+lead to eventual extinction of the rabbits. This dichotomy occurs in other mod-
+els of competition and has led biologists to formulate the principle of competitive 
+exclusion, which states that two species competing for the same limited resource 
+typically cannot coexist. See Pianka (1981) for a biological discussion, and Pielou 
+(1969), Edelstein-Keshet (1988), or Murray (2002) for additional references and 
+analysis.
+Our example also illustrates some general mathematical concepts. Given an 
+attracting fixed point x*, we define its basin of attraction to be the set of initial 
+conditions x0 such that x ( t ) l x* as t l d. For instance, the basin of attraction 
+for the node at (3, 0) consists of all the points lying below the stable manifold of the 
+saddle. This basin is shown as the shaded region in Figure 6.4.8.
+sheep
+rabbits
+basin boundary =
+basin for (3, 0)
+stable manifold of saddle
+3
+2
+1
+1
+2
+Figure 6.4.8
+Because the stable manifold separates the basins for the two nodes, it is called 
+the basin boundary. For the same reason, the two trajectories that comprise the
+
+
+===== [Page 175] =====
+160 
+PHASE PLANE
+stable manifold are traditionally called separatrices. Basins and their boundaries 
+are important because they partition the phase space into regions of different long-
+term behavior.
+6.5 Conservative Systems
+Newton’s law F  ma is the source of many important second-order systems. For 
+example, consider a particle of mass m moving along the x-axis, subject to a non-
+linear force F ( x ). Then the equation of motion is
+mx
+F x
+ =
+( ).
+Notice that we are assuming that F is independent of both x and t; hence there is 
+no damping or friction of any kind, and there is no time-dependent driving force.
+Under these assumptions, we can show that energy is conserved, as follows. Let 
+V ( x ) denote the potential energy, defined by F  ( x )  dV / dx. Then
+mx
+dV
+dx
++
+= 0. 
+(1)
+Now comes a trick worth remembering: multiply both sides by x and notice that 
+the left-hand side becomes an exact time-derivative!
+mxx
+dV
+dx x
+d
+dt
+mx
+V x
+
+
+
++
+=
+⇒
++
+⎡⎣⎢
+⎤⎦⎥=
+0
+0
+1
+2
+2
+( )
+where we’ve used the chain rule
+d
+dtV x t
+dV
+dx
+dx
+dt
+( ( )) 
+in reverse. Hence, for a given solution x ( t ), the total energy
+E
+mx
+V x
+=
++
+1
+2
+2
+( )
+is constant as a function of time. The energy is often called a conserved quantity, 
+a constant of motion, or a first integral. Systems for which a conserved quantity 
+exists are called conservative systems.
+Let’s be a bit more general and precise. Given a system x
+f x
+ ( ), a conserved 
+quantity is a real-valued continuous function E(x) that is constant on trajectories, 
+i.e. dE / dt  0. To avoid trivial examples, we also require that E (x) be nonconstant 
+on every open set. Otherwise a constant function like E (x) w 0 would qualify as a 
+conserved quantity for every system, and so every system would be conservative! 
+Our caveat rules out this silliness.

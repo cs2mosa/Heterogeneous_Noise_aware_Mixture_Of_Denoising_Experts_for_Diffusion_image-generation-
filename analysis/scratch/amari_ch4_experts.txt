@@ -1,0 +1,394 @@
+# Source PDF: C:\Users\Maha Mamdouh\Desktop\ML learning phase\deep learning math books\information-geometry-and-its-applications-1st-ed.pdf
+# Extracted Pages: 91-96 of 376
+
+
+===== [Page 91] =====
+80
+4
+α-Geometry, Tsallis q-Entropy and Positive-Deﬁnite Matrices
+Fig. 4.1
+α-mean of 1 and 4
+for various α
+0
+1
+-1
+1
+4
+α
+mα(1,4)
+We can further deﬁne the weighted α-mean of a1, . . . , ak with weights w1, . . . , wk
+by
+mα (a1, . . . , ak; w) = h−1
+α
+	
+wihα (ai)
+
+,
+(4.49)
+where w = (w1, . . . , wk) and w1 + · · · + wk = 1. This leads us to the α-family of
+probability distributions in the next subsection.
+4.2.6
+α-Families of Probability Distributions
+Given k probability distributions pi(x), i = 1, . . . , k, we can deﬁne their α-mixture
+by using the α-mean.
+The α-representation of probability density function p(x) is given (Amari and
+Nagaoka 2000) by
+hα [p(x)] =
+ p(x)(1−α)/2, α̸ = 1,
+log p(x),
+α = 1.
+(4.50)
+Their α-mixture is deﬁned by
+˜pα(x) = ch−1
+α
+
+1
+k
+k
+
+i=1
+hα {pi(x)}
+
+,
+(4.51)
+where normalization constant c is necessary to make it a probability distribution. It
+is given by
+c =
+1
+
+h−1
+α
+ 1
+k
+ hα [pi(x)]
+
+dx .
+(4.52)
+The α = −1 mixture is the ordinary mixture and the α = 1 mixture is the exponential
+mixture. The α = −∞mixture,
+
+
+===== [Page 92] =====
+4.2 α-Geometry in Sn and Rn
++
+81
+˜p−∞(x) = c max
+i
+{pi(x)} ,
+(4.53)
+is the optimistic integration of component distributions in the sense that, for each x,
+it takes the largest values of the component probabilities. On the contrary, the α = ∞
+mixture is pessimistic, taking the minimum of the component probabilities,
+˜p∞(x) = c min {pi(x)} .
+(4.54)
+The exponential mixture is more pessimistic than the ordinary mixture in the sense
+that the resulting probability density is close to 0 at x where some of the components
+are close to 0.
+Let us next consider weighted mixtures. The weighted α-mixture with weights
+w1, . . . , wk satisfying  wi = 1 is given by
+˜pα (x; w) = ch−1
+α
+	
+wihα {pi(x)}
+
+.
+(4.55)
+This is called the α-integration of p1(x), . . . , pk(x) with weights w1, . . . , wk. It con-
+nects k component distributions p1(x), . . . , pk(x) continuously by using the para-
+meter w = (w1, . . . , wk). It is called the α-family of probability distributions where
+w plays the role of its coordinate system. When α = −1, this is an ordinary mixture
+family,
+˜p−1(x; w) =
+
+wi pi(x),
+(4.56)
+where  wi = 1 is imposed. When α = 1, this is an exponential family,
+˜p1(x, w) = exp
+	
+wi log pi(x) −ψ(w)
+
+,
+(4.57)
+where the normalization constant is given by
+c = exp {−ψ} .
+(4.58)
+The probability simplex Sn (and the function space F of probability distributions)
+are special, satisfying the following theorem.
+Theorem 4.8 The probability simplex Sn is an α-family for any α.
+Proof Sn is a mixture of δi(x),
+p(x) =
+n
+
+i=0
+piδi(x).
+(4.59)
+The α-mixture family of δi(x) is
+
+
+===== [Page 93] =====
+82
+4
+α-Geometry, Tsallis q-Entropy and Positive-Deﬁnite Matrices
+˜pα(x, w) = c
+
+wiδi(x)
+
+2
+1−α ,
+(4.60)
+where
+wi = p
+1−α
+2
+i
+,
+i = 0, 1, . . . , n.
+(4.61)
+They cover the entire Sn so that Sn is an α-family.
+□
+Wecanalsoshowthatanα-geodesicconnecting p and q in Sn isaone-dimensional
+α-family.
+4.2.7
+Optimality of α-Integration
+When a cluster of k distributions p1(x), . . . , pk(x) is given, we search for q(x) that
+is close to all of p1(x), . . . , pk(x). It is regarded as the center of the cluster. Let
+w1, . . . , wk be weights assigned to pi(x), i = 1, . . . , k, and we use the weighted
+average of divergences from pi(x)’s to q(x),
+RD [q(x)] =
+
+wi D [pi(x) : q(x)]
+(4.62)
+as a risk function. We search for the distribution q(x) that minimizes RD[q(x)].
+The minimizer of RD is called the D-optimal integration of p1(x), . . . , pk(x) with
+weights w1, . . . , wk. The following theorem characterizes the α-integration (Amari
+2007).
+Theorem 4.9 (Optimality of α-integration) The α-integration of probability distri-
+butions p1(x), . . . , pk(x) with weights w1, . . . , wk is optimal under the α-risk,
+Rα [q(x)] =
+
+wi Dα [pi(x) : q(x)] ,
+(4.63)
+where Dα is the α-divergence.
+Proof Let us ﬁrst prove the case of α̸ = ±1. By taking the variation of Rα[q(x)]
+under the normalizing constraint
+
+q(x)dx = 1,
+(4.64)
+we derive
+δRα[q(x)] −λ
+
+δq(x)dx
+=
+2
+1 −α
+
+wi
+
+pi(x)
+1−α
+2 q(x)−1+α
+2 δq(x)dx −λ
+
+δq(x)dx
+= 0,
+(4.65)
+
+
+===== [Page 94] =====
+4.2 α-Geometry in Sn and Rn
++
+83
+where λ is the Lagrange multiplier. This gives
+q(x)−1−α
+2 
+wi pi(x)
+1−α
+2
+= const
+(4.66)
+and hence, the optimal q(x) is
+q(x) = ch−1
+α
+
+wihα {pi(x)}
+
+.
+(4.67)
+When α = ±1, we obtain
+δR1[q(x)] =
+
+wi
+
+log q(x)
+pi(x)δq(x)dx,
+(4.68)
+δR−1[q(x)] = −
+
+wi
+  pi(x)
+q(x) + const
+
+
+δq(x)dx,
+(4.69)
+respectively. Hence, the optimal q is proved to be the α-integration for any α.
+□
+The case with unnormalized probabilities, i.e., positive measures, is similar. The
+optimal integration ˜mα(x) of m1(x), . . . , mk(x) under the α-divergence criterion is
+˜mα(x) = h−1
+α
+
+wihα {mi(x)}
+
+,
+(4.70)
+where the normalization constant is not necessary.
+There are interesting papers concerning applications of the α-integration of sto-
+chastic evidences, see e.g., Wu (2009), Choi et al. (2013) and Soriano and Vergara
+(2015).
+4.2.8
+Application to α-Integration of Experts
+Let us consider a system composed of k experts M1, . . . , Mk, each of which processes
+input signal x and emits its own answer. The answer of Mi is a response y corre-
+sponding to x. More generally, consider the case that the output of Mi is a probability
+distribution of y, pi(y|x), or a positive measure, mi(y|x). The entire system inte-
+grates these answers and provides an integrated answer concerning the distribution
+of y given x (Fig.4.2).
+Let us assume that wi(x) is given as the weight or reliability of Mi for input x.
+The α-risk of an integrated answer q(y|x) is given by
+Rα [q(y|x)] =
+
+wi(x)Dα [pi(y|x) : q(y|x)] .
+(4.71)
+
+
+===== [Page 95] =====
+84
+4
+α-Geometry, Tsallis q-Entropy and Positive-Deﬁnite Matrices
+M1
+M2
+Mk
+...
+x
+p y
+1(
+)
+|x
+p y
+2(
+)
+|x
+p y
+k(
+)
+|x
+q y
+(
+)
+|x
+.
+Fig. 4.2
+Integration of answers of expert machines
+Theorem 4.10 The α-expert machine
+q(y|x) = h−1
+α
+
+wi(x)hα {pi(y|x)}
+
+(4.72)
+is optimal under the α-risk Rα [q(y|x)].
+Similar assertions hold for the case of positive measures.
+The α = 1 machine is the mixture of experts (Jacobs et al. 1991) and the α = −1
+machine is the product of experts (Hinton 2002).
+It is important to determine the weights or reliability functions wi(x). When a
+teacher output q∗(y|x) is available, one may use the soft-max function
+wi(x) = c exp
+
+−βDα
+
+pi(y|x) : q∗(y|x)
+
+(4.73)
+as the weight of Mi, where c is the normalization constant and β is the “inverse
+temperature”, indicating the effectiveness of the weights.
+4.3
+Geometry of Tsallis q-Entropy
+TheBoltzmann–Gibbsdistributioninstatisticalphysicsisanexponentialfamily,such
+that an invariant ﬂat structure is given to the underlying manifold. Its convex function
+is free energy and its dual convex function is the negative of the Shannon entropy.
+C. Tsallis proposed a generalized entropy called the q-entropy for studying various
+phenomena not included in the conventional Boltzmann–Gibbs framework (Tsallis
+1988, 2009). The induced probability distributions are not exponential families which
+are subject to exponential decay of tail probabilities. This has opened the door to a
+new world of physics and beyond. The q-logarithm and q-exponential are introduced
+to this end. However, the q-logarithm is essentially the same as the α-representation,
+where q and α are connected by α = 2q −1. Therefore, the α-geometry covers the
+
+
+===== [Page 96] =====
+4.3 Geometry of Tsallis q-Entropy
+85
+geometry of q-entropy physics (Ohara 2007). We treat the discrete case of Sn mostly,
+but the results hold in the continuous case, too.
+We further extend the q-framework by using the q-escort distribution. This gives a
+new dually ﬂat structure to Sn, although it is not invariant (Amari and Ohara 2011). It
+is conformally related to the invariant geometry (Amari et al. 2012). This framework
+is extended further to deformed exponential families proposed by Naudts (2011).
+4.3.1
+q-Logarithm and q-Exponential Function
+Tsallis introduced a generalized logarithm, called the q-logarithm, by
+logq(u) =
+1
+1 −q
+
+u1−q −1
+
+,
+(4.74)
+which gives log u in the limit q →1. The inverse of the q logarithm is the
+q-exponential,
+expq(u) = {1 + (1 −q)u}
+1
+1−q ,
+(4.75)
+which gives the ordinary exponential function in the limit q →1. These functions are
+the same as the α-representation hα(u) and its inverse, where α = 2q −1, except for
+a scaling factor and a constant. However, we keep the original q-notation rather than
+the α-notation in this section, respecting the original q-terminology by C. Tsallis.
+The Tsallis q-entropy is deﬁned by
+Hq( p) =
+
+pi logq
+1
+pi
+,
+(4.76)
+by replacing log by logq, which is concave for 0 < q ≤1 and is the Shannon entropy
+when q = 1. This is closely related to the Rényi entropy (Rényi 1961). Similarly,
+the q-divergence is deﬁned by
+Dq[ p : r] = E
+
+logq
+r(x)
+p(x)
+
+=
+1
+1 −q
+
+1 −
+
+pq
+i r1−q
+i
+
+,
+(4.77)
+where E is the expectation with respect to p. This is the same as the α-divergence
+(3.39) with α = 2q −1.
+The geometry derived from the q-divergence satisﬁes the invariance criterion,
+since it belongs to the class of f -divergence. So the Riemannian metric is given by
+the Fisher information matrix. Further, it is not dually ﬂat except for the limiting
+cases of q = 0 (α = −1) and 1 (α = 1). However, if we extend it to the manifold
+of positive measures, it is both invariant and dually ﬂat.

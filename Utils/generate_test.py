@@ -6,7 +6,7 @@ from Utils.EDM_sampler import EDM_Sampler
 from Utils.VAE_CLIP import StabilityVAE, CLIP_EMBED
 from models.model_config_v3 import preconditioned_HDMOEM_v3
 from graphs.plotter2 import Plotter
-from Utils.configs import model_configs as model_config
+from Utils.configs import model_configs as model_config, mask_configs
 import os
 
 __test__ = False
@@ -19,7 +19,8 @@ def debug_trajectory_sampler(
         num_steps=50,
         sigma_min=0.002,
         sigma_max=80.0,
-        rho=7.0
+        rho=7.0,
+        uncond_text_emb=None,
 ):
     """
     Simulates the EDM sampling trajectory and saves the model's
@@ -50,11 +51,11 @@ def debug_trajectory_sampler(
         dummy_mask = torch.ones((1, model.net.num_experts), device=device)
 
         with torch.no_grad():
-            # Get model prediction
+            # Get model prediction (use clip("") empty prompt if provided so cross_attn matches CFG training)
             out = model(
                 x=x,
                 sigma=sigma_tensor,
-                text_emb=None,
+                text_emb=uncond_text_emb[:1] if uncond_text_emb is not None else None,
                 Unet_router_mask=dummy_mask,
                 Vit_router_mask=dummy_mask,
                 zeta=0.0
@@ -93,6 +94,7 @@ def test_diffusion_pipeline(
         sampler_sigma_min: float = 0.002,
         sampler_sigma_max: float = 80.0,
         num_sampling_steps: int = 30,
+        uncond_text_emb = None,
 ):
     """
     Complete end-to-end test of the diffusion pipeline.
@@ -251,7 +253,7 @@ def test_diffusion_pipeline(
         out = model(
             x=noisy_latent,
             sigma=sigma_tensor,
-            text_emb=None,
+            text_emb=uncond_text_emb[:bs] if uncond_text_emb is not None else None,
             Unet_router_mask=dummy_mask,
             Vit_router_mask=dummy_mask,
             zeta=0.0,
@@ -316,8 +318,8 @@ def test_diffusion_pipeline(
     with torch.no_grad():
         sampled_latent = sampler.sample(
             noise=pure_noise,
-            text_emb=None,
-            uncond_text_emb=None,
+            text_emb=uncond_text_emb[:1] if uncond_text_emb is not None else None,
+            uncond_text_emb=uncond_text_emb[:1] if uncond_text_emb is not None else None,
         )
 
     results['sampled_latent'] = {
@@ -478,6 +480,10 @@ def sample_and_save(model_configs):
         transition_sharpness=model_config['transition_sharpness'],
         pool_size=model_config['pool_size'],
         attn_pool_balance=model_config['attn_pool_balance'],
+        p_mean=mask_configs['p_mean'],
+        p_std=mask_configs['p_std'],
+        sigma_min=model_configs['sigma_min'],
+        sigma_max=model_configs['sigma_max'],
         alpha_ext=model_config['extreme_prob']
     ).to(model_config["device"])
 
@@ -571,15 +577,15 @@ def sample_and_save(model_configs):
             test_image_path=test_img_path,
             device=device,
             num_sampling_steps=50,
-            sigma_test= 1.0
-            # Pass explicit config values to test function if needed,
-            # otherwise it defaults to model_configs inside the function
+            sigma_test= 1.0,
+            uncond_text_emb=uncond_text_emb,
         )
         debug_trajectory_sampler(
             model=modeli,
             vae=vae,
             device=model_config['device'],
-            num_steps= 100
+            num_steps= 100,
+            uncond_text_emb=uncond_text_emb,
         )
     else:
         print(f"Skipping pipeline test: Image not found at {test_img_path}")

@@ -1,0 +1,186 @@
+# Source PDF: C:\Users\Maha Mamdouh\Desktop\ML learning phase\deep learning math books\Introduction to Riemannian Manifolds.pdf
+# Extracted Pages: 71-74 of 447
+
+
+===== [Page 71] =====
+Euclidean Spaces
+57
+some of the isometry group, and in certain cases we will be able to prove that it is
+the entire isometry group.
+Euclidean Spaces
+The simplest and most important model Riemannian manifold is of course
+n-dimensional Euclidean space, which is just Rn with the Euclidean metric xg given
+by (2.8).
+Somewhat more generally, if V
+is any n-dimensional real vector space
+endowed with an inner product, we can set g.v;w/ D hv;wi for any p 2 V and
+any v;w 2 TpV Š V . Choosing an orthonormal basis .b1;:::;bn/ for V deﬁnes a
+basis isomorphism from Rn to V that sends .x1;:::;xn/ to xibi; this is easily seen
+to be an isometry of .V;g/ with
+
+Rn; xg
+
+, so all n-dimensional inner product spaces
+are isometric to each other as Riemannian manifolds.
+It is easy to construct isometries of the Riemannian manifold
+
+Rn; xg
+
+: for exam-
+ple, every orthogonal linear transformation AW Rn ! Rn preserves the Euclidean
+metric, as does every translation x 7! b C x. It follows that every map of the form
+x 7! b CAx, formed by ﬁrst applying the orthogonal map A and then translating by
+b, is an isometry.
+It turns out that the set of all such isometries can be realized as a Lie group
+acting smoothly on Rn. Regard Rn as a Lie group under addition, and let
+ W O.n/  Rn ! Rn be the natural action of O.n/ on Rn. Deﬁne the Euclidean
+group E.n/ to be the semidirect product Rn Ì O.n/ determined by this action: this
+is the Lie group whose underlying manifold is the product space Rn  O.n/, with
+multiplication given by .b;A/.b0;A0/ D .b CAb0;AA0/ (see Example C.12). It has a
+faithful representation given by the map W E.n/ ! GL.nC1;R/ deﬁned in block
+form by
+.b;A/ D
+A b
+0 1
+
+;
+where b is considered an n1 column matrix.
+The Euclidean group acts on Rn via
+.b;A/x D b CAx:
+(3.2)
+Problem 3-1 shows that when Rn is endowed with the Euclidean metric, this action
+is isometric and the induced action on O
+
+Rn
+is transitive. (Later, we will see that
+this is in fact the full isometry group of
+
+Rn; xg
+
+—see Problem 5-11—but we do not
+need that fact now.) Thus each Euclidean space is frame-homogeneous.
+
+
+===== [Page 72] =====
+58
+3 Model Riemannian Manifolds
+Fig. 3.1: Transitivity of O.nC1/ on O.Sn.R//
+Spheres
+Our second class of model Riemannian manifolds comes in a family, with one for
+each positive real number. Given R > 0, let Sn.R/ denote the sphere of radius R
+centered at the origin in RnC1, endowed with the metric VgR (called the round metric
+of radius R) induced from the Euclidean metric on RnC1. When R D 1, it is the
+round metric on Sn introduced in Example 2.13, and we use the notation Vg D Vg1.
+One of the ﬁrst things one notices about the spheres is that like Euclidean spaces,
+they are highly symmetric. We can immediately write down a large group of isome-
+tries of Sn.R/ by observing that the linear action of the orthogonal group O.nC1/
+on RnC1 preserves Sn.R/ and the Euclidean metric, so its restriction to Sn.R/ acts
+isometrically on the sphere. (Problem 5-11 will show that this is the full isometry
+group.)
+Proposition 3.2. The group O.nC1/ acts transitively on O.Sn.R//, and thus each
+round sphere is frame-homogeneous.
+Proof. It sufﬁces to show that given any p 2 Sn.R/ and any orthonormal ba-
+sis .bi/ for TpSn.R/, there is an orthogonal map that takes the “north pole”
+N D .0;:::;0;R/ to p and the basis .@1;:::;@n/ for TN Sn.R/ to .bi/.
+To do so, think of p as a vector of length R in RnC1, and let yp D p=R denote
+the unit vector in the same direction (Fig. 3.1). Since the basis vectors .bi/ are
+tangent to the sphere, they are orthogonal to yp, so .b1;:::;bn; yp/ is an orthonormal
+
+
+===== [Page 73] =====
+Spheres
+59
+basis for RnC1. Let ˛ be the matrix whose columns are these basis vectors. Then
+˛ 2 O.n C 1/, and by elementary linear algebra, ˛ takes the standard basis vectors
+.@1;:::;@nC1/ to .b1;:::;bn; yp/. It follows that ˛.N / D p. Moreover, since ˛ acts
+linearly on RnC1, its differential d˛N W TN RnC1 ! TpRnC1 is represented in stan-
+dard coordinates by the same matrix as ˛ itself, so d˛N .@i/ D bi for i D 1;:::;n,
+and ˛ is the desired orthogonal map.
+ut
+Another important feature of the round metrics—one that is much less evident
+than their symmetry—is that they bear a certain close relationship to the Euclidean
+metrics, which we now describe. Two metrics g1 and g2 on a manifold M are said
+to be conformally related (or pointwise conformal or just conformal) to each other
+if there is a positive function f 2 C 1.M/ such that g2 D fg1. Given two Rie-
+mannian manifolds .M;g/ and
+ 
+M; zg
+
+, a diffeomorphism ' W M ! 
+M is called a
+conformal diffeomorphism (or a conformal transformation) if it pulls zg back to a
+metric that is conformal to g:
+'zg D fg for some positivef 2 C 1.M/:
+Problem 3-6 shows that conformal diffeomorphisms are the same as angle-pre-
+serving diffeomorphisms. Two Riemannian manifolds are said to be conformally
+equivalent if there is a conformal diffeomorphism between them.
+A Riemannian manifold .M;g/ is said to be locally conformally ﬂat if every
+point of M has a neighborhood that is conformally equivalent to an open set in
+.Rn; xg/.
+I
+Exercise 3.3.
+(a) ShowthatforeverysmoothmanifoldM,conformalityisanequiva-
+lence relation on the set of all Riemannian metrics on M.
+(b) Show that conformal equivalence is an equivalence relation on the class of all Rie-
+mannian manifolds.
+I
+Exercise 3.4. Suppose g1 and g2 D fg1 are conformally related metrics on an ori-
+ented n-manifold. Show that their volume forms are related by dVg2 D f n=2dVg1.
+A conformal equivalence between Rn and Sn.R/ minus a point is provided by
+stereographic projection from the north pole. This is the map  W Sn.R/XfN g !
+Rn that sends a point P 2 Sn.R/ X fN g, written P D
+
+1;:::;n;
+
+, to u D
+.u1;:::;un/ 2 Rn, where U D .u1;:::;un;0/ is the point where the line through
+N and P intersects the hyperplane f.;/ W  D 0g in RnC1 (Fig. 3.2). Thus U is
+characterized by the fact that .U N / D .P N / for some nonzero scalar . Writ-
+ing N D .0;R/, U D .u;0/, and P D .;/ 2 RnC1 D Rn R, we obtain the system
+of equations
+ui D i;
+R D . R/:
+(3.3)
+Solving the second equation for  and plugging it into the ﬁrst equation, we get
+the following formula for stereographic projection from the north pole of the sphere
+of radius R:
+
+
+===== [Page 74] =====
+60
+3 Model Riemannian Manifolds
+Fig. 3.2: Stereographic projection
+.;/ D u D
+R
+R  :
+(3.4)
+It follows from this formula that  is deﬁned and smooth on all of Sn.R/ X fN g.
+The easiest way to see that it is a diffeomorphism is to compute its inverse. Solving
+the two equations of (3.3) for  and i gives
+i D ui
+ ;
+ D R1
+
+:
+(3.5)
+The point P D 1.u/ is characterized by these equations and the fact that P is on
+the sphere. Thus, substituting (3.5) into jj2 C2 D R2 gives
+juj2
+2 CR2 .1/2
+2
+D R2;
+from which we conclude
+ D juj2 CR2
+2R2
+:
+Inserting this back into (3.5) gives the formula
+1.u/ D .;/ D
+
+2R2u
+juj2 CR2 ;R juj2 R2
+juj2 CR2
+
+;
+(3.6)
+which by construction maps Rn back to Sn.R/XfN g and shows that  is a diffeo-
+morphism.

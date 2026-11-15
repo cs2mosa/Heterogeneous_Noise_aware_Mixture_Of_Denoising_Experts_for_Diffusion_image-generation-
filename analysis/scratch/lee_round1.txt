@@ -1,0 +1,342 @@
+# Source PDF: C:\Users\Maha Mamdouh\Desktop\ML learning phase\deep learning math books\Introduction to Riemannian Manifolds.pdf
+# Extracted Pages: 29-33 of 447
+
+
+===== [Page 29] =====
+Methods for Constructing Riemannian Metrics
+15
+smooth, properly embedded codimension-1 submanifold with boundary in TM, with
+@.U TM/ D 1.@M/ (where  W U TM ! M is the canonical projection). The unit
+I Exercise 2.10. Use local orthonormal frames to prove the preceding proposition.
+Methods for Constructing Riemannian Metrics
+Many examples of Riemannian manifolds arise naturally as submanifolds, products,
+and quotients of other Riemannian manifolds. In this section, we introduce some of
+the tools for constructing such metrics.
+Riemannian Submanifolds
+Every submanifold of a Riemannian manifold automatically inherits a Riemannian
+metric, and many interesting Riemannian metrics are deﬁned in this way. The key
+fact is the following lemma.
+Lemma 2.11. Suppose
+ 
+M; zg
+
+is a Riemannian manifold with or without boundary,
+M is a smooth manifold with or without boundary, and F W M ! 
+M is a smooth
+map. The smooth 2-tensor ﬁeld g D F zg is a Riemannian metric on M if and only
+if F is an immersion.
+I Exercise 2.12. Prove Lemma 2.11.
+Suppose
+ 
+M; zg
+
+is a Riemannian manifold with or without boundary. Given a
+smooth immersion F W M ! 
+M, the metric g D F zg is called the metric induced
+by F . On the other hand, if M is already endowed with a given Riemannian met-
+ric g, an immersion or embedding F W M ! 
+M satisfying F zg D g is called an
+isometric immersion or isometric embedding, respectively. Which terminology is
+used depends on whether the metric on M is considered to be given independently
+of the immersion or not.
+The most important examples of induced metrics occur on submanifolds. Sup-
+pose M  
+M is an (immersed or embedded) submanifold, with or without bound-
+ary. The induced metric on M is the metric g D zg induced by the inclusion map
+W M ,! 
+M. With this metric, M is called a Riemannian submanifold (or Rie-
+mannian submanifold with boundary) of 
+M. We always consider submanifolds
+(with or without boundary) of Riemannian manifolds to be endowed with the
+induced metrics unless otherwise speciﬁed.
+If .M;g/ is a Riemannian submanifold of
+ 
+M; zg
+
+, then for every p 2 M and v;w 2
+TpM, the deﬁnition of the induced metric reads
+tangent bundle is connected if and only if M is connected (when n > 1), and
+compact if and onlyif M is compact.
+
+
+===== [Page 30] =====
+16
+2 Riemannian Metrics
+gp.v;w/ D zgp
+
+dp.v/;dp.w/
+
+:
+Because we usually identify TpM with its image in Tp 
+M under dp, and think of
+dp as an inclusion map, what this really amounts to is gp.v;w/ D zgp.v;w/ for
+v;w 2 TpM. In other words, the induced metric g is just the restriction of zg to
+vectors tangent to M. Many of the examples of Riemannian metrics that we will
+encounter are obtained in this way, starting with the following.
+Example 2.13 (Spheres). For each positive integer n, the unit n-sphere Sn  RnC1
+is an embedded n-dimensional submanifold. The Riemannian metric induced on Sn
+by the Euclidean metric is denoted by Vg and known as the round metric or standard
+metric on Sn.
+//
+The next lemma describes one of the most important tools for studying Riemann-
+ian submanifolds. If
+ 
+M; zg
+
+is an m-dimensional smooth Riemannian manifold and
+M  
+M is an n-dimensional submanifold (both with or without boundary), a local
+frame .E1;:::;Em/ for 
+M on an open subset zU  
+M is said to be adapted to M
+if the ﬁrst n vector ﬁelds .E1;:::;En/ are tangent to M. In case 
+M has empty
+boundary (so that slice coordinates are available), adapted local orthonormal frames
+are easy to ﬁnd.
+Proposition 2.14 (Existence of Adapted Orthonormal Frames). Let
+ 
+M; zg
+
+be a
+Riemannian manifold (without boundary), and let M  
+M be an embedded smooth
+submanifold with or without boundary. Given p 2 M, there exist a neighborhood zU
+of p in 
+M and a smooth orthonormal frame for 
+M on zU that is adapted to M.
+I Exercise 2.15. Prove the preceding proposition. [Hint: Apply the Gram–Schmidt algo-
+rithm to a coordinate frame in slice coordinates (see Prop. A.22).]
+Suppose
+ 
+M; zg
+
+is a Riemannian manifold and M  
+M is a smooth submanifold
+with or without boundary in 
+M. Given p 2 M, a vector  2 Tp 
+M is said to be
+normal to M if h;wi D 0 for every w 2 TpM. The space of all vectors normal
+to M at p is a subspace of Tp 
+M, called the normal space at p and denoted by
+NpM D .TpM/?. At each p 2 M, the ambient tangent space Tp 
+M splits as an
+orthogonal direct sum Tp 
+M D TpM ˚NpM. A section N of the ambient tangent
+bundle T 
+MjM is called a normal vector ﬁeld along M if Np 2 NpM for each
+p 2 M. The set
+NM D
+a
+p2M
+NpM
+is called the normal bundle of M.
+Proposition 2.16 (The Normal Bundle). If 
+M is a Riemannian m-manifold and
+M  
+M is an immersed or embedded n-dimensional submanifold with or without
+boundary, then NM is a smooth rank-.mn/ vector subbundle of the ambient tan-
+gent bundle T 
+MjM. There are smooth bundle homomorphisms
+> W T 
+MjM ! TM;
+? W T 
+MjM ! NM;
+
+
+===== [Page 31] =====
+Methods for Constructing Riemannian Metrics
+17
+called the tangential and normal projections, that for each p 2 M restrict to
+orthogonal projections from Tp 
+M to TpM and NpM, respectively.
+Proof. Given any point p 2 M, Theorem A.16 shows that there is a neighborhood
+U of p in M that is embedded in 
+M, and then Proposition 2.14 shows that there is a
+smooth orthonormal frame .E1;:::;Em/ that is adapted to U on some neighborhood
+zU of p in 
+M. This means that the restrictions of .E1;:::;En/ to zU \U form a local
+orthonormal frame for M. Given such an adapted frame, the restrictions of the last
+mn vector ﬁelds .EnC1;:::;Em/ to M form a smooth local frame for NM, so it
+follows from Lemma A.34 that NM is a smooth subbundle.
+The bundle homomorphisms > and ? are deﬁned pointwise as orthogonal
+projections onto the tangent and normal spaces, respectively, which shows that they
+are uniquely deﬁned. In terms of an adapted orthonormal frame, they can be written
+>
+X1E1 CCXmEm
+
+D X1E1 CCXnEn;
+?
+X1E1 CCXmEm
+
+D XnC1EnC1 CCXmEm;
+which shows that they are smooth.
+
+In case 
+M is a manifold with boundary, the preceding constructions do not
+always work, because there is not a fully general construction of slice coordinates
+in that case. However, there is a satisfactory result in case the submanifold is the
+boundary itself, using boundary coordinates in place of slice coordinates.
+Suppose .M;g/ is a Riemannian manifold with boundary. We will always con-
+sider @M to be a Riemannian submanifold with the induced metric.
+Proposition 2.17 (Existence of Outward-Pointing Normal). If .M;g/ is a smooth
+Riemannian manifold with boundary, the normal bundle to @M is a smooth rank-1
+vector bundle over @M, and there is a unique smooth outward-pointing unit normal
+vector ﬁeld along all of @M.
+I Exercise 2.18. Prove this proposition. [Hint: Use the paragraph preceding Prop. B.17
+as a starting point.]
+Computations on a submanifold M  
+M are usually carried out most conve-
+niently in terms of a smooth local parametrization: this is a smooth map X W U !
+
+M, where U is an open subset of Rn (or Rn
+C in case M has a boundary), such that
+X.U / is an open subset of M, and such that X, regarded as a map from U into M,
+is a diffeomorphism onto its image. Note that we can think of X either as a map into
+M or as a map into 
+M; both maps are typically denoted by the same symbol X. If
+we put V D X.U /  M and ' D X1 W V ! U , then .V;'/ is a smooth coordinate
+chart on M.
+Suppose .M;g/ is a Riemannian submanifold of
+ 
+M; zg
+
+and X W U ! 
+M is a
+smooth local parametrization of M. The coordinate representation of g in these
+coordinates is given by the following 2-tensor ﬁeld on U :
+
+'1g D Xg D Xzg D .ıX/zg:
+
+
+===== [Page 32] =====
+18
+2 Riemannian Metrics
+Since ıX is just the map X itself, regarded as a map into 
+M, this is really just Xzg.
+The simplicity of the formula for the pullback of a tensor ﬁeld makes this expression
+exceedingly easy to compute, once a coordinate expression for zg is known. For
+example, if M is an immersed n-dimensional Riemannian submanifold of Rm and
+X W U ! Rm is a smooth local parametrization of M, the induced metric on U is
+just
+g D Xxg D
+m
+X
+iD1
+.dXi/2 D
+m
+X
+iD1
+0
+@
+n
+X
+j D1
+@Xi
+@uj duj
+1
+A
+2
+D
+m
+X
+iD1
+n
+X
+j;kD1
+@Xi
+@uj
+@Xi
+@uk duj duk:
+Example 2.19 (Metrics in Graph Coordinates). If U  Rn is an open set and
+f W U ! R is a smooth function, then the graph of f is the subset .f / D
+f.x;f .x// W x 2 U g  RnC1, which is an embedded submanifold of dimension n. It
+has a global parametrization X W U ! RnC1 called a graph parametrization, given
+by X.u/ D .u;f .u//; the corresponding coordinates .u1;:::;un/ on M are called
+graph coordinates. In graph coordinates, the induced metric of .f / is
+Xxg D X 
+dx12 CC
+
+dxnC12
+D
+
+du12 CC.dun/2 Cdf 2:
+Applying this to the upper hemisphere of S2 with the parametrization X W B2 ! R3
+given by
+X.u;v/ D
+
+u;v;
+p
+1u2 v2
+
+;
+we see that the round metric on S2 can be written locally as
+Vg D Xxg D du2 Cdv2 C
+ uduCv dv
+p
+1u2 v2
+	2
+D
+
+1v2
+du2 C
+
+1u2
+dv2 C2uv dudv
+1u2 v2
+:
+//
+Example 2.20 (Surfaces of Revolution). Let H be the half-plane f.r;z/ W r > 0g,
+and suppose C  H is an embedded 1-dimensional submanifold. The surface of
+revolution determined by C is the subset SC  R3 given by
+SC D
+n
+.x;y;z/ W
+p
+x2 Cy2;z
+
+2 C
+o
+:
+The set C is called its generating curve (see Fig. 2.1). Every smooth local parametri-
+zation .t/ D .a.t/;b.t// for C yields a smooth local parametrization for SC of the
+form
+X.t;/ D .a.t/cos;a.t/sin;b.t//;
+(2.11)
+provided that .t;/ is restricted to a sufﬁciently small open set in the plane. The
+t-coordinate curves t 7! X.t;0/ are called meridians, and the -coordinate curves
+ 7! X.t0;/ are called latitude circles. The induced metric on SC is
+
+
+===== [Page 33] =====
+Methods for Constructing Riemannian Metrics
+19
+Fig. 2.1: A surface of revolution
+Xxg D d.a.t/cos/2 Cd.a.t/sin/2 Cd.b.t//2
+D .a0.t/cos dt a.t/sin d/2
+C.a0.t/sin dt Ca.t/cos d/2 C.b0.t/dt/2
+D
+
+a0.t/2 Cb0.t/2
+dt2 Ca.t/2d2:
+In particular, if  is a unit-speed curve (meaning that j0.t/j2 D a0.t/2Cb0.t/2  1),
+this reduces to dt2 Ca.t/2d2.
+Here are some examples of surfaces of revolution and their induced metrics.
+	 If C is the semicircle r2 Cz2 D 1, parametrized by .'/D.sin';cos'/ for 0<
+' < , then SC is the unit sphere (minus the north and south poles). The map
+X.';/ D .sin' cos;sin' sin;cos'/ constructed above is called the spher-
+ical coordinate parametrization, and the induced metric is d'2 Csin2 ' d2.
+(This example is the source of the terminology for meridians and latitude cir-
+cles.)
+	 If C is the circle .r 2/2Cz2 D 1, parametrized by .t/ D .2Ccost;sint/, we
+obtain a torus of revolution, whose induced metric is dt2 C.2Ccost/2d2.
+	 If C is a vertical line parametrized by .t/ D .1;t/, then SC is the unit cylinder
+x2 C y2 D 1, and the induced metric is dt2 C d2. Note that this means that
+the parametrization X W R2 ! R3 is an isometric immersion.
+//
+Example 2.21 (The n-Torus as a Riemannian Submanifold). The smooth cover-
+ing map X W Rn ! T n described in Example A.52 restricts to a smooth local pa-
+rametrization on any sufﬁciently small open subset of Rn, and the induced metric is
+equal to the Euclidean metric in .ui/ coordinates, and therefore the induced metric
+on T n is ﬂat.
+//
+I Exercise 2.22. Verify the claims in Examples 2.19–2.21.

@@ -1,0 +1,392 @@
+# Source PDF: C:\Users\Maha Mamdouh\Desktop\ML learning phase\scientifc papers\Elucidating the Design Space of Diffusion-Based.pdf
+# Extracted Pages: 8-10 of 47
+
+
+===== [Page 8] =====
+NFE=16
+32
+64
+128
+256
+512
+1024
+2048
+1.8
+2.0
+2.2
+2.4
+2.6
+2.8
+3.0
+3.2
+FID
+2.27
+Deterministic
+Stmin,tmax = [0, ∞]
+Stmin,tmax + Snoise = 1
+Optimal settings
+Snoise = 1
+Original sampler
+Jolicoeur-Martineau et al. [24]
+16
+32
+64
+128
+256
+512
+1024
+2048
+2.0
+2.5
+3.0
+3.5
+4.0
+4.5
+FID
+2.23
+16
+32
+64
+128
+256
+512
+1024
+2048
+1.4
+1.6
+1.8
+2.0
+2.2
+2.4
+2.6
+2.8
+3.0
+FID
+1.55
+(a) Uncond. CIFAR-10, VP
+(b) Uncond. CIFAR-10, VE
+(c) Class-cond. ImageNet-64
+Figure 4: Evaluation of our stochastic sampler (Algorithm 2). The purple curve corresponds to
+optimal choices for {Schurn, Stmin, Stmax, Snoise}; orange, blue, and green correspond to disabling the
+effects of Stmin,tmax and/or Snoise. The red curves show reference results for our deterministic sampler
+(Algorithm 1), equivalent to setting Schurn = 0. The dashed black curves correspond to the original
+stochastic samplers from previous work: Euler–Maruyama [49] for VP, predictor-corrector [49] for
+VE, and iDDPM [37] for ImageNet-64. The dots indicate lowest observed FID.
+reported for cascaded diffusion [17], 1.55 for classiﬁer-free guidance [18], and 1.52 for StyleGAN-
+XL [45]. While our results showcase the potential gains achievable through sampler improvements,
+they also highlight the main shortcoming of stochasticity: For best results, one must make several
+heuristic choices — either implicit or explicit — that depend on the speciﬁc model. Indeed, we had
+to ﬁnd the optimal values of {Schurn, Stmin, Stmax, Snoise} on a case-by-case basis using grid search
+(Appendix E.2). This raises a general concern that using stochastic sampling as the primary means of
+evaluating model improvements may inadvertently end up inﬂuencing the design choices related to
+model architecture and training.
+5
+Preconditioning and training
+There are various known good practices for training neural networks in a supervised fashion. For
+example, it is advisable to keep input and output signal magnitudes ﬁxed to, e.g., unit variance, and to
+avoid large variation in gradient magnitudes on a per-sample basis [5, 21]. Training a neural network
+to model D directly would be far from ideal — for example, as the input x = y + n is a combination
+of clean signal y and noise n ∼N(0, σ2I), its magnitude varies immensely depending on noise
+level σ. For this reason, the common practice is to not represent Dθ as a neural network directly, but
+instead train a different network Fθ from which Dθ is derived.
+Previous methods [37, 47, 49] address the input scaling via a σ-dependent normalization factor and
+attempt to precondition the output by training Fθ to predict n scaled to unit variance, from which the
+signal is then reconstructed via Dθ(x; σ) = x −σFθ(·). This has the drawback that at large σ, the
+network needs to ﬁne-tune its output carefully to cancel out the existing noise n exactly and give the
+output at the correct scale; note that any errors made by the network are ampliﬁed by a factor of σ.
+In this situation, it would seem much easier to predict the expected output D(x; σ) directly. In the
+same spirit as previous parameterizations that adaptively mix signal and noise (e.g., [10, 44, 53]),
+we propose to precondition the neural network with a σ-dependent skip connection that allows it to
+estimate either y or n, or something in between. We thus write Dθ in the following form:
+Dθ(x; σ) = cskip(σ) x + cout(σ) Fθ
+cin(σ) x; cnoise(σ)
+
+,
+(7)
+where Fθ is the neural network to be trained, cskip(σ) modulates the skip connection, cin(σ) and
+cout(σ) scale the input and output magnitudes, and cnoise(σ) maps noise level σ into a conditioning in-
+put for Fθ. Taking a weighted expectation of Eq. 2 over the noise levels gives the overall training loss
+Eσ,y,n
+
+λ(σ) ∥D(y + n; σ) −y∥2
+2
+
+, where σ ∼ptrain, y ∼pdata, and n ∼N(0, σ2I). The probabil-
+ity of sampling a given noise level σ is given by ptrain(σ) and the corresponding weight is given by
+λ(σ). We can equivalently express this loss with respect to the raw network output Fθ in Eq. 7:
+Eσ,y,n
+h
+λ(σ) cout(σ)2
+|
+{z
+}
+effective weight
+
+
+ Fθ
+cin(σ) · (y + n); cnoise(σ)
+
+|
+{z
+}
+network output
+−
+1
+cout(σ)
+y −cskip(σ) · (y + n)
+
+|
+{z
+}
+effective training target
+
+
+2
+2
+i
+. (8)
+This form reveals the effective training target of Fθ, allowing us to determine suitable choices for the
+preconditioning functions from ﬁrst principles. As detailed in Appendix B.6, we derive our choices
+8
+
+
+===== [Page 9] =====
+Table 2: Evaluation of our training improvements. The starting point (conﬁg A) is VP & VE using
+our deterministic sampler. At the end (conﬁgs E,F), VP & VE only differ in the architecture of Fθ.
+CIFAR-10 [29] at 32×32
+FFHQ [27] 64×64
+AFHQv2 [7] 64×64
+Conditional
+Unconditional
+Unconditional
+Unconditional
+Training conﬁguration
+VP
+VE
+VP
+VE
+VP
+VE
+VP
+VE
+A Baseline [49]
+(∗pre-trained)
+2.48
+3.11
+3.01∗
+3.77∗
+3.39
+25.95
+2.58
+18.52
+B + Adjust hyperparameters
+2.18
+2.48
+2.51
+2.94
+3.13
+22.53
+2.43
+23.12
+C + Redistribute capacity
+2.08
+2.52
+2.31
+2.83
+2.78
+41.62
+2.54
+15.04
+D + Our preconditioning
+2.09
+2.64
+2.29
+3.10
+2.94
+3.39
+2.79
+3.81
+E + Our loss function
+1.88
+1.86
+2.05
+1.99
+2.60
+2.81
+2.29
+2.28
+F + Non-leaky augmentation
+1.79
+1.79
+1.97
+1.98
+2.39
+2.53
+1.96
+2.16
+NFE
+35
+35
+35
+35
+79
+79
+79
+79
+shown in Table 1 by requiring network inputs and training targets to have unit variance (cin, cout), and
+amplifying errors in Fθ as little as possible (cskip). The formula for cnoise is chosen empirically.
+Table 2 shows FID for a series of training setups, evaluated using our deterministic sampler from
+Section 3. We start with the baseline training setup of Song et al. [49], which differs considerably
+between the VP and VE cases; we provide separate results for each (conﬁg A). To obtain a more
+meaningful point of comparison, we re-adjust the basic hyperparameters (conﬁg B) and improve the
+expressive power of the model (conﬁg C) by removing the lowest-resolution layers and doubling the
+capacity of the highest-resolution layers instead; see Appendix F.3 for further details. We then replace
+the original choices of {cin, cout, cnoise, cskip} with our preconditioning (conﬁg D), which keeps the
+results largely unchanged — except for VE that improves considerably at 64×64 resolution. Instead
+of improving FID per se, the main beneﬁt of our preconditioning is that it makes the training more
+robust, enabling us to turn our focus on redesigning the loss function without adverse effects.
+Loss weighting and sampling.
+Eq. 8 shows that training Fθ as preconditioned in Eq. 7 incurs
+an effective per-sample loss weight of λ(σ)cout(σ)2. To balance the effective loss weights, we set
+λ(σ) = 1/cout(σ)2, which also equalizes the initial training loss over the entire σ range as shown in
+Figure 5a (green curve). Finally, we need to select ptrain(σ), i.e., how to choose noise levels during
+training. Inspecting the per-σ loss after training (blue and orange curves) reveals that a signiﬁcant
+reduction is possible only at intermediate noise levels; at very low levels, it is both difﬁcult and
+irrelevant to discern the vanishingly small noise component, whereas at high levels the training targets
+are always dissimilar from the correct answer that approaches dataset average. Therefore, we target
+the training efforts to the relevant range using a simple log-normal distribution for ptrain(σ) as detailed
+in Table 1 and illustrated in Figure 5a (red curve).
+Table 2 shows that our proposed ptrain and λ (conﬁg E) lead to a dramatic improvement in FID
+in all cases when used in conjunction with our preconditioning (conﬁg D). In concurrent work,
+Choi et al. [6] propose a similar scheme to prioritize noise levels that are most relevant w.r.t. forming
+the perceptually recognizable content of the image. However, they only consider the choice of λ in
+isolation, which results in a smaller overall improvement.
+Augmentation regularization.
+To prevent potential overﬁtting that often plagues diffusion models
+with smaller datasets, we borrow an augmentation pipeline from the GAN literature [25]. The pipeline
+consists of various geometric transformations (see Appendix F.2) that we apply to a training image
+prior to adding noise. To prevent the augmentations from leaking to the generated images, we provide
+the augmentation parameters as a conditioning input to Fθ; during inference we set the them to zero
+to guarantee that only non-augmented images are generated. Table 2 shows that data augmentation
+provides a consistent improvement (conﬁg F) that yields new state-of-the-art FIDs of 1.79 and 1.97
+for conditional and unconditional CIFAR-10, beating the previous records of 1.85 [45] and 2.10 [53].
+Stochastic sampling revisited.
+Interestingly, the relevance of stochastic sampling appears to di-
+minish as the model itself improves, as shown in Figure 5b,c. When using our training setup in
+CIFAR-10 (Figure 5b), the best results were obtained with deterministic sampling, and any amount
+of stochastic sampling was detrimental.
+ImageNet-64.
+As a ﬁnal experiment, we trained a class-conditional ImageNet-64 model from
+scratch using our proposed training improvements. This model achieved a new state-of-the-art FID of
+9
+
+
+===== [Page 10] =====
+σ=0.005 0.02
+0.1
+0.5 1 2
+5 10 20 50
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+1.2
+1.4
+loss
+Loss after init
+CIFAR-10
+Distribution of σ
+FFHQ-64
+Schurn=0 10
+20
+30
+40
+50
+60
+70
+80
+90 100
+2.0
+2.5
+3.0
+3.5
+4.0
+FID
+VP, original
+VP, our model
+VE, original
+VE, our model
+Schurn=0 10
+20
+30
+40
+50
+60
+70
+80
+90 100
+1.2
+1.4
+1.6
+1.8
+2.0
+2.2
+2.4
+2.6
+FID
+1.57
+1.36
+2.66
+2.22
+Original
+Our model
+(a) Loss & noise distribution
+(b) Stochasticity on CIFAR-10
+(c) Stochasticity on ImageNet-64
+Figure 5: (a) Observed initial (green) and ﬁnal loss per noise level, representative of the the 32×32
+(blue) and 64×64 (orange) models considered in this paper. The shaded regions represent the standard
+deviation over 10k random samples. Our proposed training sample density is shown by the dashed
+red curve. (b) Effect of Schurn on unconditional CIFAR-10 with 256 steps (NFE = 511). For the
+original training setup of Song et al. [49], stochastic sampling is highly beneﬁcial (blue, green), while
+deterministic sampling (Schurn = 0) leads to relatively poor FID. For our training setup, the situation
+is reversed (orange, red); stochastic sampling is not only unnecessary but harmful. (c) Effect of Schurn
+on class-conditional ImageNet-64 with 256 steps (NFE = 511). In this more challenging scenario,
+stochastic sampling turns out to be useful again. Our training setup improves the results for both
+deterministic and stochastic sampling.
+1.36 compared to the previous record of 1.48 [17]. We used the ADM architecture [9] with no changes,
+and trained it using our conﬁg E with minimal tuning; see Appendix F.3 for details. We did not ﬁnd
+overﬁtting to be a concern, and thus chose to not employ augmentation regularization. As shown
+in Figure 5c, the optimal amount of stochastic sampling was much lower than with the pre-trained
+model, but unlike with CIFAR-10, stochastic sampling was clearly better than deterministic sampling.
+This suggests that more diverse datasets continue to beneﬁt from stochastic sampling.
+6
+Conclusions
+Our approach of putting diffusion models to a common framework exposes a modular design. This
+allows a targeted investigation of individual components, potentially helping to better cover the viable
+design space. In our tests this let us simply replace the samplers in various earlier models, drastically
+improving the results. For example, in ImageNet-64 our sampler turned an average model (FID 2.07)
+to a challenger (1.55) for the previous SOTA model (1.48) [17], and with training improvements
+achieved SOTA FID of 1.36. We also obtained new state-of-the-art results on CIFAR-10 while using
+only 35 model evaluations, deterministic sampling, and a small network. The current high-resolution
+diffusion models rely either on separate super-resolution steps [17, 36, 40], subspace projection [23],
+very large networks [9, 49], or hybrid approaches [39, 42, 53] — we believe that our contributions are
+orthogonal to these extensions. That said, many of our parameter values may need to be re-adjusted
+for higher resolution datasets. Furthermore, we feel that the precise interaction between stochastic
+sampling and the training objective remains an interesting question for future work.
+Societal impact.
+Our advances in sample quality can potentially amplify negative societal effects
+when used in a large-scale system like DALL·E 2, including types of disinformation or emphasizing
+sterotypes and harmful biases [34]. The training and sampling of diffusion models needs a lot of
+electricity; our project consumed ∼250MWh on an in-house cluster of NVIDIA V100s.
+Acknowledgments.
+We thank Jaakko Lehtinen, Ming-Yu Liu, Tuomas Kynkäänniemi, Axel Sauer,
+Arash Vahdat, and Janne Hellsten for discussions and comments, and Tero Kuosmanen, Samuel
+Klenberg, and Janne Hellsten for maintaining our compute infrastructure.
+References
+[1] B. D. Anderson. Reverse-time diffusion equation models. Stochastic Processes and their Applications,
+12(3):313–326, 1982.
+[2] U. M. Ascher and L. R. Petzold. Computer Methods for Ordinary Differential Equations and Differential-
+Algebraic Equations. Society for Industrial and Applied Mathematics, 1998.
+10

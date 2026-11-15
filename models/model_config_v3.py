@@ -181,11 +181,14 @@ class HDMOEM_v3(nn.Module):
         sigma_max:            float                  = 80,
         alpha_ext:            float                  = 0.2,
         blend_mode:           str                    = "spherical",
+        max_blend_shift:      float                  = 1.5,
     ):
         super().__init__()
         if blend_mode not in ("spherical", "linear"):
             raise ValueError(f"Unsupported blend_mode '{blend_mode}'. Expected 'spherical' or 'linear'.")
         self.blend_mode         = blend_mode
+        self._max_blend_shift   = float(max_blend_shift)
+        self._last_bounded_residual = None
         self.internal_channels = internal_channels
         self.num_experts        = num_experts
         self.transition_sigma   = transition_sigma
@@ -209,8 +212,8 @@ class HDMOEM_v3(nn.Module):
             out_channels = internal_channels,
             kernel       = (),
         )
-        # Fix 3: scalar gate instead of zero-init weights
-        self.time_proj_gate = nn.Parameter(torch.zeros(1))
+        # Open gate (0.1) avoids nested zero*zero 2nd-order singularity while preserving unit-variance input features
+        self.time_proj_gate = nn.Parameter(torch.full((1,), 0.1))
 
         self.Unet_router = ParametricTrajectoryRouter(
             num_experts=num_experts,
@@ -282,7 +285,7 @@ class HDMOEM_v3(nn.Module):
         self.output_proj_vit = MP_Conv(
             in_channels=internal_channels + 1,
             out_channels=IN_in_channels,
-            kernel=(1, 1)  # Preserves spatial independence for textures
+            kernel=(3, 3)  # Smooths patch boundary transitions across full latent grid
         )
         self.output_proj_unet = MP_Conv(
             in_channels=internal_channels + 1,
@@ -299,8 +302,8 @@ class HDMOEM_v3(nn.Module):
             MP_Conv(in_channels=time_emb_dim, out_channels=time_emb_dim // 2, kernel=()),
             MP_Conv(in_channels=time_emb_dim // 2, out_channels=1, kernel=()),
         )
-        # Fix 3: scalar gate instead of zero-init weights
-        self.blend_gate = nn.Parameter(torch.zeros(1))
+        # Open blend gate (0.1) avoids 2nd-order zero*zero singularity behind vit/unet_proj_gate while keeping near-geometric init
+        self.blend_gate = nn.Parameter(torch.full((1,), 0.1))
 
         if internal_channels % VIT_num_heads == 0:
             self.pooled_cross_attn = PooledCrossAttn(
@@ -348,7 +351,9 @@ class HDMOEM_v3(nn.Module):
         h = self.blend_residual[0](time_emb)
         h = mp_silu(h)
         raw_res = (self.blend_residual[1](h) * self.blend_gate).view(-1, 1, 1, 1)
-        bounded_residual = torch.tanh(raw_res) * 1.5
+        shift_cap = float(getattr(self, "_max_blend_shift", 1.5))
+        bounded_residual = torch.tanh(raw_res) * shift_cap
+        self._last_bounded_residual = bounded_residual if (self.training and torch.is_grad_enabled()) else None
         w_vit = torch.sigmoid(x_prior + bounded_residual)
         w_unet = 1.0 - w_vit
         gate_strength = w_vit * w_unet
@@ -393,14 +398,25 @@ class HDMOEM_v3(nn.Module):
         # Extract the pure 1D log_sigma scalar
         log_sigma = time_vec.view(-1, 1) * 4.0
 
+        # Compute branch blend weights upfront so inactive low-sigma UNet samples (<2% blend) skip Unet_experts
+        sigma_reconstructed = torch.exp(4.0 * time_vec)  # (B,)
+        w_vit, w_unet, gate_strength = self.compute_blend_weights(
+            sigma=sigma_reconstructed,
+            time_emb=time_embed,
+        )  # each (B, 1, 1, 1)
+
         out_vit_router, Vit_probs, Vit_raw = self.vit_router(
             log_sigma=log_sigma, zeta=zeta, mask=Vit_router_mask)
         out_unet_router, Unet_probs, Unet_raw = self.Unet_router(
             log_sigma=log_sigma, zeta=zeta, mask=Unet_router_mask)
 
-        # Apply the first output (out_unet_router / out_vit_router) to the experts
+        # Skip UNet expert compute on deep low-noise samples where w_unet < 0.05 (negligible <0.25% energy)
+        unet_active = (w_unet.view(-1, 1) >= 0.05).to(out_unet_router.dtype)
+        out_unet_router_active = out_unet_router * unet_active
+
+        # Apply the active routing weights to the experts
         out_Unet_expert = router_to_experts(
-            x=x_feats, experts=self.Unet_experts, out_router=out_unet_router,
+            x=x_feats, experts=self.Unet_experts, out_router=out_unet_router_active,
             time_emb=time_embed, text_emb=text_emb,
         )
 
@@ -421,12 +437,6 @@ class HDMOEM_v3(nn.Module):
         # Scale by the learnable gain (broadcasting the scalar to the tensor shape)
         unet_out = unet_raw_out * self.out_gain_unet.view(1, 1, 1, 1)
         vit_out = vit_raw_out * self.out_gain_vit.view(1, 1, 1, 1)  # (B, C_in, H, W)
-
-        sigma_reconstructed = torch.exp(4.0 * time_vec)  # (B,)
-        w_vit, w_unet, gate_strength = self.compute_blend_weights(
-            sigma=sigma_reconstructed,
-            time_emb=time_embed,
-        )  # each (B, 1, 1, 1)
         attn_correction = torch.zeros_like(unet_out)
         if self._cross_attn_enabled:
             raw_correction = self.pooled_cross_attn(
@@ -517,6 +527,7 @@ class preconditioned_HDMOEM_v3(nn.Module):
             sigma_max: float = 80,
             alpha_ext: float = 0.2,
             blend_mode: str = "spherical",
+            max_blend_shift: float = 1.5,
     ):
         super().__init__()
         self.sigma_data = sigma_data
@@ -558,6 +569,7 @@ class preconditioned_HDMOEM_v3(nn.Module):
             sigma_min=sigma_min,
             alpha_ext=alpha_ext,
             blend_mode=blend_mode,
+            max_blend_shift=max_blend_shift,
         )
 
     def forward(

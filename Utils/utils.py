@@ -12,7 +12,8 @@ def save_checkpoint(model,
                     mse_score,
                     configs,
                     filename,
-                    ema_instance = None
+                    ema_instance = None,
+                    scheduler_instance = None
                     ):
     if "save_dir" in configs:
         save_path = configs["save_dir"]
@@ -36,8 +37,11 @@ def save_checkpoint(model,
         'config': configs
     }
     if ema_instance is not None:
-        # We save the underlying model inside the EMA class
+        # We save both shadow weights and EMA step so power-function warmup resumes cleanly
         checkpoint['ema_model_state_dict'] = ema_instance.ema_model.state_dict()
+        checkpoint['ema_step'] = ema_instance.step
+    if scheduler_instance is not None:
+        checkpoint['scheduler_state_dict'] = scheduler_instance.state_dict()
 
     torch.save(checkpoint, str(full_path))
     print(f"   [Save] Checkpoint saved: {full_path}")
@@ -92,31 +96,28 @@ class Lr_Scheduler:
         # Store base LR for each parameter group
         self.base_lrs = [group['lr'] for group in optimizer.param_groups]
 
-        # Track current number of images seen
+        # Track number of images completed; schedule step k at (k + 1) * batch_size
         self.cur_nimg = cur_nimg
-        self._last_lrs = self.base_lrs.copy()
+        self._last_lrs = self._apply_lr(self.cur_nimg + self.batch_size)
 
         print(f"📊 EDM2 Scheduler initialized with {len(self.base_lrs)} parameter groups:")
         for i, lr in enumerate(self.base_lrs):
             print(f"   Group {i}: base_lr = {lr:.6f}")
 
-    def step(self):
-        """Call this after optimizer.step()"""
-        # Compute the LR multiplier (same for all groups)
-        lr_multiplier = self._compute_lr_multiplier(self.cur_nimg)
-
-        # Apply multiplier to each group's base LR
+    def _apply_lr(self, nimg: int):
+        lr_multiplier = self._compute_lr_multiplier(nimg)
         new_lrs = []
-        for i, (param_group, base_lr) in enumerate(zip(self.optimizer.param_groups, self.base_lrs)):
+        for param_group, base_lr in zip(self.optimizer.param_groups, self.base_lrs):
             new_lr = base_lr * lr_multiplier
             param_group['lr'] = new_lr
             new_lrs.append(new_lr)
-
-        # Update image counter
-        self.cur_nimg += self.batch_size
-        self._last_lrs = new_lrs
-
         return new_lrs
+
+    def step(self):
+        """Call this after optimizer.step()"""
+        self.cur_nimg += self.batch_size
+        self._last_lrs = self._apply_lr(self.cur_nimg + self.batch_size)
+        return self._last_lrs
 
     def _compute_lr_multiplier(self, cur_nimg):
         """
@@ -157,6 +158,57 @@ class Lr_Scheduler:
         self.cur_nimg = state_dict['cur_nimg']
         self.base_lrs = state_dict['base_lrs']
         self._last_lrs = state_dict['_last_lrs']
+
+
+class WSDScheduler(Lr_Scheduler):
+    """Warmup-Stable-Decay (WSD) schedule tailored to Adam on unit-RMS MP_Conv."""
+
+    def __init__(
+        self,
+        optimizer,
+        total_steps: int,
+        batch_size: int,
+        warmup_steps: int = 300,
+        stable_until_frac: float = 0.85,
+        min_lr_mult: float = 0.10,
+        dataset_size: int = 48000,
+        cur_nimg: int = 0,
+        base_lrs=None,
+    ):
+        total_steps_i = max(1, int(total_steps))
+        self.warmup_steps = max(1, min(int(warmup_steps), total_steps_i))
+        self.stable_until_frac = float(min(1.0, max(0.0, stable_until_frac)))
+        self.decay_start_step = max(self.warmup_steps, int(round(self.stable_until_frac * total_steps_i)))
+        self.min_lr_mult = float(min_lr_mult)
+        super().__init__(
+            optimizer=optimizer,
+            total_steps=total_steps_i,
+            batch_size=max(1, int(batch_size)),
+            ref_batches=0.0,
+            rampup_Mimg=0.0,
+            dataset_size=dataset_size,
+            cur_nimg=cur_nimg,
+        )
+        if base_lrs is not None:
+            self.base_lrs = list(base_lrs)
+        self._last_lrs = self._apply_lr(self.cur_nimg)
+
+    def _compute_lr_multiplier(self, cur_nimg):
+        step_idx = float(cur_nimg) / float(max(1, self.batch_size))
+        if step_idx < self.warmup_steps:
+            frac = (step_idx + 1.0) / float(self.warmup_steps)
+            return float(max(0.02, min(1.0, frac)))
+        if step_idx < self.decay_start_step:
+            return 1.0
+        decay_steps = max(1.0, float(self.total_steps - self.decay_start_step))
+        prog = min(1.0, max(0.0, (step_idx - self.decay_start_step) / decay_steps))
+        cosine = 0.5 * (1.0 + math.cos(math.pi * prog))
+        return float(self.min_lr_mult + (1.0 - self.min_lr_mult) * cosine)
+
+    def step(self):
+        self.cur_nimg += self.batch_size
+        self._last_lrs = self._apply_lr(self.cur_nimg)
+        return self._last_lrs
 
 
 class ZetaScheduler:

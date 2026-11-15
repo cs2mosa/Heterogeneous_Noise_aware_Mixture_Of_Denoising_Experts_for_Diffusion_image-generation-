@@ -1,0 +1,912 @@
+# Source PDF: C:\Users\Maha Mamdouh\Desktop\ML learning phase\scientifc papers\DiffMoE Dynamic Token Selection for Scalable Diffusion Transformers.pdf
+# Extracted Pages: 1-6 of 29
+
+
+===== [Page 1] =====
+DiffMoE: Dynamic Token Selection for Scalable Diffusion Transformers
+Minglei Shi 1 * Ziyang Yuan 1 * Haotian Yang 2 Xintao Wang 2 † Mingwu Zheng 2 Xin Tao 2 Wenliang Zhao 1
+Wenzhao Zheng 1 Jie Zhou 1 Jiwen Lu 1 † Pengfei Wan 2 Di Zhang 2 Kun Gai 2
+Project Page: https://shiml20.github.io/DiffMoE/
+Abstract
+Diffusion Transformers (DiTs) have emerged as
+the dominant architecture for visual generation
+tasks, yet their uniform processing of inputs
+across varying conditions and noise levels fails
+to leverage the inherent heterogeneity of the dif-
+fusion process. While recent mixture-of-experts
+(MoE) approaches attempt to address this limita-
+tion, they struggle to achieve significant improve-
+ments due to their restricted token accessibility
+and fixed computational patterns. We present
+DiffMoE, a novel MoE-based architecture that
+enables experts to access global token distribu-
+tions through a batch-level global token pool
+during training, promoting specialized expert be-
+havior. To unleash the full potential of inherent
+heterogeneity, DiffMoE incorporates a capacity
+predictor that dynamically allocates computa-
+tional resources based on noise levels and sample
+complexity. Through comprehensive evaluation,
+DiffMoE achieves state-of-the-art performance
+among diffusion models on ImageNet benchmark,
+substantially outperforming both dense architec-
+tures with 3× activated parameters and existing
+MoE approaches while maintaining 1× activated
+parameters. The effectiveness of our approach ex-
+tends beyond class-conditional generation to more
+challenging tasks such as text-to-image genera-
+tion, demonstrating its broad applicability across
+different diffusion model applications.
+1. Introduction
+The Mixture-of-Experts (MoE) framework (Shazeer et al.,
+2017; Lepikhin et al., 2020) has emerged as a pow-
+erful paradigm for enhancing overall multi-task perfor-
+mance while maintaining computational efficiency. This
+*Equal contribution
+1Tsinghua University, Beijing, China
+2Kuaishou Technology, Beijing, China.
+Correspondence to:
+Xintao Wang <xintao.wang@kuaishou.com>, Jiwen Lu <luji-
+wen@tsinghua.edu.cn>.
+Hard
+Easy
+Noises
+Images
+TC-MoE
+Dense
+EC-MoE
+DiffMoE
+Token Accessibility
+Performance
+𝑎
+𝑏 
+(𝑐)
+(𝑑)
+Token 
+Isolation
+t1
+t2
+t2
+t3
+t3
+t1
+Cross-sample
+Interaction
+Intra-sample
+Interaction
+t3
+t3
+t2
+t2
+t1
+t1
+Token 
+Isolation
+t1
+t1
+t2
+t2
+Token Choice
+Expert Choice
+DiffMoE
+Intra-sample
+Interaction
+Cross-sample
+Interaction
+t3
+t3
+Figure 1: Token Accessibility and Dynamic Computation.
+(a) Token accessibility levels from token isolation to cross-
+sample interaction. Colors represent tokens in different sam-
+ples, ti indicates noise levels. (b) Performance-accessibility
+analysis across architectures. (c) Computational dynamics
+during diffusion sampling, showing adaptive computation
+from noise to image. (d) Class-wise computation alloca-
+tion from hard (technical diagrams) to easy (natural photos)
+tasks. Results from DiffMoE-L-E16-Flow (700K).
+is achieved by combining multiple expert networks, each
+focusing on a distinct task, with their outputs integrated
+through a gating mechanism. In language modeling, MoE
+has achieved performance comparable to dense models of
+2× −3× activated parameters (DeepSeek-AI et al., 2024;
+MiniMax et al., 2025; Muennighoff et al., 2024). The cur-
+rent MoE primarily follows two gating paradigms: Token-
+Choice (TC), where each token independently selects a
+subset of experts for processing; and Expert-Choice (EC),
+where each expert selects a subset of tokens from the se-
+quence for processing.
+Diffusion (Ho et al., 2020; Rombach et al., 2022; Podell
+et al., 2023; Song et al., 2021) and flow-based (Ma et al.,
+2024; Esser et al., 2024b; Liu et al., 2023) models inherently
+represent multi-task learning frameworks, as they process
+varying token distributions across different noise levels and
+conditional inputs. While this heterogeneity characteristic
+1
+arXiv:2503.14487v1  [cs.CV]  18 Mar 2025
+
+
+===== [Page 2] =====
+DiffMoE: Dynamic Token Selection for Scalable Diffusion Transformers
+naturally aligns with the MoE framework’s ability for multi-
+task handling, existing attempts (Fei et al., 2024; Sun et al.,
+2024a; Yatharth Gupta, 2024; Sehwag et al., 2024) to inte-
+grate MoE with diffusion models have yielded suboptimal
+results, failing to achieve the remarkable improvements ob-
+served in language models. Specifically, Token-choice MoE
+(TC-MoE) (Fei et al., 2024) often underperforms compared
+to conventional dense architectures under the same num-
+ber of activations; Expert-choice MoE (EC-MoE) (Sehwag
+et al., 2024; Sun et al., 2024a) shows marginal improve-
+ments over dense models, but only when trained for much
+longer.
+We are curious about what fundamentally limits MoE’s ef-
+fectiveness in diffusion models. Our key finding reveals that
+global token distribution accessibility is crucial for MoE
+success in diffusion models, necessitating the model learn
+and dynamically process the tokens from different noise
+levels and conditions, as illustrated in Figure 1. Previous
+approaches have neglected this crucial component, resulting
+in compromised performance. Specifically, Dense models
+and TC-MoE isolates tokens, preventing them from inter-
+acting with others during expert selection, while EC-DiT
+restricts intra-sample token interaction , which fails to
+access other samples with different noise levels and condi-
+tions. These limitations hinder the model’s ability to capture
+the full spectrum of the heterogeneity inherent in diffusion
+processes.
+To address these limitations, we introduce DiffMoE, a novel
+architecture that features a batch-level global token pool
+for enhanced cross-sample token interaction during train-
+ing, as illustrated in Figure 2. This approach approximates
+the complete token distribution across different noise levels
+and samples, facilitating more specialized expert learning
+through comprehensive global token information access.
+Our empirical analysis demonstrates that the global token
+pool accelerates loss convergence, surpassing dense models
+with equivalent activation parameters. Though some concur-
+rent works in large language models (DeepSeek-AI et al.,
+2024; Qiu et al., 2025) show similar principles in global
+batch, we argue that these principles are particularly cru-
+cial for diffusion transformers due to their inherently more
+complex heterogeneity nature.
+However, conventional MoE inference strategies, which
+maintain fixed computational resource allocation across dif-
+ferent noise levels and conditions, fail to fully leverage the
+potential of DiffMoE’s batch-level global token pool. To
+optimize token selection during inference, we propose a
+capacity predictor that dynamically adjusts resource allo-
+cation. This adaptive mechanism learns from training-time
+token routing patterns, efficiently distributing computational
+resources between complex and simple cases. Furthermore,
+we implement a dynamic threshold at inference time to
+achieve flexible performance-computation trade-offs.
+By integrating the global token pool and capacity predictor,
+DiffMoE achieves superior performance over dense mod-
+els with 3× activated parameters while maintaining effi-
+cient scaling properties (See Table 5). Our approach offers
+extra several advantages over existing methods: it eliminates
+the potentially detrimental load balancing losses present in
+TC-MoE and overcomes the intra-sample token selection
+constraints of EC-MoE, resulting in enhanced flexibility and
+scalability. Extensive empirical evaluations demonstrate
+DiffMoE’s superior scaling efficiency and performance im-
+provements across diverse diffusion applications.
+Our contributions can be summarized as follows: (1) We
+identify the fundamental importance of global token distri-
+bution accessibility in facilitating dynamic token selection
+for MoE-based diffusion models; (2) We introduce DiffMoE,
+a novel framework incorporating a global token pool and
+capacity predictor to enable efficient model scaling; (3) We
+achieve state-of-the-art performance on ImageNet bench-
+mark among diffusion models. through dynamic computa-
+tion allocation while preserving computational efficiency;
+and (4) We conduct comprehensive experiments that vali-
+date our approach’s effectiveness across diverse diffusion
+applications.
+2. Method
+2.1. Preliminaries
+Diffusion Models. Diffusion models (Ho et al., 2020; Rom-
+bach et al., 2022; Sohl-Dickstein et al., 2015; Song et al.,
+2021) are a powerful family of generative models, which
+can transform the noise distribution p1(x) to the data distri-
+bution p0(x). The diffusion process can be represented as:
+xt = αtx0 + σtϵ,
+t ∈[0, 1],
+ϵ ∼N(0, I), Where αt
+and σt are monotonically decreasing and increasing func-
+tions of t, respectively. The marginal distribution p1(x)
+converges to N(0, I), when α1 = σ0 = 0, α0 = σ1 = 1.
+To train a diffusion model, we can use the denoising score
+matching method (Song et al., 2021) which constructs a
+score prediction model ϵθ(xt, t) to estimate the scaled score
+function −σt∇x log pt(xt) with training objective formu-
+lated in Eq.
+22. Sampling from a diffusion model can
+be achieved by solving the reverse-time SDE or the corre-
+sponding diffusion ODE (Song et al., 2021) in an iterative
+manner. Recently, flow-based models (Liu et al., 2022a; Lip-
+man et al., 2022; Esser et al., 2024a) have shown superior
+performance through alternative training objective formu-
+lated in Eq. 31 while maintaining the same architecture as
+DiT (Peebles & Xie, 2023a). Sampling from a flow-based
+model can be achieved by solving the probability flow ODE.
+Mixture of Experts. Mixture of Experts (MoE) (Shazeer
+2
+
+
+===== [Page 3] =====
+DiffMoE: Dynamic Token Selection for Scalable Diffusion Transformers
+Batch 
+Level
+Batch–Level 
+Global 
+Token Pool
+Flatten
+z
+Expert-1
+Expert-2
+Expert-N
+Capacity
+Predictor
+1
+2
+3
+Router k!
+1
+2
+Router k"
+1
+Router k#
+DiffMoE Layer
+(Inference)
+…
+…
+Expert-1
+Expert-2
+Expert-N
+t1
+t1
+t2
+t2
+t3
+t3
+t4
+t4
+1
+2
+3
+Router k!
+𝐶$%&'(
+)!
+1
+3
+2
+Router k"
+2
+1
+3
+Router k#
+DiffMoE Layer
+(Training)
+…
+…
+Capacity
+Predictor
+𝐶*(+,%
+)!
+BCELoss
+t1
+t1
+t1
+t1
+t1
+t1
+t1
+t1
+t1
+t1
+t2
+t2
+t3
+t3
+t4
+t4
+𝐶*(+,%
+)!
+t1
+t1
+t2
+t2
+t3
+t3
+t4
+t4
+t1
+t1
+t2
+t2
+t3
+t3
+t4
+t4
+Unflatten
+Unflatten
+𝜏)!
+Input Tokens 
+Output 
+Tokens
+VAE Encoder
+Noisy 
+Images
+Figure 2: DiffMoE Architecture Overview. DiffMoE flattens tokens into a batch-level global token pool, where each expert
+maintains a fixed training capacity of CEi
+train = 1. During inference, a dynamic capacity predictor adaptively routes tokens
+across different sampling steps and conditions. Different colors denote tokens from distinct samples, while ti represents
+corresponding noise levels.
+et al., 2017; Cai et al., 2024) is based on a fundamental
+insight: different parts of a model can specialize in handling
+distinct tasks. By selectively activating only relevant com-
+ponents, MoE enables efficient scaling of model capacity
+while maintaining computational efficiency.
+MoE layers generally consist of N experts, each imple-
+mented as a Feed-Forward Network (FFN) with identical
+architecture, denoted by E1(x), . . . , EN(x) with input x.
+A routing matrix Wr ∈RD×N is used to calculate token-
+expert affinity matrix:
+M = softmaxE(xWr),
+x ∈RB×S×D,
+(1)
+where B is the batch size, S is the token length of one
+sample, D is the hidden dimension, softmaxE denotes the
+softmax operation along the expert axis. There are two
+common gating paradigms: Token-Choice (TC) (Shazeer
+et al., 2017; Fei et al., 2024) and Expert-Choice (EC) (Zhou
+et al., 2022; Sun et al., 2024a). For TC, each token of each
+sample individually selects top-K experts via a gating
+function, the gating function and output of TC-MoE layers
+are defined as follows:
+GT C
+s,i =
+(
+Ms,i,
+Ms,i ∈top-K({Ms,i}N
+i=1)
+0,
+otherwise
+(2)
+ys =
+K
+X
+i=1
+GT C
+s,i E(xs), xs ∈R1×D, s ∈{1, . . . , S}.
+(3)
+Different from TC, EC makes every expert selects K′ tokens
+from each sample of the input x ∈RB×S×D. The gating
+function GEC
+s,i can be implemented analogously to Eq. 2,
+with the modification that the top operation selects K′
+tokens along the token length dimension, i.e. S. Similar
+to Eq. 3, the output for a token xs of EC-MoE layers can
+be calculated as: ys =
+N
+P
+i=1
+GEC
+s,i E(xs), xs ∈R1×D. Both
+TC and EC struggle to achieve significant improvements
+comparing with dense models due to their restricted token
+accessibility and fixed computational patterns.
+2.2. DiffMoE: Dynamic Token Selection
+Batch-level Global Token Pool. Since MoE architectures
+replace FFN layers, both TC and EC paradigms in diffusion
+models are inherently limited to processing tokens within
+individual samples, where gating mechanisms operate ex-
+clusively on tokens sharing identical conditions and noise
+levels. This architectural constraint not only prevents ex-
+perts from learning crucial contrastive patterns but, more
+fundamentally, restricts their access to the global token dis-
+tribution that characterizes the full spectrum of the diffusion
+process. To capture this essential global context, we in-
+troduce a Batch-level Global Token Pool for DiffMoE by
+flattening batch and token dimensions, enabling experts to
+access a comprehensive token distribution spanning differ-
+ent noise levels and conditions. This design, which simulate
+the true token distribution of the entire dataset during train-
+ing, can be formulated as follows:
+x ∈RB×S×D →xpool ∈RBS×D.
+(4)
+3
+
+
+===== [Page 4] =====
+DiffMoE: Dynamic Token Selection for Scalable Diffusion Transformers
+Figure 3: Training Loss Curves of Different Flow-based
+Models.
+DiffMoE with batch-level global token pool
+achieves consistently lower diffusion losses than baselines
+without batch-level global token pool.
+During the training phase, we push expert E to select KE
+train
+tokens, forcing each expert to capture the characteristics
+of tokens from different conditional information and noise
+levels, while keeping expert load balance during training.
+The corresponding batch-level global token-expert affinity
+matrix will be calculated as follows:
+MDy = xpoolWr, xpool ∈RBS×D, Wr ∈RD×N. (5)
+Then, using MDy ∈RBS×N, the gating value of MoE and
+the output of DiffMoE layers can be computed as follows:
+GDy
+s,i =
+(
+MDy
+s,i ,
+MDy
+s,i ∈top-KE
+train({MDy
+s,i }BS
+s=1)
+0,
+otherwise
+(6)
+ys =
+N
+X
+i=1
+GDy
+s,i E(xs).
+(7)
+As shown in Figure 3, DiffMoE consistently achieves lower
+diffusion losses than all baselines.
+Capacity and Computational Cost. To establish a rigor-
+ous and fair comparison framework, we define the capacity
+CE for a single expert E, which serves as a standardized
+metric for quantifying computational costs. This capac-
+ity metric enables fair comparisons between DiffMoE and
+baseline models by accurately measuring the computational
+resources utilized by each expert:
+CE = N × # tokens processed by E
+# all input tokens
+= NKE
+BS ,
+(8)
+where KE denotes the number of tokens assigned to expert
+E, N is the number of experts, and BS represents the size
+of global token pool. Here, we define the capacity C for
+one forward process for both training and inference phases:
+C =
+1
+LN
+L
+X
+l=1
+N
+X
+i=1
+CEl
+i,
+(9)
+where El
+i denotes ith expert in the lth MoE layer.
+During training phase, Ctrain is fixed to 1 across all the
+MoE models, indicating that they keep the same computa-
+tional cost as dense models. Specifically, DiffMoE keeps
+KE
+train = BS/N for Ctrain = 1.
+TC-DiT selects the
+top-1 expert, while EC-DiT selects top-(S/N) tokens
+per sample in a batch to ensure the same computation. Dur-
+ing the inference phase, we compute the global average
+inference capacity Cavg
+infer by averaging over all timesteps:
+Cavg
+infer = 1
+T
+PT
+t=1 Ct
+infer, where Ct
+infer represents the infer-
+ence capacity at sampling step t.
+Capacity Predictor. Although batch-level global token
+routing enables efficient model training, conventional MoE
+inference strategies with fixed computational resource al-
+location fail to fully leverage its potential. This limitation
+stems from the static resource distribution across different
+noise levels and conditional information during inference.
+To optimize token selection, we propose a capacity predic-
+tor—a lightweight structure that dynamically determines
+token selection per expert through a two-layer MLP with
+SiLU activations. This adaptive mechanism learns from
+training-time token routing patterns, efficiently distributing
+computational resources between complex and simple cases.
+Formally, let CP(xpool) ∈RBS×N denote the predictor’s
+output for input xpool ∈RBS×D:
+CP(xpool) = W2σSiLU(W1xpool).
+(10)
+We can optimize the capacity predictor by minimizing the
+object function:
+LCP = BCELoss(O, CP(sg[xpool])
+(11)
+= −
+1
+LBSN
+L
+X
+l=1
+BS
+X
+i=1
+N
+X
+j=1
+{Ol
+i,j log(CP(sg[xpool])i,j)
++ (1 −Ol
+i,j) log(1 −CP(sg[xpool])i,j)},
+(12)
+where sg denotes the stop-gradient operation, and
+O ∈RL×BS×N is defined as follows:
+Ol
+s,i =
+(
+1,
+if xpool,s is processed by El
+i
+0,
+otherwise
+.
+(13)
+We employ the stop-gradient technique to train the
+capacity predictor, ensuring it focuses solely on the input
+features at the current layer while preventing it from inter-
+fering with the training of the main diffusion transformers.
+Therefore, LCP will not affect actual diffusion loss. During
+inference, the capacity predictor determines the inference
+capacity CEl
+i,t
+infer for each expert El
+i at timestep t based on
+a threshold. Let τEl
+i denote the threshold of El
+i. Using
+T = {τEl
+i | i ∈{1, . . . , N}, l ∈{1, . . . , L}}, the model
+4
+
+
+===== [Page 5] =====
+DiffMoE: Dynamic Token Selection for Scalable Diffusion Transformers
+achieves an adaptive CEl
+i,t
+infer allocation at sampling step t
+tailored to different input tokens as follows:
+CEl
+i,t
+infer(τEl
+i) =
+S
+X
+s=1
+δl
+s,i
+where δl
+s,i =
+(
+1,
+if CP(xpool)s,i > τEl
+i
+0,
+otherwise
+.
+(14)
+Then we can calculate Cavg
+infer w.r.t. T
+Cavg
+infer(T ) =
+1
+TNL
+T
+X
+t=1
+N
+X
+i=1
+L
+X
+l=1
+CEl
+i,t
+infer(τEl
+i).
+(15)
+Dynamic Threshold. We can set the threshold T to control
+the number of tokens processed by each expert during infer-
+ence. It is evident that #tokens processed during inference,
+decreases as τEl
+i increases for all expert. We can adjust
+T flexibly to achieve a better trade-off between computa-
+tional complexity and generation quality. We employ two
+distinct approaches for threshold T determination: Interval
+Search and Dynamic Threshold. The interval search method
+addresses an optimization problem formulated as follows:
+min
+T
+FID(T )
+subject to Cavg
+infer(T ) ≤1.
+(16)
+To simplify the optimization problem, we assume that τ =
+γ < 1, ∀τ ∈T , where γ is a constant in our experiments.
+However, interval search method is labor-intensive and
+time-consuming, making it impractical for real-world ap-
+plications. To address this limitation, we propose a dy-
+namic threshold method that automatically maintains thresh-
+olds (denoted as T Dy = {τ Dy
+El
+i
+| i ∈{1, . . . , N}, l ∈
+{1, . . . , L}}) for all experts during the training phase. To
+ensure the inference computational cost approximates the
+training cost (i.e. Cavg
+infer ≈1), we employ the Exponential
+Moving Average (EMA) technique as follows:
+QuantileEl
+i ←CP(xpool)sk,i,
+τ Dy
+El
+i ←α · τ Dy
+El
+i + (1 −α) · QuantileEl
+i,
+(17)
+where sk denotes the kth value in descending order, α is a
+constant which is equals to 0.95 in our experiments.
+3. Experiments
+We evaluate DiffMoE on class-conditional image genera-
+tion across three key aspects: (1) Training and Inference
+Performance, (2) Dynamic Computation, and (3) Scala-
+bility. Our experiments demonstrate DiffMoE’s effective-
+ness through extensive analysis. Additionally, we verify its
+adaptability on text-to-image generation tasks.
+Figure 4: Comparisons with the Baseline Models. We
+compare TC, EC, and Dense Models. DiffMoE-L-E16-Flow
+even surpasses the DenseDiT-XL-Flow (1.5x params) by
+achieving the best quality (14.41 FID50K w/o CFG at 700K).
+The results of the DDPM method remain consistent with
+those provided in the Appendix D.1.
+3.1. Experiment Setup
+Baseline and Model architecture.
+We compare with
+Dense-DiT trained by denoising score matching (Peebles
+& Xie, 2023a) and flow matching (Ma et al., 2024), TC-
+DiT (Fei et al., 2024), and EC-DiT (Sun et al., 2024a).
+For fair comparison, we reimplement TC-DiT and EC-DiT
+based on their public repositories and pseudo-codes while
+maintaining identical activated computation. Models are
+named as: [Model]-[Size]-[# Experts]-[Training Type].
+For class-conditional generation, we replace even FFN lay-
+ers with MoE layers containing N identical FFN compo-
+nents (Lepikhin et al., 2020), while maintaining the original
+DiT architecture (Peebles & Xie, 2023a), details of architec-
+ture are shown in Table 1. For text-to-image generation, we
+add cross-attention modules (Rombach et al., 2022), where
+DiffMoE-E16-T2I-Flow activates 1.2B parameters (match-
+ing Dense-DiT-T2I-Flow) from total 4.6B parameters. Full
+details are in Appendix B.1.
+Evaluation. We evaluated DiffMoE through both quan-
+titative and qualitative metrics. Quantitatively, we used
+FID50K (Heusel et al., 2017) with 250 DDPM/Euler
+steps for class-conditional generation, and compared with
+SiT (Ma et al., 2024) using Heun sampler at 125 steps.
+For text-to-image generation, we employed GenEval met-
+rics (Ghosh et al., 2023). Training losses were analyzed to
+validate the model’s convergence behavior. Additionally, we
+assessed the model’s performance through visual inspection
+of samples generated from diverse prompts.
+3.2. Main Results: Class-conditional Image Generation
+Class-conditional image generation is a task of synthesizing
+images based on specified class labels.
+5
+
+
+===== [Page 6] =====
+DiffMoE: Dynamic Token Selection for Scalable Diffusion Transformers
+Table 1: DiffMoE Model Configurations. Hyperparameter settings and computational specifications for class-conditional
+models. See Appendix C for activated parameter calculations.
+Model Config
+#Avg. Activated Params (Cavg
+infer = 1).
+#Total Params.
+#Blocks L
+#Hidden dim. D
+#Head n
+#Experts
+Ctrain
+DiffMoE-S-E16
+32M
+139M
+12
+384
+6
+16
+1
+DiffMoE-B-E16
+130M
+555M
+12
+768
+12
+16
+1
+DiffMoE-L-E8
+458M
+1.176B
+24
+1024
+16
+8
+1
+DiffMoE-L-E16
+458M
+1.982B
+24
+1024
+16
+16
+1
+Table 2: State-of-the-art Comparison. Evaluation on ImageNet 256 × 256 class-conditional generation. DiffMoE achieves
+better FID with fewer parameters. -G/-U denotes with/without guidance (Ho & Salimans, 2022). †: results from (Ma et al.,
+2024) (DDPM) and (Peebles & Xie, 2023a) (Flow). ∗: our reproduction. Bold indicates best performance in each cell.
+Diffusion Models (7000K)
+# Avg. Activated Params.
+FID↓
+IS↑
+Precision↑
+Recall↑
+Dense-DiT-XL-Flow-U† (Peebles & Xie, 2023a)
+675M
+9.35
+126.06
+0.67
+0.68
+Dense-DiT-XL-Flow-U∗(Peebles & Xie, 2023a)
+675M
+9.47
+115.58
+0.67
+0.67
+DiffMoE-L-E8-Flow-U
+458M
+9.60
+131.46
+0.67
+0.67
+Dense-DiT-XL-Flow-G† (cfg=1.5, ODE) (Ma et al., 2024)
+675M
+2.15
+254.9
+0.81
+0.60
+Dense-DiT-XL-Flow-G∗(cfg=1.5, ODE) (Ma et al., 2024)
+675M
+2.19
+272.30
+0.83
+0.58
+DiffMoE-L-E8-Flow-G (cfg=1.5, ODE)
+458M
+2.13
+274.39
+0.81
+0.60
+Dense-DiT-XL-DDPM-U† (Peebles & Xie, 2023a)
+675M
+9.62
+121.50
+0.67
+0.67
+Dense-DiT-XL-DDPM-U∗(Peebles & Xie, 2023a)
+675M
+9.62
+123.19
+0.66
+0.68
+DiffMoE-L-E8-DDPM-U
+458M
+9.17
+131.10
+0.67
+0.67
+Dense-DiT-XL-DDPM-G† (cfg=1.5) (Peebles & Xie, 2023a)
+675M
+2.27
+278.2
+0.83
+0.57
+Dense-DiT-XL-DDPM-G∗(cfg=1.5) (Peebles & Xie, 2023a)
+675M
+2.32
+279.18
+0.83
+0.57
+DiffMoE-L-E8-DDPM-G (cfg=1.5)
+458M
+2.30
+284.78
+0.82
+0.59
+Table 3: Baseline Model Comparisons. DiffMoE-L-E16-
+Flow achieves best FID50K (14.41 w/o CFG) among TC,
+EC, and Dense variants. DDPM results in Appendix 11.
+Model (700K)
+# Avg. Activated Params.
+Cavg
+infer
+FID50K ↓
+TC-DiT-L-E16-Flow
+458M
+1
+19.06
+EC-DiT-L-E16-Flow
+458M
+1
+16.12
+Dense-DiT-L-Flow
+458M
+1
+17.01
+Dense-DiT-XL-Flow
+675M
+1
+14.77
+DiffMoE-L-E16-Flow
+454M
+0.95
+14.41
+Table 4: Ablation of Capacity Predictor. We employ
+the capacity predictor to perform dynamic token selection,
+comparing it with the fixed TopK token selection method.
+Model (700K)
+Capacity Predictor
+Cavg
+infer
+FID50K ↓
+DiffMoE-L-E16-Flow
+w/o
+0.9
+16.63
+DiffMoE-L-E16-Flow
+w/o
+0.95
+15.99
+DiffMoE-L-E16-Flow
+w/o
+1
+15.25
+DiffMoE-L-E16-Flow
+w
+0.95
+14.41
+Comparison with Baseline. DiffMoE-L-E16 demonstrates
+superior efficiency by outperforming Dense-DiT-XL (with
+1.5× parameters) after 700K steps, as shown in Table 3.
+It consistently achieves lower training loss compared to
+variants TC-DiT-L-E16, EC-DiT-L-E16 and Dense-DiT-L
+(Figure 4, 11, 10). These improvements hold across both
+DDPM and Flow Matching paradigms while maintaining
+equivalent activated parameters. With more training time
+Figure 5: Text-to-Image Generation Loss Curves. Train-
+ing loss comparison between DiffMoE-E16-T2I-Flow and
+Dense-DiT-T2I-Flow models over 160K steps. DiffMoE
+consistently achieves lower loss values, demonstrating supe-
+rior convergence efficiency compared to the dense baseline.
+computation, DiffMoE-L-E16 can outperform Dense-DiT-
+XXXL (with 3× parameters) as shown in Table 5.
+Comparison with SOTA. After 7000K steps, DiffMoE-L-
+E8 achieves state-of-the-art FID50K scores of DDPM/Flow
+(2.30/2.13) with cfg=1.5,
+surpassing Dense-DiT-XL
+(2.32/2.19) as shown in Table 2. All evaluations follow
+DiT’s (Peebles & Xie, 2023a) protocol. Generated C2I
+samples are shown in Figure 15 and 16.
+6

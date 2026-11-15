@@ -1,0 +1,835 @@
+# Source PDF: C:\Users\Maha Mamdouh\Desktop\ML learning phase\deep learning math books\information-geometry-and-its-applications-1st-ed.pdf
+# Extracted Pages: 299-313 of 376
+
+
+===== [Page 299] =====
+296
+12
+Natural Gradient Learning and Its Dynamics in Singular Regions
+for large t. This shows that the error converges to 0in the order of 1/t as t goes to
+inﬁnity when ξ0 is ﬁxed. When the target changes over time, ξt traces its change
+nicely by modifying ηt.
+12.2
+Singularity in Learning: Multilayer Perceptron
+The multilayer perceptron (MLP), proposed by Rosenblatt (1961), is a universal
+machine that can approximate any input–output function, provided it includes a suf-
+ﬁciently large number of hidden neurons. Although it seemed to be gradually being
+replaced by new powerful learning machines such as the support vector machine
+(SVM), MLPhas beenrevivedinthe21st centuryin“deeplearning”, whereanetwork
+has a considerably large number of layers. Lots of new tricks are proposed to facilitate
+deep learning, including unsupervised learning (self-organization) as preprocessing,
+the convolutional structure, and the drop-out technique in supervised learning. Deep
+learning has recorded benchmark performances, winning most competitions on pat-
+tern recognition. See Schmidhuber (2015) for example. Researchers are astonished
+by the reincarnation of the multilayer perceptron. The back-propagation learning
+method is used at the ﬁnal stage.
+There is, however, a serious problem in the parameter space of a multilayer percep-
+tron. It includes singularities, in the sense that the same output function is realized
+by continuously many parameters in a speciﬁc region. One cannot determine the
+parameter uniquely in such a region, and so the parameter is not identiﬁable. The
+Fisher information matrix degenerates in this region. This causes the dynamics of
+learning to become extremely slow, which is known as a critical slowdown or the
+plateau phenomena.
+The present section studies typical singular structure in the manifold of multilayer
+perceptrons and clariﬁes its implications for statistical inference. The dynamical
+behavior of learning near singularities is studied in detail. Finally, it is shown that
+the natural gradient learning method, including SFN, overcomes these difﬁculties.
+12.2.1
+Multilayer Perceptron
+The multilayer perceptron is a layered machine composed of artiﬁcial neurons, which
+receives input x and emits output y. The behavior of an analog artiﬁcial neuron is
+described as follows: It receives a vector input signal x, calculates a weighted sum
+of inputs and subtracts a threshold as
+u =
+
+wixi −h = w · x −h,
+(12.101)
+
+
+===== [Page 300] =====
+12.2 Singularity in Learning: Multilayer Perceptron
+297
+where w = (w1, . . . , wn). It emits an output
+y = ϕ(u),
+(12.102)
+where ϕ is a sigmoidal function. We use
+ϕ(u) =
+
+2
+π
+ u
+0
+exp
+
+−s2
+2
+
+ds,
+(12.103)
+because this is convenient for obtaining explicit analytical solutions. The coefﬁcients
+wi are called the synaptic weights. In order to make descriptions simpler, we put
+h = 0 in the following.
+A multilayer perceptron consists of many layers in deep learning, but we consider
+here only three layers, an input layer, a hidden layer and an output layer (Fig.12.4).
+The ith neuron of the hidden layer calculates the weighted sum of input x as
+ui = wi · x
+(12.104)
+and emits output ϕ (ui), where wi is the weight vector of the ith hidden neuron. We
+consider a simple case that the output layer consists of only one output neuron. It
+calculates a weighted sum of the outputs of the hidden neurons and the ﬁnal output
+is written as
+y =
+
+viϕ (wi · x) ,
+(12.105)
+where vi are the weights of the output neuron. We may apply a sigmoidal nonlinear
+function to y, but it is only a nonlinear scale change. So we use a linear output neuron,
+but a nonlinear function is used when the output neurons are connected to the next
+layer as its input.
+A multilayer perceptron is speciﬁed by synaptic weights
+ξ = (w1, . . . , wm; v1, . . . , vm) .
+(12.106)
+Let M be the parameter space of perceptrons. Then, it is an N-dimensional manifold,
+where ξ is a coordinate system including N = (n + 1)m components. We write the
+input–output relation of the perceptron speciﬁed by ξ as
+Fig. 12.4 Multilayer
+perception
+input
+x
+...
+...
+output y
+w1
+wm
+.
+.
+.
+1
+(
+)
+w
+x
+(
+)
+m
+w
+x
+
+
+===== [Page 301] =====
+298
+12
+Natural Gradient Learning and Its Dynamics in Singular Regions
+y = f (x, ξ) =
+m
+
+i=1
+viϕ (wi · x) .
+(12.107)
+Learning takes place in the manifold M, where the current value ξ is modiﬁed by a
+stochastic gradient descent method using the current input–output example (xt, yt).
+12.2.2
+Singularities in M
+The manifold M includes a set of points which have the same output functions
+f (x, ξ) = f
+
+x, ξ′
+,
+(12.108)
+for ξ̸ = ξ′. Two such points ξ and ξ′ are said to be equivalent and are denoted by
+ξ ≈ξ′,
+(12.109)
+since their output functions are the same. When ξ has an equivalent point in M
+other than itself, we cannot identify ξ uniquely from the output function. There are
+two types of unidentiﬁability, originating from the invariance under the following
+transformations of parameters:
+1. Sign change:
+ξ ≈−ξ: This is because ϕ is an odd function, ϕ(−u) = −ϕ(u),
+so that f (x, ξ) = f (x, −ξ). The unidentiﬁability due to the sign change is simple,
+and we may eliminate the unidentiﬁability by restricting the region within vi ≥
+0, i = 1, . . . , m. However, the boundary vi = 0 causes singularities, as will be
+shown soon.
+2. Permutation:
+Let  be a permutation of indices and i be transformed to i′ as
+i′ =  i. Then,
+ξ = (w1, w2, . . . , wm; v1, . . . , vm) ≈ξ′ = (w1′, . . . , wm′; v1′, . . . vm′) .
+(12.110)
+We divide M by the equivalence relation ≈and put
+˜M = M/ ≈.
+(12.111)
+Equivalent points in M are reduced to one point in
+˜M, the space of the output
+functions of multilayer perceptrons. ˜M is not a manifold in the exact mathematical
+sense, as will be shown in the following, because it includes singular points due to
+unidentiﬁability. It is a manifold if we simply remove the singular points. ˜M is called
+a behavior manifold or neuromanifold, although it is not a manifold in the exact
+sense.
+
+
+===== [Page 302] =====
+12.2 Singularity in Learning: Multilayer Perceptron
+299
+We explain the singularity by using simple examples. Consider a very simple
+perceptron consisting of one hidden neuron, which is included in a larger model as
+a subnetwork. Its output function is
+f (x, ξ) = vϕ(w · x)
+(12.112)
+and the parameter space M is ξ = (w, v). When v = 0, whatever w is, the output
+function is 0. On the other hand, when w = 0, whatever v is, the output function is
+also 0, because ϕ(0) = 0. We call the set of these points a critical or singular region
+R of M, that is,
+R = {ξ |v = 0 or w = 0} .
+(12.113)
+All the points in R are equivalent. By dividing M by the equivalence relation, ˜M
+consists of two parts (not four because (w, v) and (−w, −v) are equivalent), which
+are connected by a single point corresponding to v = 0 or w = 0. It is a singular
+point in ˜M. See Fig.12.5. More generally, we consider the following eliminating
+singularity.
+(1) Eliminating singularity: When vi = 0, whatever the value of wi is, any wi gives
+the same output function. Hence, wi is not identiﬁable in this case. When wi = 0,
+whatever vi is, the output of the neuron is 0. Such a neuron has no effect on the
+output and it can be eliminated.
+Consider a subnetwork consisting of two hidden neurons i and j. Their output
+function is
+f (x, ξ) = viϕ (wi · x) + v jϕ
+
+w j · x
+
+.
+(12.114)
+(2) Overlapping singularity: When two neurons i and j in the hidden layer have
+identical weight vectors,
+wi = w j = w,
+(12.115)
+their contribution to the output is
+viϕ (wi · x) + v jϕ
+
+w j · x
+
+=
+
+vi + v j
+
+ϕ(w · x).
+(12.116)
+Fig. 12.5 Eliminating
+singularity
+v
+w
+M
+.
+M~
+
+
+===== [Page 303] =====
+300
+12
+Natural Gradient Learning and Its Dynamics in Singular Regions
+Therefore, the output is the same whatever values vi and v j take, as long as
+vi + v j is equal to a ﬁxed value v. That is, the output is the same on the line
+satisfying
+vi + v j = v
+(12.117)
+for any constant v. Hence, vi and v j themselves are not identiﬁable. This occurs
+when two neurons have the same weight vector wi = w j = w, with their weight
+vectors overlapping completely. A similar situation holds when wi = −w j, but
+we omit this case for simplicity’s sake.
+The critical region due to the overlapping singularity is given by
+Roi j(w, v) =
+
+ξ
+wi = w j = w, vi + v j = v
+
+.
+(12.118)
+See Fig.12.6, where Roi j(w, v) is mapped to a single point in ˜M. The images of the
+Roi j(w, v) form a continuous submanifold as w and v vary. The critical region in M
+is written as
+R =
+⎧
+⎨
+⎩ξ
+
+
+i
+vi |wi|
+
+i̸= j
+wi −w j
+ = 0
+⎫
+⎬
+⎭,
+(12.119)
+which is a union of critical submanifolds (12.118).
+We consider an equivalence class Ri j(w, v) speciﬁed by two parameters w and
+v, such that any networks in this class have the same output function
+f (x; w, v) = vϕ(w · x).
+(12.120)
+It consists of three parts, Ro,Rei and Rej,
+Ri j(w, v) = Ro ∪Rei ∪Rej,
+(12.121)
+wi
+wj
+v
+=v
+i
+j
++v
+v
+v
+i
+j
++v =
+wi
+j
+=w
+.v
+v
+Fig. 12.6 Overlapping singularity
+
+
+===== [Page 304] =====
+12.2 Singularity in Learning: Multilayer Perceptron
+301
+where
+Ro =
+
+ξ
+vi + v j = v, wi = w j = w
+
+,
+(12.122)
+Rei =
+
+ξ
+vi = 0, v j = v, wi is arbitrary, w j = w
+
+,
+(12.123)
+Rej =
+
+ξ
+v j = 0, vi = v, w j is arbitrary, wi = w
+
+.
+(12.124)
+Ro isaone-dimensionalsubspacecorrespondingtotheoverlappingsingularity,where
+z = vi −v j is a free parameter in it, keeping the sum vi + v j = v constant. Rei and
+Rej correspond to the eliminating singularity. They are n-dimensional, since wi and
+w j, respectively, can take any values. Ri j(w, v) is an elementary critical region which
+is a union of three parts, as is shown in Fig.12.7. All the points in it are mapped to a
+single point f = vϕ(w · x) in the behavior manifold ˜M. This is a singular point in ˜M.
+There are inﬁnitely many such critical regions, because we have an elementary
+critical region for each w and v and they are distributed continuously. So they form
+a continuum of singular points in the behavior manifold
+˜M where w and v are
+parameters. The region is further contracted when
+v|w| = 0
+(12.125)
+holds. Such critical regions exist for each pair (i, j) in a larger network and they
+intersect. So M includes a rich net of critical regions spreading over M.
+The trajectory of learning is given by (12.12) in M. It is mapped to ˜M and it may
+pass through a critical region in M or a singular point in ˜M. We study the dynamical
+behavior of learning near singularities.
+The loss function takes the same value in a critical region Ri j(w, v), so that its
+derivative in the tangent directions of Ri j(w, v) is always 0. This also implies that
+the Fisher information degenerates in the critical region Ri j of M, because there are
+directions a in Ri j such that
+f (x, ξ) = f (x, ξ + ca)
+(12.126)
+Fig. 12.7 Critical region
+Ri j(w, v)
+wi
+wj
+Ro
+vi=0
+vj=0
+Rei
+Rej
+z
+
+
+===== [Page 305] =====
+302
+12
+Natural Gradient Learning and Its Dynamics in Singular Regions
+holds for any c, as is derived from (12.118). a is one-dimensional in region Ro and
+n-dimensional in regions Rei and Rej (Fig.12.7). Hence, the score function, that is
+the derivative of log-likelihood, becomes 0in these directions. This implies that the
+Fisher information matrix has null directions in which
+aT G(ξ)a = 0.
+(12.127)
+So it degenerates and G−1 diverges on the critical region. The Fisher information
+exists and is non-degenerate in ˜M except for singular points. No tangent space exists
+at a singular point of ˜M. This is the same for the absolute Hessian metric and
+aT |H(ξ)|a = 0
+(12.128)
+holds in R in the direction satisfying ξ ≈ξ + a.
+A probability distribution p(x, y, ξ) accompanies each point of M and ˜M, but
+these probability distributions do not form a regular statistical model, because the
+non-degenerate Fisher information does not exist in critical regions or at singular
+points. We will discuss how the singularity affects statistical inference in a later
+subsection.
+12.2.3
+Dynamics of Learning in M
+Multilayer perceptrons suffer from two types of ﬂaw in their learning behavior. One
+is local minima such that the global minimum might not be attained by the gradient
+method. The second is the slowness of convergence, because the trajectory of learning
+is often trapped on a plateau, staying there for a long time before escaping from it
+(Amari et al. 2006). This is mostly due to the symmetric structure, such that its
+behavior is invariant under sign changes and permutations of hidden neurons.
+Geometrically speaking, the plateau phenomena are given rise to by the singular
+structure. A critical region forms a plateau. We will analyze the dynamics of vanilla
+stochastic gradient learning in the neighborhood of a critical region. We will also
+show that the natural gradient is free of the plateau phenomena.
+In order to analyze the dynamics, we use a very simple model consisting of
+two hidden neurons described in (12.114). Such simple models are embedded in a
+general perceptron as parts and cause a serious slowdown in learning. Instead of the
+difference Eq. (12.12) of stochastic descent learning, we use the averaged version in
+the continuous time,
+˙ξ(t) = −η⟨∂l (x, y, ξ(t))
+∂ξ
+⟩,
+(12.129)
+where ⟨⟩is the average with respect to the joint probability distribution p(x, y, ξ0)
+of the true or teacher system from which training examples are generated. We fur-
+ther assume that the probability distribution of input x is subject to the Gaussian
+
+
+===== [Page 306] =====
+12.2 Singularity in Learning: Multilayer Perceptron
+303
+distribution N(0, I) with mean 0 and covariance matrix I, the identity matrix. These
+assumptions are useful for obtaining explicit solutions.
+In order to analyze the behavior of dynamics (12.129) consisting of two hidden
+neurons, we use a new coordinate system ζ (Wei et al. 2008),
+ζ = (u, z, s,r),
+(12.130)
+where
+u = w2 −w1,
+s = v1w1 + v2w2
+v1 + v2
+,
+(12.131)
+z = v1 −v2
+v1 + v2
+,
+r = v1 + v2
+(12.132)
+and we use sufﬁxes 1, 2 instead of i, j. The critical region R = R12(w, v) is given
+in this new coordinate system by
+R = {u = 0 or z = ±1} ,
+(12.133)
+in which s = w and r = v hold. We divide it into two parts R = Ro ∪Re,
+Ro = {ζ| u = 0} ,
+(12.134)
+Re = {ζ| z = ±1} ,
+(12.135)
+where Ro is the overlapping singularity and Re = Re1 ∪Re2 is the eliminating sin-
+gularity.
+The dynamics (12.129) are described in the new coordinate system as
+˙ζ = −ηTTT ⟨∂l(x, y, ζ)
+∂ζ
+⟩,
+(12.136)
+where T is the Jacobian matrix of the coordinate transformation from ξ to ζ,
+T = ∂ζ
+∂ξ .
+(12.137)
+The output function f is written as
+f (x, ζ) = 1
+2r(1 + z)ϕ
+
+s + 1
+2(z −1)u
+
+· x
+	
++ 1
+2r(1 −z)ϕ
+
+s + 1
+2(z + 1)u
+
+· x
+	
+(12.138)
+
+
+===== [Page 307] =====
+304
+12
+Natural Gradient Learning and Its Dynamics in Singular Regions
+in terms of the new coordinates. We expand it in the Taylor series in the neighborhood
+of Ro,
+f (x, ζ) = rϕ(s · x) + 1
+8
+
+1 −z2
+u′Ju,
+(12.139)
+J = ∂2ϕ(s · x)
+∂s∂s
+,
+(12.140)
+where higher-order terms of u are neglected. We then have the learning dynamics in
+terms of ζ = (u, z) in the neighborhood of Ro. The dynamics concerning variables s
+and r are subject to the usual differential equations (fast dynamics) and their values
+converge rapidly to their equilibrium values, even when the behaviors of u and z are
+suffering from a critical slowdown (slow dynamics). Hence, we analyze the equations
+concerning u and z, where s and r are assumed to have converged to their equilibrium
+values w and v. The resultant dynamics are
+˙u = 2
+
+1 −z2
+Ku,
+(12.141)
+˙z = −z
+
+z2 + 3
+
+r2
+u′Ku,
+(12.142)
+where
+K = r
+4⟨{y −f (x, ζ)} J⟩.
+(12.143)
+It is clear that
+dζ
+dt = 0
+(12.144)
+in the region R = Ro ∪Re, so any points in R are equilibria. The stability of the
+equilibria depends on K. We show the results without proofs (which are technical
+and complicated but not difﬁcult, see Wei et al. 2008; Wei and Amari 2008).
+Theorem 12.3 When the teacher output function is in the critical region, the equi-
+libria are stable.
+This case occurs when the system is over-realizable, having redundant parameters.
+Theorem 12.4 When the teacher output function is outside the critical region, we
+have three cases, depending on the eigenvalues of K:
+(1) The equilibrium solutions on Ro satisfying |z| > 1 are stable and those satisfying
+|z| < 1 are unstable when K is positive-deﬁnite.
+(2) The equilibrium solutions on Ro satisfying |z| < 1 are stable and those satisfying
+|z| > 1 are unstable when K is negative-deﬁnite.
+(3) The solutions on Ro are unstable when some eigenvalues are positive and some
+negative.
+
+
+===== [Page 308] =====
+12.2 Singularity in Learning: Multilayer Perceptron
+305
+We further analyze the trajectories of the solutions in the neighborhood of Ro. Let
+us introduce a function
+h(u) = 1
+2|u|2,
+(12.145)
+which shows how far the current ζ is from Ro. Its time derivative is given, from
+(12.141) and (12.142), as
+˙h(u) = uT ˙u = 2r2 
+z2 −1
+
+z
+
+z2 + 3
+ ˙z.
+(12.146)
+The equation is integrable, and the solution is
+h(u) = 2r2
+3 log
+
+z2 + 3
+3
+|z|
++ c,
+(12.147)
+where c is an arbitrary constant that speciﬁes a trajectory.
+Theorem 12.5 The trajectories of learning are
+h(u) = 2r2
+3 log
+
+z2 + 3
+2
+|z|
++ c
+(12.148)
+in the neighborhood of Ro.
+The family of trajectories shows how the dynamics proceed in the neighborhood
+of Ro. The behaviors are the same for any ξ ∈Ro, but their stabilities depend on ξ
+and K. See Fig.12.8. When ξ0 is in R, R is stable. When K is positive-deﬁnite or
+negative-deﬁnite, the trajectory starting from the basin of attraction reaches a stable
+point in Ro and is trapped in it, ﬂuctuating in it randomly before escaping from it.
+12.2.4
+Critical Slowdown of Dynamics
+We consider the two cases separately.
+Case 1: The teacher function is in R. When the number of hidden neurons is larger
+in the model network (student network) to be trained than in the teacher network
+(true network), some neurons are redundant because the optimal solution is realized
+by using a smaller number of neurons. This is the over-realizable case. In this case,
+elimination of neurons or overlap of synaptic weight vectors occurs, implying that
+the optimal solution is in R.
+
+
+===== [Page 309] =====
+306
+12
+Natural Gradient Learning and Its Dynamics in Singular Regions
+Fig. 12.8 Landscape of
+error function and learning
+trajectory
+r
+o
+rr
+E
+1
+0
+1
+z
+.
+When the teacher network is ξo ∈R, (12.143) is written as
+K = r
+4⟨e ∂2ϕ
+∂s∂s⟩,
+(12.149)
+where
+e = ⟨f (x, ζ) −f
+
+x, ζ0
+
+⟩
+(12.150)
+is the error term and is 0 when ζ ∈R, in particular, when u = 0. By expanding the
+error term, we can easily obtain
+K = O
+
+|u|2
+.
+(12.151)
+This implies that the dynamics of u are
+du
+dt = O
+
+|u|3
+.
+(12.152)
+Hence, the speed of convergence of u to 0 is extremely slow, taking a long time for
+training (Fig.12.9a). This is frequently observed in simulations.
+Case 2: The optimal solution lies outside R. Points in R are equilibrium solutions.
+K is not small in this case, because the error term is not small at R. When K is
+positive-deﬁnite or negative-deﬁnite, the part of Ro, |z| > 1 or |z| < 1, respectively,
+is stable but the other part is unstable. The landscape of the loss function is shown in
+this case in Fig.12.8, where Ro is shown by the solid line. Starting ζ at some initial
+point belonging to the basin of attraction, the state is attracted to the stable part of Ro.
+See Fig.12.9b, c. The value of the loss function is the same and its derivative is 0 on
+Ro since all points in Ro are equivalent. However, this is not the optimal point. The
+
+
+===== [Page 310] =====
+12.2 Singularity in Learning: Multilayer Perceptron
+307
+Fig. 12.9 Trajectories of
+learning near singularity: a
+Teacher is at singularity; b
+|z| < 1 is stable; c |z| > 1 is
+stable
+0
+0.4
+0.3
+0.2
+0.1
+3
+1
+2
+0
+1
+2
+3
+h(
+)
+u
+z
+0
+0.4
+0.3
+0.2
+0.1
+3
+1
+2
+0
+1
+2
+3
+h(
+)
+u
+z
+0
+0.4
+0.3
+0.2
+0.1
+3
+1
+2
+0
+1
+2
+3
+h(
+)
+u
+z
+(a)
+(b)
+(c)
+state ﬂuctuates in the neighborhood of Ro by stochastic dynamics due to randomly
+selected input x. Thus, a random walk of the state takes place in the neighborhood of
+Ro and the state eventually reaches the boundary |z| = 1 of the stable region. It thus
+enters the unstable region and then escapes from Ro immediately, moving toward
+the true optimal point. However, it takes a long time before leaving the stable critical
+region. See Fig.12.10. Precisely speaking, the ﬂuctuation around Ro is not a random
+walk, because there are systematic ﬂows out of the stable region in the neighborhood
+of Ro, but the ﬂow is very small when u is small.
+Although the trajectories passing through R have incoming ﬂows and outgoing
+ﬂows at R, this is completely different from those at a saddle point. The basin of
+attraction has measure 0in the case of a saddle. Therefore, it is at measure 0 that the
+state reaches the saddle. Moreover, the state escapes from the saddle quickly by a
+small perturbation. On the other hand, the basin of attraction of R has a ﬁnite measure
+and the trajectory exactly reaches R in this case. A small perturbation moves the state
+but it again reaches R. This does not prevent a trajectory reaching R. A saddle does
+not cause any serious effect on the slowdown of dynamics. It is a critical region that
+causes a critical slowdown.
+
+
+===== [Page 311] =====
+308
+12
+Natural Gradient Learning and Its Dynamics in Singular Regions
+Fig. 12.10 Trajectory of
+learning near the singularity
+Learning trajectory near the singularity
+L( )
+ξ
+R0
+Fig. 12.11 Trajectories in ˜M
+.
+Basin of attraction
+We can consider the same dynamics in ˜M where R is reduced to one point by the
+equivalence.Thepointcorrespondingto R isasingularpoint.ItisaMilnorattractorin
+˜M,ofwhichthebasinofattractionhasaﬁnitemeasure(Milnor1985).Thetrajectories
+enter it and then emerge from it (Fig.12.11). A general multilayer perceptron includes
+a net of such critical regions within it. The trajectory of vanilla stochastic gradient
+learning is trapped in such critical regions many times before it reaches the optimum
+solution. This is known as the plateau phenomena. See Fig.12.12 for an example of
+learning curves.
+Fig. 12.12 Plateaus
+L t( )
+t
+
+
+===== [Page 312] =====
+12.2 Singularity in Learning: Multilayer Perceptron
+309
+12.2.5
+Natural Gradient Learning Is Free of Plateaus
+The plateau phenomena are given rise to by the singularities. Let us consider a simple
+case of (12.114), where the horizontal line (z-axis) in Fig.12.7 is the critical region
+and all the points in this line are equivalent. The Riemannian length is 0 along this line
+and the Riemannian metric degenerates in this direction. The inverse of the Fisher
+metric diverges in this direction to inﬁnity at R. The gradient of the cost function is
+also 0in this direction because all the points in R are equivalent. Therefore, the natural
+gradient, ˜∇l = G−1∇l, is 0 multiplied by inﬁnity at the singular points. Because of
+this, the natural gradient takes an ordinary value even in a very small neighborhood
+of R.
+Cousseau et al. (2008) analyzed the dynamics of natural gradient learning near
+singularity when the teacher ζ0 is in R. After complicated calculations,
+˙u = −η
+2
+
+1 −z2
+u,
+(12.153)
+˙z = η
+2
+
+1 −z2
+z
+(12.154)
+is derived in the one-dimensional case. This shows that the dynamics converges to
+R in the linear order. Hence, no retardation takes place.
+When ζ0 is outside R, the trajectory is trapped in plateaus in the case of ordinary
+stochastic gradient learning. However, in the case of natural gradient learning, no
+retardation takes place, because the Riemannian metric is 0 along the Ro-direction
+so that all the points are reduced to a single point. That is, the trajectory enters a
+point in R and goes out immediately not staying within it. This is well understood
+by considering the trajectory in ˜M.
+In ˜M, R reduces to the single singular point, and all the other points in ˜M are
+regular, having a non-degenerate Riemannian metric. Even in a very small neighbor-
+hood of R, G−1∇l takes ordinary values. Hence, a critical slowdown does not occur.
+To show this, Cousseau et al. (2008) used the blow-down technique of algebraic
+geometry. They introduced a new coordinate system μ = (δ, γ),
+δ =
+
+1 −z2
+u2,
+(12.155)
+γ = z
+
+1 −z2
+u3,
+(12.156)
+when u is one-dimensional. All the points in singular region R is mapped to a single
+point μ = (0, 0). The Fisher information G takes ordinary values even in a small
+neighborhood of R except for (0, 0) at which it is not deﬁned. They showed that
+⟨∇l⟩= Gμ
+(12.157)
+
+
+===== [Page 313] =====
+310
+12
+Natural Gradient Learning and Its Dynamics in Singular Regions
+Fig. 12.13 Learning curves
+0
+0
+3.5
+3
+2.5
+1.5
+0.5
+1
+3
+200
+50
+100
+Expected Loss
+LearningStep
+Standard Gradient
+Adaptive Natural
+Gradient
+150
+holds in this coordinate system when the teacher is in R. Hence, the natural gradient
+learning dynamics becomes very simple,
+˙μ = −ημ,
+(12.158)
+in a neighborhood of R, when the teacher is inside R. When the teacher is outside R,
+the trajectory enters R, that is, μ = 0 without retardation, and then escapes from it
+immediately. It is interesting to see that, starting from various initial points, the tra-
+jectories once enter R and then go out. The basin of attraction of R has a ﬁnite major,
+although the trajectories leave it immediately (see Fig.12.11). This is a typical Milnor
+attractor. The new coordinate system μ, using the blow-down technique, is useful. It
+should be remarked that absolute Hessian dynamics have the same characteristics.
+See Fig.12.13 for examples of the learning curves of the adaptive natural gradient
+learning method compared to the ordinary back-propagation method.
+12.2.6
+Singular Statistical Models
+A statistical model M = {p(x, ξ)} is regular when it satisﬁes the two conditions:
+(1) The parameter ξ belongs to an open set in a Euclidean space.
+(2) The Fisher information matrix exists and is non-singular.
+In this case, n score functions
+ui(x, ξ) = ∂log p(x, ξ)
+∂ξi
+,
+i = 1, . . . , n
+(12.159)

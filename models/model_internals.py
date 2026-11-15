@@ -63,6 +63,10 @@ def mp_sum(a: torch.Tensor,b: torch.Tensor,t: float = 0.5)-> torch.Tensor:
         Returns:
             torch.Tensor: The combined tensor with unit variance (assuming inputs were unit variance).
         """
+    if a.dtype != b.dtype:
+        common = torch.promote_types(a.dtype, b.dtype)
+        a = a.to(common)
+        b = b.to(common)
     return a.lerp(b,t) / np.sqrt((1 - t)**2 + t**2)
 
 def mp_gated_sum(
@@ -103,6 +107,10 @@ def mp_cat(a: torch.Tensor,b:torch.Tensor,dim: int = 1,t: float = 0.5)-> torch.T
         Returns:
             torch.Tensor: The concatenated and scaled tensor.
         """
+    if a.dtype != b.dtype:
+        common = torch.promote_types(a.dtype, b.dtype)
+        a = a.to(common)
+        b = b.to(common)
     Na = a.shape[dim]
     Nb = b.shape[dim]
     c1 = np.sqrt((Na+Nb)/((1-t)**2 + t**2))
@@ -459,7 +467,8 @@ class MP_Attention(nn.Module):
                 gain_t: float,
                 context: Optional[torch.Tensor] = None,
                 time_embedding: Optional[torch.Tensor] = None,
-                apply_residual: bool = True
+                apply_residual: bool = True,
+                context_mask: Optional[torch.Tensor] = None,
                 )-> torch.Tensor:
         """
         Args:
@@ -517,6 +526,16 @@ class MP_Attention(nn.Module):
             bias = self._get_rel_pos_bias(seq_len_q, seq_len_kv)
             # Add bias (Broadcasting over Batch dimension)
             attn_scores = attn_scores + bias.unsqueeze(0)
+
+        # Optional padding mask for context keys: True/1 = valid token, False/0 = masked
+        if context_mask is not None:
+            key_keep = context_mask.bool().view(batch_size, 1, 1, seq_len_kv)
+            # Keep at least the first token if a row is fully masked to avoid NaN softmax
+            all_masked = ~key_keep.any(dim=-1, keepdim=True)
+            if all_masked.any():
+                key_keep = key_keep.clone()
+                key_keep[..., 0:1] = key_keep[..., 0:1] | all_masked
+            attn_scores = attn_scores.masked_fill(~key_keep, torch.finfo(attn_scores.dtype).min)
 
         # Softmax & Output
         attn_probs = F.softmax(attn_scores, dim=-1)

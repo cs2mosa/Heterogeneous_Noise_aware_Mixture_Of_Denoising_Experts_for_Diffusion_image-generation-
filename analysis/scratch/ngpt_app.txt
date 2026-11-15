@@ -1,0 +1,636 @@
+# Source PDF: C:\Users\Maha Mamdouh\Desktop\ML learning phase\scientifc papers\NGPT  NORMALIZED TRANSFORMER WITH REPRE SENTATION LEARNING ON THE HYPERSPHERE.pdf
+# Extracted Pages: 12-15 of 21
+
+
+===== [Page 12] =====
+Normalized Transformer
+A
+APPENDIX
+A.1
+RESCALING IN THE MLP BLOCK OF THE NORMALIZED TRANSFORMER
+When computing SwiGLU using equation 18, each element x of the vector v is an input to SiLU:
+SiLU(x) = x · σ(x) = x ·
+1
+1 + e−x ,
+(23)
+where σ(x) is sigmoid.
+For x with large magnitude, SiLU(x) approximates ReLU(x): when
+x →−∞, SiLU(x) →0, and when x →∞, SiLU(x) ≈x. The minimum of SiLU(xmin) ≈
+−0.278 is located at xmin ≈−1.278. While the elements of v represent dot products of dmodel-
+dimensional vectors and are bounded in [−1, 1], their expected absolute value (when they are ran-
+dom) is E[| cos(θ)|] = 2
+π ·
+1
+√dmodel ≈
+0.7979
+√dmodel . Thus, we should rescale x by √dmodel, otherwise,
+for very small x, we end up with SiLU(x) ≈x/2. An alternative view is to note that since the
+variance of each of the normalized vectors (h and a vector from Wv) is 1/dmodel, the variance of
+1 (suitable for the sigmoid part of SiLU) can be restored by rescaling of x by √dmodel. Based on
+these two views, we rescale v by √dmodel to beneﬁt from the non-linearity of SiLU.
+A.2
+EIGEN LEARNING RATES
+In the main text of the paper, we deﬁned eigen learning rates as positive (α ←|α| is used during the
+forward pass). However, when they are not constrained to be positive, we obtain experimental results
+which are the same (up to numerical difference). This surprising observation can be explained as
+follows. Both the attention and MLP blocks have transformation matrices at their outputs. When
+the search is unconstrained, it is sufﬁcient for Adam to ﬂip (select) the sign of the i-th row of
+the output transformation matrix Wo to change the sign of the corresponding i-th coordinate in
+hA. Thus, the transformation calculated as αAWo is the same as α′
+AW ′
+o, where α′
+A,i = −αA,i
+and W ′
+o,(i,:) = −Wo,(i,:). In other words, when unconstrained, we can arrive at exactly the same
+transformation by ﬂipping the signs in both α and Wo, which cancel each other. For simplicity and
+clearer interpretation, we suggest constraining α to be positive in the main paper.
+There is, however, another interesting scenario when eigen learning rate could become negative. In
+quasi-Newton methods, B approximates the inverse Hessian matrix H−1 whose diagonal elements
+are positive values if the function is locally convex which is the assumption of the Newton method
+(H needs to be positive deﬁnite). However, the diagonal of H−1 can have negative values if the
+objective function is non-convex and has saddle points. While quasi-Newton methods like BFGS
+aim to ensure (e.g., via regularization) that B is positive-deﬁnite even on non-convex problem, some
+Riemannian optimization methods can exploit negative curvature of H−1 (Agarwal et al., 2021).
+When the diagonal of B is unconstrained, we perform a variable-metric step, acknowledging that
+the function may be non-convex locally. We did not mention this in the main paper because, as noted
+earlier, the results with both constrained and unconstrained α are essentially the same.
+A.3
+RIEMANNIAN OPTIMIZATION
+If h −hA is viewed as the gradient g in the Euclidean space, then, aligning with the requirements
+of Riemannian optimization, the projection of g onto the tangent space of the hypersphere is
+gproj ←h(hT hA) −hA
+(24)
+The projection is equivalent to g when the dot product hT hA is 1. Depending on the alignment
+between h and hA, the projected gradient varies between h−hA (when the vectors are aligned) and
+−hA (when the vectors are orthogonal). The Riemannian variable-metric update then reads as:
+h ←Norm( h −BA(h(hT hA) −hA) )
+(25)
+h ←Norm( h −BM(h(hT hM) −hM) )
+(26)
+12
+
+
+===== [Page 13] =====
+Normalized Transformer
+Table 2: Model Parameters for GPT and nGPT
+Model Parameter
+0.5B Models
+1.0B Models
+Number of Layers (nlayers)
+24
+36
+Model Dimension (dmodel)
+1024
+1280
+Number of Attention Heads (nheads)
+16
+20
+Key Dimension (dk)
+dmodel/nheads
+dmodel/nheads
+MLP Dimension (dMLP)
+4dmodel
+4dmodel
+Parameters in GPT
+468.2M
+1025.7M
+Parameters in nGPT
+468.4M
+1026.1M
+Table 3: Optimization Parameters for GPT and nGPT
+Optimization Parameter
+GPT
+nGPT
+Optimizer
+AdamW
+Adam (AdamW with weight decay 0.0)
+Weight Decay
+0.1
+0.0
+Number of Warmup Steps
+2000
+0
+Learning Rate Schedule
+Cosine Annealing
+Cosine Annealing
+Initial Learning Rate
+problem-speciﬁc
+problem-speciﬁc
+Final Learning Rate
+0
+0
+The normalization by Norm can be viewed as the retraction step in Riemannian optimization, map-
+ping the updated solution back to the manifold.
+Our experimental results suggest that the impact of hT hM is negligible. Therefore, all experiments
+in the paper are based on equations 10 and 11.
+A.4
+TIME COST PER STEP
+The time cost per step for nGPT is approximately 80% higher with 4k context length, and 60%
+higher with 8k context length. This overhead is not only due to nGPT having 6 normalization steps
+(2 of them are applied for q and k) per layer instead of 2, but also because nGPT’s normalizations
+are not yet fully optimized, unlike GPT, where normalization layers are fused with other operations.
+Training on larger networks is expected to further reduce this performance gap, as the number of
+layers (and thus the number of normalizations) increases only modestly with the number of network
+parameters. Appendix A.8 shows that we can remove the normalization of q and k with a minor
+negative impact on results.
+A.5
+EXPERIMENTAL SETUP
+In all experiments, we use OpenWebText (Gokaslan & Cohen, 2019) dataset which, according to
+experiments of Karpathy (2023), represents a good approximation of the OpenAI’s internal dataset
+used to train GPT-2 models. We are well aware that this dataset is not of the highest quality. How-
+ever, we believe that it is suitable for academic research, and, should improve the comparability of
+our ﬁndings with other research papers.
+We trained our models using 64 A100 GPUs distributed across 8 nodes (8 GPUs per node). Global
+batch size is 512. We use the LLaMA-2 tokenizer with 32k tokens. We use the same setup for the
+0.5B and 1.0B parameter models.
+All matrix parameters are initialized by sampling from a zero-mean normal distribution with a stan-
+dard deviation of 0.02 for GPT and 1/√dmodel for nGPT. The standard deviation for the output
+matrices was scaled by a factor of p2 × nlayer, as suggested by Radford et al. (2018). The initial-
+ization of matrix parameters is not important for nGPT because they are normalized afterwards.
+The base of RoPE is 10000. The initialization of the additional parameters introduced in nGPT is
+described in Section 2.6.
+13
+
+
+===== [Page 14] =====
+Normalized Transformer
+A.6
+SELECTION OF THE INITIAL LEARNING
+The initial learning rate is the only hyperparameter we tune for both GPT and nGPT. Figure 7
+demonstrates our trials to select the most suitable initial learning rate for GPT and nGPT. Our ﬁrst
+experiments started with the 0.5B model and 1k context length. After observing the general trend of
+these curves, we reduced the number of experiments and followed the trends to minimize the total
+compute used. Apart from estimating the optimal settings for the initial learning rate, our general
+observation is that the optimal learning rates for GPT and nGPT tend to be similar for the same
+values of the validation loss. Longer runs are usually associated with the possibility of achieving
+lower values of the validation loss, and this typically requires lower initial learning rates.
+One artifact we observed is the increasing sensitivity of the 1B nGPT model on 8k context length.
+We found that the smoothness of the hyperparameter curves can be restored (see the dotted lines with
+squares) by increasing αA,init and αM,init from their default value of 1/√dmodel to 0.1. This change
+decreases the effective learning rate of Adam on these variables by a factor of (1/√dmodel)/0.1 ≈3.
+As a result, the eigen learning rates are learned by Adam at a slower rate.
+1
+1.5
+2
+2.5
+3
+Initial learning rate
+10-3
+2
+2.05
+2.1
+2.15
+2.2
+2.25
+2.3
+2.35
+2.4
+2.45
+Final validation loss
+0.5B with 1K context
+50k
+100k
+200k
+400k
+800k
+25k
+50k
+100k
+200k
+1
+1.5
+2
+2.5
+3
+3.5
+4
+4.5
+5
+Initial learning rate
+10-3
+2
+2.05
+2.1
+2.15
+2.2
+2.25
+2.3
+2.35
+2.4
+2.45
+Final validation loss
+0.5B with 4K context
+13k
+25k
+50k
+100k
+6k
+13k
+25k
+50k
+100k
+1
+2
+3
+4
+5
+6
+Initial learning rate
+10-3
+2
+2.05
+2.1
+2.15
+2.2
+2.25
+2.3
+2.35
+2.4
+2.45
+Final validation loss
+0.5B with 8K context
+25k
+50k
+100k
+3k
+4k
+6k
+10k
+25k
+50k
+100k
+1
+1.5
+2
+2.5
+3
+Initial learning rate
+10-3
+2
+2.05
+2.1
+2.15
+2.2
+2.25
+2.3
+2.35
+2.4
+2.45
+Final validation loss
+1B with 1K context
+50k
+100k
+200k
+400k
+800k
+13k
+25k
+50k
+100k
+200k
+1
+1.5
+2
+2.5
+3
+3.5
+4
+4.5
+5
+Initial learning rate
+10-3
+2
+2.05
+2.1
+2.15
+2.2
+2.25
+2.3
+2.35
+2.4
+2.45
+Final validation loss
+1B with 4K context
+25k
+50k
+100k
+200k
+6k
+13k
+20k
+25k
+50k
+100k
+200k
+1
+1.5
+2
+2.5
+3
+3.5
+4
+4.5
+5
+Initial learning rate
+10-3
+2
+2.05
+2.1
+2.15
+2.2
+2.25
+2.3
+2.35
+2.4
+2.45
+Final validation loss
+1B with 8K context
+25k
+50k
+100k
+200k
+6k
+10k
+13k
+25k
+50k
+100k
+25k Ainit01Minit01
+50k Ainit01Minit01
+Figure 7: Final validation loss values for different initial learning rates for the 0.5B models (Top)
+and 1B models (Bottom). GPT is denoted by solid lines with circles, while nGPT is represented by
+the dotted lines with stars. A speciﬁc case with a different setup, denoted by the dotted lines with
+squares (Bottom Right), is discussed in the text.
+14
+
+
+===== [Page 15] =====
+Normalized Transformer
+0
+100
+200
+300
+400
+500
+Training tokens in billions
+0.46
+0.48
+0.5
+0.52
+0.54
+0.56
+0.58
+0.6
+Value
+1K context:  arc easy
+GPT 0.5B
+GPT 1B
+nGPT 0.5B
+nGPT 1B
+0
+100
+200
+300
+400
+500
+Training tokens in billions
+0.38
+0.4
+0.42
+0.44
+0.46
+0.48
+0.5
+0.52
+0.54
+0.56
+Value
+1K context:  hellaswag
+GPT 0.5B
+GPT 1B
+nGPT 0.5B
+nGPT 1B
+0
+100
+200
+300
+400
+500
+Training tokens in billions
+0.52
+0.53
+0.54
+0.55
+0.56
+0.57
+0.58
+0.59
+0.6
+0.61
+Value
+1K context:  winogrande
+GPT 0.5B
+GPT 1B
+nGPT 0.5B
+nGPT 1B
+0
+100
+200
+300
+400
+500
+Training tokens in billions
+0.6
+0.62
+0.64
+0.66
+0.68
+0.7
+0.72
+0.74
+Value
+1K context:  wsc273
+GPT 0.5B
+GPT 1B
+nGPT 0.5B
+nGPT 1B
+0
+100
+200
+300
+400
+500
+Training tokens in billions
+0.42
+0.44
+0.46
+0.48
+0.5
+0.52
+0.54
+0.56
+0.58
+0.6
+Value
+1K context:  lambada openai seqlen1024
+GPT 0.5B
+GPT 1B
+nGPT 0.5B
+nGPT 1B
+0
+100
+200
+300
+400
+500
+Training tokens in billions
+0.48
+0.5
+0.52
+0.54
+0.56
+0.58
+0.6
+0.62
+Value
+1K context:  average
+GPT 0.5B
+GPT 1B
+nGPT 0.5B
+nGPT 1B
+Figure 8: Models trained with 1k context length. Final performance (y-axis) on a set of downstream
+tasks and their average value (Bottom-Right) for different computation budgets in tokens (x-axis).
+0
+200
+400
+600
+800
+1000
+Training tokens in billions
+0.46
+0.48
+0.5
+0.52
+0.54
+0.56
+0.58
+0.6
+0.62
+Value
+8K context:  arc easy
+GPT 0.5B
+GPT 1B
+nGPT 0.5B
+nGPT 1B
+0
+200
+400
+600
+800
+1000
+Training tokens in billions
+0.35
+0.4
+0.45
+0.5
+0.55
+0.6
+Value
+8K context:  hellaswag
+GPT 0.5B
+GPT 1B
+nGPT 0.5B
+nGPT 1B
+0
+200
+400
+600
+800
+1000
+Training tokens in billions
+0.5
+0.52
+0.54
+0.56
+0.58
+0.6
+0.62
+Value
+8K context:  winogrande
+GPT 0.5B
+GPT 1B
+nGPT 0.5B
+nGPT 1B
+0
+200
+400
+600
+800
+1000
+Training tokens in billions
+0.54
+0.56
+0.58
+0.6
+0.62
+0.64
+0.66
+0.68
+0.7
+0.72
+0.74
+Value
+8K context:  wsc273
+GPT 0.5B
+GPT 1B
+nGPT 0.5B
+nGPT 1B
+0
+200
+400
+600
+800
+1000
+Training tokens in billions
+0.38
+0.4
+0.42
+0.44
+0.46
+0.48
+0.5
+0.52
+0.54
+0.56
+0.58
+Value
+8K context:  lambada openai seqlen1024
+GPT 0.5B
+GPT 1B
+nGPT 0.5B
+nGPT 1B
+0
+200
+400
+600
+800
+1000
+Training tokens in billions
+0.46
+0.48
+0.5
+0.52
+0.54
+0.56
+0.58
+0.6
+0.62
+Value
+8K context:  average
+GPT 0.5B
+GPT 1B
+nGPT 0.5B
+nGPT 1B
+Figure 9: Models trained with 8k context length. Final performance (y-axis) on a set of downstream
+tasks and their average value (Bottom-Right) for different computation budgets in tokens (x-axis).
+15

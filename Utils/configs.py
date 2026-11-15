@@ -74,16 +74,16 @@ loss_configs = {
 
 optim_configs = {
     'LR_DEFAULT': 5e-4,
-    'lr_unet': 50e-4,
-    'lr_vit': 80e-4,
+    'lr_unet': 20e-4,
+    'lr_vit': 20e-4,
     'lr_router': 10e-4,
     'lr_out_proj_vit': 5e-4,
     'lr_out_proj_unet': 5e-4,
     'lr_blend_residual': 10e-4,
     'lr_pooled_attn': 10e-4,
-    'lr_gates': 5e-4,
-    'ref_batches': 70e3,
-    'rampup_Mimg': 1.0,
+    'lr_gates': 50e-4,
+    'ref_batches': 20e3,
+    'rampup_Mimg': 0.25,
     'betas': (0.9, 0.99),
     'weight_decay': 0.0,
     'eps': 1e-8
@@ -94,9 +94,9 @@ mask_configs = {
     'vit_attr': [1, 1],
     'p_mean': -0.2,
     'p_std': 1.2,
-    # [CRITICAL FIX] Branch-specific CDF bandwidths
-    'max_BW_u': 0.15,   # U-Net occupies 18% of CDF. Start at 15% radius.
-    'min_BW_u': 0.05,   # Shrink to 5% for strict high-noise specialization
+    # [CRITICAL FIX] Branch-specific CDF bandwidths (center spacing ~0.1027 -> min_BW_u=0.10 preserves overlap)
+    'max_BW_u': 0.25,   # Start at 25% radius so initial experts overlap smoothly
+    'min_BW_u': 0.10,   # Shrink to 10% radius so late-stage UNet experts maintain positive handoff overlap
     'max_BW_v': 0.60,   # ViT occupies 82% of CDF. Start at 60% radius.
     'min_BW_v': 0.25,   # Shrink to 25% for strict low-noise specialization
     'min_active': 1,

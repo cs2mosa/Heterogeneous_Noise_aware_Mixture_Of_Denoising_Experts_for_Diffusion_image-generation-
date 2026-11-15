@@ -1,0 +1,503 @@
+# Source PDF: C:\Users\Maha Mamdouh\Desktop\ML learning phase\deep learning math books\Information theory introduction.pdf
+# Extracted Pages: 17-26 of 42
+
+
+===== [Page 17] =====
+2.9
+Probability densities and diﬀerential entropy
+The examples above all considered probability mass functions over ﬁnite, discrete sets of events.
+How do the formulae and interpretations generalize to cases other than this, such as probability
+density functions deﬁned over the inﬁnite real line?
+For probability densities that are deﬁned over the continuous real line (e.g. the normal distri-
+bution, the exponential distribution), we can deﬁne an analog to entropy called the diﬀerential
+entropy, replacing the discrete sum with an integral:
+H(X) = −
+Z
+X
+p(x) log p(x)dx
+(6)
+where p(x) is the probability density function of X.
+The diﬀerential entropy does not have the same clear interpretations as the discrete entropy.
+In particular, it cannot be interpreted as the number of bits needed to describe an outcome, since
+specifying a real number with arbitrary precision requires inﬁnitely many bits.
+The diﬀerential
+entropy can also take negative values unlike its discrete counterpart. Finally, as pointed out in
+([2] p180), equation (6) is improper in that it takes the logarithm of a dimensional quantity (the
+probability density has units 1
+x), so the value of diﬀerential entropy changes when units change.
+One way to resolve these diﬃculties is to discretize the probability density by dividing the real line
+into equally spaced intervals of width ∆and integrating within each interval to obtain a probability
+mass function ([3] section 8.3). One can then compute the discrete entropy of this distribution,
+which will be equal to the diﬀerential entropy minus log ∆. In other words, the more ﬁne grained
+our discretization of the probability density, the more bits are needed to describe it. In many cases
+we may work directly with such discretized probability densities on a computer. The absolute value
+of the entropy will then diﬀer from the diﬀerential entropy by an additive constant determined by
+the discretization width.
+The maximum entropy distribution for a given state space also works diﬀerently for continuous
+probability densities. If our state space X is the set of real numbers R, then the entropy can be driven
+inﬁnitely high by making an inﬁnitely wide distribution. However, we can still describe a maximum
+entropy distribution under certain constraints. For example, the maximum entropy distribution on
+R with a variance equal to σ2 is a normal distribution with that variance. Many commonly used
+distributions are optimal under similar constraints, and maximum entropy distributions have many
+important applications in statistical inference and statistical physics that are beyond our scope here.
+Fortunately, mutual information between continuous probability densities does not suﬀer from
+the same diﬃculties. Even though it may take an inﬁnite number of bits to specify an arbitrary real
+number, the interpretation that 1 bit of information allows you to rule out half of the probability
+mass remains valid. Mathematically, mutual information for probability densities is equivalent to
+the discrete case, with sums replaced by integrals:
+I(X; Y) =
+Z
+X
+Z
+Y
+p(x, y) log
+ p(x, y)
+p(x)p(y)
+
+dxdy
+Mutual information also avoids the improper logarithm problem, because the log is taken on
+a ratio of densities in which the units cancel. Mutual information can also be computed between
+discrete and continuous random variables [4].
+In summary, despite the diﬃculties of diﬀerential entropy, mutual information retains a clear
+interpretation as the amount of information one random variable provides about another.
+17
+
+
+===== [Page 18] =====
+2.10
+Rate distortion theory
+What happens if we try to compress data to a size smaller than its information content, or infer the
+outcome of a random event about which we have incomplete information? These questions can be
+answered by rate-distortion theory.
+One application of rate distortion theory is lossy compression, where we compress a source to the
+smallest size possible while tolerating some error upon decompression. That is, the decompressed
+message will be “close to” but not exactly the same as the compressed source. Because we can
+tolerate some error, we need not preserve all of the information about the source in the message.
+Figure 9 provides an example of this. We have some source of information, like the equally
+probable (maximum entropy) four-color marble scenario of Figure 2. A compressor maps a series
+of random colors to the shortest binary string possible (on average), and a decompressor tries to
+reproduce the original sequence from that string. In lossless compression (Fig. 9a), we impose
+the requirement that the decompressed binary string must match exactly the original sequence. In
+lossy compression (Fig. 9b), we’re willing to tolerate some errors upon decompression, which
+will allow us to discard some of the source information and achieve an even shorter binary encoding.
+There is a trade-oﬀbetween how much information we discard and how many errors will be
+present after decompression: the more information we throw away, the shorter a binary encoding
+we can make, but the more errors we will make upon decompression. The rate-distortion curve
+quantiﬁes this trade-oﬀ. The rate quantiﬁes the amount of information we have about the source,
+and distortion quantiﬁes the number and severity of the errors we make. The rate-distortion curve
+applies not just to data compression problems, but to any situation in which we have incomplete
+information about a random event, such as the imperfect transmission of data.
+A distortion function d(x, ˆx) measures how much an original event x ∈X (e.g. a color) diﬀers
+from its decompressed version ˆx ∈ˆ
+X , returning a non-negative real number:
+d : X × ˆ
+X →R+
+In the example shown in Figure 9, X and ˆ
+X are identical (i.e. the set of the four possible
+colors), but this may not be true in every situation. For example, we might consider the distortion
+associated with storing an arbitrary real number as a 32-bit ﬂoating point number on a computer.
+In this case, X would be the set of real numbers and ˆ
+X would be the set of possible 32-bit ﬂoating
+point numbers.
+The source produces information at some rate, which we’ll call the “source rate,” whereas the
+rate describes how much of it we capture (over, for example, time, space, etc.). Higher rates are
+better, because less source information is lost. For a discrete source, the rate cannot exceed the
+source’s entropy H(X), since no more information exists to capture.
+A useful summary of the distortion is the expected value of the distortion function over the
+source. For example, this could be the average number of diﬀerences between an original sequence
+and the sequence obtained by passing it through a lossy encoder and decoder (as shown in (Fig.
+9b)):
+D = E
+h
+d(X, ˆX)
+i
+With complete information, distortion can be zero; with zero information, zero distortion is
+impossible (unless the source is constant). More information allows lower distortion. Rate-distortion
+theory makes this precise: to achieve distortion below some threshold Dmax, we must have at least
+R(D) bits of information about X, where R(D) is the rate-distortion function. If we are already
+achieving the best average distortion for the amount of information we have, I(X; ˆX), we cannot do
+better unless we acquire more information. This holds regardless of the chosen distortion function,
+18
+
+
+===== [Page 19] =====
+Distortion
+Rate (bits)
+Impossible
+0
+0
+a) Lossless compression
+b) Lossy compression
+c) Rate-distortion curve gives limits of lossy compression
+Information content = 32 bits
+Perfect decoding
+32 bit encoding
+Compressor
+Decompressor
+Compressor
+Decompressor
+Information content = 32 bits
+Decoding with distortions
+16 bit encoding
+Posssible
+Best uninformed 
+guessing
+Figure 9: Lossy compression and rate distortion a) In lossless compression, a typical sequence
+is mapped to a binary codeword with length equal to its information content and can be decom-
+pressed without error. b) In lossy compression, a sequence is mapped to a sequence shorter than
+its information content, and errors are present upon decompression. c) The black curve shows the
+minimum number of bits needed to achieve a given average distortion.
+19
+
+
+===== [Page 20] =====
+provided that d(x, ˆx) is ﬁnite for every possible x and ˆx, and is proven in the asymptotic case of
+inﬁnitely long block lengths.
+This doesn’t necessarily mean that having N bits about a source will give us an ˆX that achieves
+the N-bit best performance for a given distortion function. For example, if we know X perfectly, and
+we applied an invertible operation like mapping each color to a new, distinct color, we would not
+have lost any information. However, if our distortion function was the number of incorrect colors,
+the average distortion would increase.
+An example rate-distortion function for a discrete source is shown in Figure 9c. The green
+area represents possible combinations of rates and distortions. For suﬃciently high values of average
+distortion, no information about the source is necessary, so the curve intersects the horizontal axis.
+For discrete sources, when d(x, ˆx) = 0 if and only if x = ˆx, the curve intersects the vertical axis
+at the value of the source’s entropy, at this point we have zero remaining uncertainty. In contrast,
+for a continuous source, the curve would asymptotically approach the vertical axis, since an inﬁnite
+number of bits would be needed to describe a continuous source exactly (Sec. 2.9).
+In general, R(D) will be a non-increasing convex function of D, which means that 1) achieving
+lower and lower distortion will always require acquiring more information (assuming we are already
+achieving the best possible distortion for our current rate), and 2) there will be diminishing returns
+on lowering distortion as we acquire more and more information.
+3
+Channels
+A channel is a mapping from inputs in X to outputs in Y, deﬁned by the conditional probability
+distribution pY|X. Rather than using the term “outcome” to describe the value taken by a random
+variable as in the previous section, we now use the terms “input” and “output”. When pY|X can be
+described by a deterministic function, we have a noiseless channel; otherwise, we have the more
+general case of a noisy channel.1
+The concepts developed in the previous section (entropy, mutual information, conditional en-
+tropy) naturally lead to the question: what happens when information must travel through an
+imperfect medium? Channels formalize this scenario. Often, they model a physical medium like a
+band of radio frequencies or transistors on a computer.
+3.1
+Channels as matrices
+A noisy channel is equivalent to a conditional probability distribution pY|X, and for a discrete
+outcome space, this can be visualized either as a mapping or a matrix (Fig. 10a). In the matrix
+form, which we denote PY|X, each column is the conditional distribution p(y | X = x), which
+describes the probability that the input x will map to each possible output in Y. This describes the
+noise distribution of that input. Since each column is itself a probability distribution, it sums to 1.
+The channel matrix lets us compute two quantities of interest. The output distribution pY is
+the product of the channel matrix and the input distribution pX (Fig. 10c):
+pY = PY|XpX
+The joint distribution PX,Y, needed for computing conditional entropy and mutual information,
+can be found by multiplying the channel matrix by a diagonal matrix of the input probabilities (Fig.
+10d):
+1This is true of a “memoryless” channel, which means that multiple channel uses are independent and identically
+distributed. All channels discussed here assume memorylessness
+20
+
+
+===== [Page 21] =====
+0
+0.2
+0.4
+0
+1.0
+0
+0.4
+0
+0.4
+0
+1.0
+0
+0.4
+Noisless 
+channel
+0
+0.1
+0
+0.75
+0
+0.2
+0
+0.75
+Noisy 
+channel
+Probability
+1
+0
+1
+0
+Channel
+Input 
+distribution
+Output 
+distribution
+Mapping view
+a) A noisy channel
+c) Compute output
+d) Compute joint distribution
+0
+0.75
+Probability
+0
+0.2
+b) Matrix-vector 
+representation
+Figure 10: Channels a) The mapping view of a noisy channel. The channel is mathematically
+represented by the conditional random variable Y | X b) Channels and inputs/outputs can also be
+represented by matrices and vectors of probabilities, respectively. The vectors sum to one since they
+represent probability distributions, and each column of the matrix sums to one since it represents
+the conditional distribution Y | X = x. The matrix/vector representations can be used to compute
+c) the output distribution and d) the joint distribution through matrix-vector and matrix-matrix
+multiplications, respectively. d) The joint distribution is computed from the matrix-matrix product
+of the channel and a diagonal matrix of the input probabilities.
+21
+
+
+===== [Page 22] =====
+PX,Y = PY|Xdiag(pX)
+Unlike PY|X, for which each column is a probability distribution and sums to 1, all entries of
+PX,Y together sum to 1 since the whole matrix is a joint probability distribution.
+3.2
+Entropy and mutual information in channels
+In a channel, entropy, conditional entropy, and mutual information take on more speciﬁc roles: they
+distinguish signal from noise and quantify how much information survives transmission. Our goal is
+to recover as much of H(X), the average information at the channel inputs, as possible. The mutual
+information between X and Y measures the information shared between a transmitted and received
+message. The higher it is, the more information has successfully been transmitted to the receiver.
+A key distinction in channels is between information that helps us infer the state of the source
+and randomness that is irrelevant (both are measured in bits, since the deﬁnition of entropy is based
+on probabilities alone). For a noisy channel, pX contains the information we’re interested in, and
+pY|X is the noise imparted by the channel. Both H(X) (the input) and H(Y | X) (the noise) qualify
+as information in the mathematical sense, even though only the former is useful. The entropy of the
+channel output H(Y) will usually contain both information about the input and noise.
+The information transmitted through a channel depends on both the channel itself (pY|X) and the
+distribution over the channel’s inputs (pX). Two factors govern how much information is transmitted
+through the channel: the noise level at the output of individual channel inputs, and how much the
+outputs of diﬀerent inputs overlap.
+The noise level at each input’s output can be computed from knowledge of the channel alone
+without knowledge of the input distribution. For input x, the noise at the output is H(Y | x).
+Assuming a particular input distribution allows us to compute the average noise imparted by the
+channel H(Y | X). Input distributions that put more probability on inputs with less noisy outputs
+will tend to transmit more information.
+The other important factor is how much diﬀerent inputs overlap at the channel output. Unlike
+the noise level of a particular input, overlap can only be calculated with respect to a particular
+input distribution, because it requires the joint distribution of inputs and outputs. The average
+uncertainty about which input produced a given output is H(X | Y). Channels with less overlap at
+the output transmit more information.
+Examples of noisy and non-noisy channels
+We now give speciﬁc examples of channels that
+are either noisy or noiseless and either lose information about the inputs or preserve all of it. For
+simplicity, here we assume distribution over inputs is uniform. The ideal information transmission
+system would lose no information and be able to recover X exactly given an output Y, which would
+mean that I(X; Y) = H(X). One way this can occur is in a noiseless channel in which the channel
+maps every input to a unique output (Fig. 11a). In this situation, H(X) = H(Y) = I(X; Y) and
+H(Y | X) = H(X | Y) = 0, meaning that we could perfectly predict X given Y (or Y given X).
+However, a channel does not need to be noiseless to completely preserve input information. All
+input information can be recovered through a noisy channel, so long as each input maps to outputs
+that don’t overlap with those of other inputs (Fig. 11b). In this scenario, H(Y | X) is no longer
+zero, because even knowing the input, we cannot predict exactly which output the noise will produce.
+In contrast, H(X | Y) = 0 because given the output, we can know exactly what the input was. H(Y)
+is greater than H(X) because it includes all of the entropy H(X) along with some additional entropy
+caused by noise.
+Alternatively, even if the channel imparts no noise, information can be lost. This happens if
+multiple inputs map to the same output (Fig.
+11c).
+It thus becomes impossible to tell with
+certainty from the output Y which input was used, or equivalently, H(X | Y) > 0.
+22
+
+
+===== [Page 23] =====
+c)
+a)
+d)
+b)
+Deterministic mapping
+Noisy mapping
+Loss of informaiton
+No loss of informaiton
+Mapping view
+Matrix view
+Information view
+Information (bits)
+Figure 11: Examples of noisy and noiseless channels. A random variable X with equal prob-
+ability over all of its states is mapped to a random variable Y.
+These mappings can be either
+deterministic or noisy and information-preserving or information-destroying. Bars to the right of
+each mapping show entropy, conditional entropy, joint entropy, mutual information, and the max-
+imum entropy over the state space of each random variable. Line thickness denotes magnitude of
+p(y | x) a) A deterministic, information-preserving mapping with more outputs than inputs. Each
+input maps uniquely to exactly one output. The outputs with no line connected have zero probabil-
+ity. b) An information-preserving, noisy mapping. Each input maps into multiple outputs, but the
+outputs mapped to by a particular input are all disjoint. c) A deterministic, information-destroying
+mapping. Multiple inputs collide on the same output, meaning the mapping cannot be inverted. d)
+A noisy, information-destroying mapping. Each input maps to multiple outputs, and the outputs
+mapped to by each input are not disjoint.
+23
+
+
+===== [Page 24] =====
+Finally, the most common situation in practice involves both a loss of information (H(X | Y) > 0
+or equivalently H(X) > I(X; Y)) and noise present in the output (H(Y | X) > 0 or H(Y) > I(X; Y))
+(Fig. 11d). Although Figure 11d shows a scenario where H(Y) > H(X), this can also occur even
+if H(X) = H(Y): some of the input entropy is replaced by noise.
+To summarize: I(X; Y) is the average amount of information successfully transmitted through
+the channel. H(Y | X) is the average noise at the output: the uncertainty about what the output
+outcome will be knowing the speciﬁc input used.
+H(X | Y) is uncertainty in which input was
+used knowing the output outcome, which can arise from deterministic many-to-one mappings in the
+channel or inputs whose noise overlaps at the output.
+The diﬀerent ways of decomposing mutual information presented in Section 2.7 have more speciﬁc
+interpretations in the context of a noisy channel:
+I(X; Y) = H(X) −H(X | Y)
+can be interpreted as the average input information minus the uncertainty at the output about
+which message was sent, determined by how much diﬀerent messages overlap at the channel’s output.
+I(X; Y) = H(Y) −H(Y | X)
+can be interpreted as the total uncertainty at the output (the sum of input uncertainty and
+noise), minus the noise in the received messages.
+3.3
+Data processing inequality
+The Data Processing Inequality states that no physical or computational operation can increase
+the information about a signal. In a series of channels, information about the original input can only
+be preserved or lost at each step: we can only become equally or more uncertain after each channel.
+Mathematically, if we have A →B →C, where each arrow represents a channel, we say that
+these three variables form a Markov chain. The theorem states that:
+I(A; B) ≥I(A; C)
+and this statement can be generalized to greater than three random variables.
+3.4
+Maximizing information throughput
+If all channel inputs 1) have equally noisy outputs and 2) have outputs that overlap with the outputs
+from other inputs equally, then a uniform distribution over the inputs will maximize the amount
+of information the channel transmits. This is because when all inputs have equally noisy outputs,
+H(Y | X) is independent of the input distribution, so maximizing I(X; Y) = H(Y) −H(Y | X)
+reduces to maximizing H(Y).
+When outputs also overlap equally, the symmetry ensures that a
+uniform input distribution achieves this maximum.
+In the more general case, both of these conditions will not be met, which leads to the questions: 1)
+What are the optimal input distribution(s) p∗
+X for maximizing the channel’s information throughput?
+2) How much information will the channel be able to transmit if this optimal input distribution is
+used? The answer to the latter question is called the channel capacity and is denoted by C.
+The quantities can be found by solving an optimization problem:
+24
+
+
+===== [Page 25] =====
+p∗
+X = arg max
+PX
+I(X; Y)
+(7)
+C = max
+PX I(X; Y)
+(8)
+(9)
+where PX is the set of probability distributions on X. When X is discrete, this is the set of
+nonnegative vectors whose elements sum to 1 (formally known as the probability simplex). The
+computational details of how to solve this optimization problem can be found in Appendix A. Here,
+we focus on the intuition behind its objective function.
+Mutual information can be decomposed as I(X; Y) = H(Y) −H(Y | X), and this decomposition
+is useful in analyzing the competing goals of this optimization problem. Consider the noisy channel
+shown in Figure 12a, which has two inputs that are noisy but map to distinct outputs, and one
+input that is less noisy but has outputs that overlap more with the outputs of the other inputs.
+1
+0
+1
+0
+1
+0
+1
+0
+1
+0
+Probability
+1
+0
+d) Maximizing mutual information
+c) Only minimizing output noise
+a) Noisy channel
+b) Only maximizing output entropy
+0
+0.5
+Probability
+0 bits
+1 bit
+1.13 bits
+Figure 12: Optimizing mutual information for a ﬁxed channel gives both the optimal input
+distribution and the channel capacity. a) Matrix representation of a noisy channel. b) Only maxi-
+mizing output entropy disregards putting probability on the input with the least noisy outputs. c)
+Only minimizing the average input noise fails to utilize the full output space. d) The full objective
+function balances these competing goals.
+If we were to not maximize mutual information, but instead only maximize the ﬁrst term in
+the decomposition, H(Y), probability would be placed on inputs in such a way that the output
+probability was as uniformly distributed as possible. This is beneﬁcial because it means more of
+the channel’s outputs are utilized, which means diﬀerent channel inputs have more space to avoid
+overlapping on the same outputs. For this channel, this would result in putting half the probability
+mass on each of the two noisy but non-overlapping inputs, which would result in 1 bit of information
+gained with each use of the channel (Fig. 12b).
+Alternatively, if we were to minimize the noise term H(Y | X), probability would be placed on
+inputs with the least noisy outputs. Since the middle input has less noisy outputs than the other
+two, this would result in all of the probability mass being placed on it. With only one input ever
+used, no information is transmitted regardless of that input’s noise level.
+By optimizing the full objective, these goals are balanced: some probability is placed on the
+middle input (which has the least noisy outputs), while some probability is placed on the inputs with
+noisier outputs, which makes use of the full output space. This leads to an information transmission
+of 1.13 bits, which is the channel capacity C.
+25
+
+
+===== [Page 26] =====
+4
+Channel coding
+In information transmission problems, there will usually be a source of random events S. We will
+refer to the outcomes of S as messages. We don’t have any control over the messages or the channel,
+but we do have the ability to design a function called an encoder, which will map certain messages
+to certain channel inputs.
+The central problem of channel coding is: how should we design encoders to maximize in-
+formation transmission and minimize the probability of incorrectly inferring the source message?
+The noisy channel coding theorem answers this by proving that reliable transmission is possible at
+any rate below channel capacity, and impossible above it. Achieving this limit requires encoding
+multiple messages together and carefully designing decoders to recover the original message from
+noisy outputs.
+4.1
+Encoders
+An encoder is a deterministic function that maps messages from the source to the inputs of a
+channel. We’ll make the assumption, unless otherwise stated, that every message is mapped to a
+unique input, so no information is lost from S to X. A good encoder will map S to X so as to
+maximize I(X; Y), balancing the same two goals discussed in Section 3.4: favoring inputs with less
+noisy outputs while spreading outputs to minimize overlap.
+Figure 13a shows a noisy channel which maps each input X = x to two possible outputs with
+equal probability. Our goal is to transmit messages from a non-redundant source (Fig. 13b), in
+which three colors occur with equal probability through a noisy channel, with minimal information
+loss.
+Figure 13c shows a bad way of doing this. The three chosen states in X have overlapping
+outputs in Y, so information is lost and the original source message cannot always be recovered.
+Alternatively, we could design an encoder which uses only a subset of the states in X that produce
+disjoint outputs in Y (Fig. 13d). In this case, there is no loss of information.
+This encoder is not unique, since we can randomly permute which state of S mapped to which
+state of X and achieve the same mutual information.
+4.1.1
+Compatibility of channels and sources
+Suppose we are given some arbitrary source, we have multiple channels to choose from, and we can
+design any type of encoder we want, provided that it only encodes 1 source message at a time. What
+channel will allow us to transmit the most information? How much information will we be able to
+transmit? Will this channel also be the best for any other diﬀerent source?
+The answer to the last question is no. Even with freedom to design the encoder as we see ﬁt,
+some sources and channels are inherently better “matched” to one another. Furthermore, for a
+given source and channel, it may not be possible to achieve the channel capacity when encoding one
+message at a time.
+Intuitively, how well a source and channel are “matched” is determined by how well our best
+encoder maps more probable source outcomes to 1) inputs with less noisy outputs and 2) inputs
+whose outputs don’t overlap with those of other inputs.
+The process of creating an encoder to
+perform this matching is also known as joint source-channel coding.
+Figure 14 shows an example of the diﬀerences in information transmission that occur when
+matching diﬀerent source distributions to diﬀerent channels. There are two noisy channels (Fig.
+14a): The ﬁrst channel (the “symmetric channel”) has inputs that all have equally noisy outputs
+that overlap equally. The second channel (the “asymmetric channel”) also has inputs with equally
+noisy outputs, but those outputs are not equally overlapping with one another: it has two pairs of
+inputs whose outputs overlap less with each other than do the outputs within each pair.
+26

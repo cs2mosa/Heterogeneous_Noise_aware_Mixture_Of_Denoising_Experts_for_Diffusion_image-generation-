@@ -1,0 +1,1808 @@
+# Source PDF: C:\Users\Maha Mamdouh\Desktop\ML learning phase\scientifc papers\EDM_2 Analyzing and Improving the Training Dynamics of Diffusion Models.pdf
+# Extracted Pages: 18-23 of 39
+
+
+===== [Page 18] =====
+CONFIG B
+0
+200
+400
+600
+Activations (max)
+0
+0.5
+1.0
+1.5
+Weights (max)
+0
+10
+20
+30
+Activations (mean)
+0
+0.1
+0.2
+0.3
+Weights (mean)
+CONFIG C
+0
+200
+400
+600
+0
+0.5
+1.0
+1.5
+0
+10
+20
+30
+0
+0.1
+0.2
+0.3
+CONFIG D
+0
+10
+20
+30
+0
+10
+20
+30
+0
+0.5
+1.0
+1.5
+0
+5
+10
+15
+CONFIG E
+0
+10
+20
+30
+0
+0.5
+1.0
+1.5
+0
+0.5
+1.0
+1.5
+0
+0.5
+1.0
+1.5
+CONFIG F
+0
+10
+20
+30
+0
+0.5
+1.0
+1.5
+0
+0.5
+1.0
+1.5
+0
+0.5
+1.0
+1.5
+CONFIG G
+Gimg = 0.5
+1.0
+1.5
+0
+10
+20
+30
+Gimg = 0.5
+1.0
+1.5
+0
+0.5
+1.0
+1.5
+Gimg = 0.5
+1.0
+1.5
+0
+0.5
+1.0
+1.5
+Gimg = 0.5
+1.0
+1.5
+0
+0.5
+1.0
+1.5
+Enc-64x64
+Dec-64x64
+Enc-32x32
+Dec-32x32
+Enc-16x16
+Dec-16x16
+Enc-8x8
+Dec-8x8
+Figure 15. Training-time evolution of the maximum and mean dimension-weighted L2 norms of activations and weights over different
+depths of the the EMA-averaged score network. As discussed in Section 2, our architectural modifications aim to standardize the activation
+magnitudes in CONFIG D and weight magnitudes in CONFIG E. Details of the computation are discussed in Appendix A.6.
+Training loss.
+Following EDM [37], the denoising score
+matching loss for denoiser Dθ on noise level σ is given by
+L(Dθ; σ) = Ey,n
+h
+
+Dθ(y + n; σ) −y
+
+
+2
+2
+i
+,
+(13)
+where y ∼pdata is a clean image sampled from the training
+set and n ∼N
+0, σ2I
+
+is i.i.d. Gaussian noise.
+The overall training loss is defined [37] as a weighted
+expectation of L(Dθ; σ) over the noise levels:
+L(Dθ) = Eσ
+
+λ(σ)L(Dθ; σ)
+
+(14)
+λ(σ) =
+σ2 + σ2
+data
+
+/ (σ · σdata)2
+(15)
+ln(σ) ∼N
+Pmean, P 2
+std
+
+,
+(16)
+where the distribution of noise levels is controlled by hyper-
+parameters Pmean and Pstd. The weighting function λ(σ) in
+Equation 15 ensures that λ(σ)L(Dθ; σ) = 1 at the begin-
+ning of the training, effectively equalizing the contribution
+of each noise level with respect to ∇θL(Dθ).
+B.2. Minor improvements (CONFIG B)
+Since the baseline configuration (CONFIG A) was not orig-
+inally targeted for latent diffusion, we re-examined the
+hyperparameter choices to obtain an improved baseline
+(CONFIG B). Our new hyperparameters are summarized in
+Figure 17.
+In order to speed up convergence, we found it beneficial
+to halve the batch size (2048 instead of 4096) while doubling
+the learning rate (αref = 0.0002 instead of 0.0001), and to
+significantly reduce Adam’s response time to changes in
+gradient magnitudes (β2 = 0.99 instead of 0.999). These
+changes had the largest impact towards the beginning of the
+training, where the network reconfigures itself for the task at
+hand, but they also helped somewhat towards the end. Fur-
+thermore, we found the self-attention layers at 32×32 resolu-
+tion to be somewhat harmful; removing them improved the
+overall stability while also speeding up the training. In CON-
+18
+
+
+===== [Page 19] =====
+1
+768
+Embedding
+1000
+Noisy
+image
+cout
+cskip
++
+Denoised
+image
+cin
+DecA
+DecA
+DecA
+DecA
+Dec
+Dec
+Dec
+Enc
+Enc
+EncA
+EncA
+EncA
+EncD
+EncA
+EncA
+EncA
+EncD
+EncA
+EncA
+EncA
+EncD
+DecA
+DecA
+DecA
+DecA
+DecA
+DecA
+DecA
+DecA
+642×192
+322×192
+162×384
+82×576
+Dec
+DecU
+DecU
+DecU
+DecA
+642×192
+642×192
+642×192
+322×384
+322×384
+322×384
+162×576
+162×576
+162×576
+82×768
+82×768
+82×768
+82×768
+82×768
+82×768
+82×768
+82×768
+82×768
+162×768
+162×576
+162×576
+162×576
+162×576
+322×576
+322×384
+322×384
+322×384
+322×384
+642×384
+642×192
+642×192
+642×192
+642×192
+In
+Out
+Enc
+GrpNorm
+SiLU
+Bias
+Conv 3×3
++
+×
+Down 2×2
+SiLU
+Dropout
+Bias
+Conv 3×3
++
+Split
++1
+Bias
+Linear
+Bias
+Conv 1×1
+Down 2×2
+Rin×Cin
+Rout×Cout
+Rout×Cout
+768
+Cout
+Encoder block
+Input
+Embedding
+Output
+Skip
+Dec
+GrpNorm
+SiLU
+Bias
+Conv 3×3
++
+×
+Up 2×2
+SiLU
+Dropout
+Bias
+Conv 3×3
++
+Split
++1
+Bias
+Linear
+Attention
+Bias
+Conv 1×1
+Up 2×2
+Rin×(Cin+Cskip)
+Rout×Cout
+Rin×(Cin+Cskip)
+Rout×Cout
+768
+Cout
+Decoder block
+Output
+Concat
+Skip
+Attention
+GrpNorm
+Bias
+Conv 1×1
+Reshape
+Matmul
+×
+Softmax
+Matmul
+Reshape
+Bias
+Conv 1×1
+Split
++
+Rin×Cin
+Rin×(Cin×3)
+Q
+K
+V
+Rin
+2×Nh
+Rin
+2×Nh
+Rin×Nh×Nc
+Rin×Cin
+Rin×Cin
+1
+Nc
+Input
+Output
+Attention
+Noise
+level
+PosEmb
+Linear
+SiLU
+Linear
+Linear
++
+SiLU
+192
+768
+Bias
+Bias
+Class
+label
+GrpNorm
+GrpNorm
+Nh = Cin / Nc
+Nc = 64
+FP32
+FP32
+Input
+642×4
+642×4
+642×4
+642×4
+Config A: EDM baseline
+To encoder and 
+decoder blocks
+Fixed-function
+Learned
+Not always present
+Learned,
+zero init.
+cnoise
+GrpNorm
+Conv 3×3
+Bias
+SiLU
+642×192
+Out
+642×4
+Embedding
+Conv 3×3
+642×192
+642×4
+In
+Bias
+Rin×Nh×Nc×3
+Number of GPUs
+32
+Learning rate max (αref)
+0.0001
+Adam β1
+0.9
+FID
+8.00
+Minibatch size
+4096
+Learning rate decay (tref)
+∞
+Adam β2
+0.999
+EMA length (σrel)
+0.034
+Duration (Mimg)
+2147.5
+Learning rate rampup (Mimg)
+10
+Loss scaling
+100
+Model capacity (Mparams)
+295.9
+Mixed-precision (FP16)
+partial
+Noise distribution mean (Pmean)
+−1.2
+Attention res.
+32, 16, 8
+Model complexity (Gflops)
+110.4
+Dropout probability
+10%
+Noise distribution std. (Pstd)
+1.2
+Attention blocks
+22
+Sampling cost (Tflops)
+8.22
+Figure 16. Full architecture diagram and hyperparameters for CONFIG A (EDM baseline).
+FIG B, we also switch from traditional EMA to our power
+function averaging profile (Section 3.1), with two averages
+stored per snapshot for high-quality post-hoc reconstruction
+(Section 3.2).
+Loss weighting.
+With the EDM training loss (Equation 14),
+the quality of the resulting distribution tends to be quite sen-
+sitive to the choice of Pmean, Pstd, and λ(σ). The role of
+Pmean and Pstd is to focus the training effort on the most
+important noise levels, whereas λ(σ) aims to ensure that the
+gradients originating from each noise level are roughly of
+the same magnitude. Referring to Figure 5a of Karras et al.
+[37], the value of L(Dθ; σ) behaves somewhat unevenly
+over the course of training: It remains largely unchanged
+for the lowest and highest noise levels, but drops quickly for
+the ones in between. Karras et al. [37] suggest setting Pmean
+and Pstd so that the resulting log-normal distribution (Equa-
+tion 16) roughly matches the location of this in-between
+region. When operating with VAE latents, we have observed
+that the in-between region has shifted considerably toward
+higher noise levels compared to RGB images. We thus set
+Pmean = −0.4 and Pstd = 1.0 instead of −1.2 and 1.2, re-
+spectively, to roughly match its location.
+While the choice of λ(σ) defined by Equation 15 is
+enough to ensure that the gradient magnitudes are balanced
+at initialization, this is no longer true as the training pro-
+gresses. To compensate for the changes in L(Dθ; σ) that
+happen over time, no static choice of λ(σ) is sufficient — the
+weighting function must be able to adapt its shape dynam-
+ically. To achieve this, we treat the integration over noise
+levels in L(Dθ) as a form of multi-task learning. In the
+following, we will first summarize the uncertainty-based
+weighting approach proposed by Kendall et al. [38], defined
+over a finite number of tasks, and then generalize it over a
+continuous set of tasks to replace Equation 14.
+Uncertainty-based multi-task learning.
+In a traditional
+multi-task setting, the model is simultaneously being trained
+to perform multiple tasks corresponding to loss terms
+{L1, L2, . . .}. The naive way to define the overall loss is
+to take a weighted sum over these individual losses, i.e.,
+L = P
+i wiLi. The outcome of the training, however, tends
+to be very sensitive to the choice of weights wi. This choice
+can become particularly challenging if the balance between
+the loss terms changes considerably over time. Kendall
+et al. [38] propose a principled approach for choosing the
+19
+
+
+===== [Page 20] =====
+Encoder block
+Decoder block
+1
+768
+Embedding
+1000
+Noisy
+image
+cout
+cskip
++
+Denoised
+image
+cin
+DecA
+DecA
+DecA
+DecA
+Dec
+Dec
+Dec
+Enc
+Enc
+Enc
+Enc
+Enc
+EncD
+EncA
+EncA
+EncA
+EncD
+EncA
+EncA
+EncA
+EncD
+DecA
+DecA
+DecA
+DecA
+Dec
+Dec
+Dec
+Dec
+642×192
+322×192
+162×384
+82×576
+Dec
+DecU
+DecU
+DecU
+DecA
+642×192
+642×192
+642×192
+322×384
+322×384
+322×384
+162×576
+162×576
+162×576
+82×768
+82×768
+82×768
+82×768
+82×768
+82×768
+82×768
+82×768
+82×768
+162×768
+162×576
+162×576
+162×576
+162×576
+322×576
+322×384
+322×384
+322×384
+322×384
+642×384
+642×192
+642×192
+642×192
+642×192
+In
+Out
+Enc
+GrpNorm
+SiLU
+Bias
+Conv 3×3
++
+×
+Down 2×2
+SiLU
+Dropout
+Bias
+Conv 3×3
+Split
++1
+Bias
+Linear
+Bias
+Conv 1×1
+Down 2×2
+Rin×Cin
+Rout×Cout
+Rout×Cout
+Cout
+Dec
+GrpNorm
+SiLU
+Bias
+Conv 3×3
++
+×
+Up 2×2
+SiLU
+Dropout
+Bias
+Conv 3×3
+Split
++1
+Bias
+Linear
+Bias
+Conv 1×1
+Up 2×2
+Rin×(Cin+Cskip)
+Rout×Cout
+Rin×(Cin+Cskip)
+Rout×Cout
+Cout
+Concat
+GrpNorm
+Bias
+Conv 1×1
+Reshape
+Matmul
+×
+Softmax
+Matmul
+Reshape
+Bias
+Conv 1×1
+Split
++
+Rin×(Cin×3)
+Q
+K
+V
+Rin
+2×Nh
+Rin
+2×Nh
+Rin×Cin
+Input
+Output
+Attention
+Noise
+level
+PosEmb
+Linear
+SiLU
+Linear
+Linear
++
+SiLU
+192
+768
+Bias
+Bias
+Class
+label
+GrpNorm
+GrpNorm
+FP32
+FP32
+642×4
+642×4
+Config B: Minor improvements
+To encoder and 
+decoder blocks
+Fixed-function
+Learned
+Not always present
+Learned,
+zero init.
+cnoise
+GrpNorm
+Conv 3×3
+Bias
+SiLU
+642×192
+Out
+642×4
+768
+Embedding
+768
+Embedding
++
+Attention
+Output
++
+Output
+Skip
+Attention
+Skip
+Input
+Rin×Cin
+Rin×Cin
+Input
+642×4
+642×4
+Conv 3×3
+642×192
+642×4
+In
+Bias
+Rin×Nh×Nc×3
+1
+Nc
+Nh = Cin / Nc
+Nc = 64
+Rin×Nh×Nc
+Number of GPUs
+32
+Learning rate max (αref)
+0.0002
+Adam β1
+0.9
+FID
+7.24
+Minibatch size
+2048
+Learning rate decay (tref)
+∞
+Adam β2
+0.99
+EMA length (σrel)
+0.090
+Duration (Mimg)
+2147.5
+Learning rate rampup (Mimg)
+10
+Loss scaling
+100
+Model capacity (Mparams)
+291.8
+Mixed-precision (FP16)
+partial
+Noise distribution mean (Pmean)
+−0.4
+Attention res.
+16, 8
+Model complexity (Gflops)
+100.4
+Dropout probability
+10%
+Noise distribution std. (Pstd)
+1.0
+Attention blocks
+15
+Sampling cost (Tflops)
+7.59
+Figure 17. Full architecture diagram and hyperparameters for CONFIG B (Minor improvements).
+weights dynamically, based on the idea of treating the model
+outputs as probability distributions and maximizing the re-
+sulting likelihood. For isotropic Gaussians, this boils down
+to associating each loss term Li with an additional train-
+able parameter σi > 0, i.e., homoscedastic uncertainty, and
+defining the overall loss as
+L =
+X
+i
+ 1
+2σ2
+i
+Li + ln σi
+
+(17)
+= 1
+2
+X
+i
+Li
+σ2
+i
++ ln σ2
+i
+
+.
+(18)
+Intuitively, the contribution of Li is weighted down if the
+model is uncertain about task i, i.e., if σi is high. At the same
+time, the model is penalized for this uncertainty, encouraging
+σi to be as low as possible.
+In practice, it can be quite challenging for typical opti-
+mizers — such as Adam — to handle σi directly due to the
+logarithm and the requirement that σi > 0. A more conve-
+nient formula [38] is obtained by rewriting Equation 18 in
+terms of log variance ui = ln σ2
+i :
+L = 1
+2
+X
+i
+ Li
+eui + ui
+
+(19)
+∝
+X
+i
+ Li
+eui + ui
+
+,
+(20)
+where we have dropped the constant multiplier 1/2, as it has
+no effect on the optimum.
+Continuous generalization.
+For the purpose of applying
+Equation 20 to the EDM loss in Equation 14, we consider
+each noise level σ to represent a different task. This means
+that instead of a discrete number of tasks, we are faced with
+an infinite continuum of tasks 0 < σ < ∞. In accordance to
+Equation 14, we consider the loss corresponding to task σ to
+be λ(σ)L(Dθ; σ), leading to the following overall loss:
+L(Dθ, u) = Eσ
+ λ(σ)
+eu(σ) L(Dθ; σ) + u(σ)
+
+,
+(21)
+where we employ a continuous uncertainty function u(σ)
+instead of a discrete set of scalars {ui}.
+20
+
+
+===== [Page 21] =====
+Encoder block
+Decoder block
+Noisy
+image
+cskip
++
+Denoised
+image
+GrpNorm
+Conv 3×3
+SiLU
+642×192
+GrpNorm
+SiLU
+Conv 3×3
+×
+Down 2×2
+SiLU
+Dropout
+Conv 3×3
++1
+Linear
+Conv 1×1
+Down 2×2
+Rin×Cin
+Rout×Cout
+Rout×Cout
+GrpNorm
+SiLU
+Conv 3×3
+×
+Up 2×2
+SiLU
+Dropout
+Conv 3×3
++1
+Linear
+Conv 1×1
+Up 2×2
+Rin×(Cin+Cskip)
+Rout×Cout
+Rin×(Cin+Cskip)
+Rout×Cout
+Concat
+1
+Linear
+SiLU
+Linear
+Linear
++
+SiLU
+192
+768
+GrpNorm
+GrpNorm
+768
+642×4
+Conv 3×3
+642×192
+Concat
+1
+642×4
+Fourier
+Reshape
+Matmul
+×
+Softmax
+Matmul
+Reshape
+Conv 1×1
+PixNorm
++
+Rin×(Cin×3)
+Rin×Nh×Nc×3
+Q
+K
+V
+Rin×Cin
+Input
+Output
+Split
+Conv 1×1
+Config C: Architectural streamlining
+To encoder and 
+decoder blocks
+In
+Out
+Attention
+Embedding
+Noise
+level
+Class
+label
+1000
+×
+1000
+Rin
+2×Nh
+Rin
+2×Nh
+Fixed-function
+Learned
+Not always present
+Cout
+Cout
+cnoise
+cout
+cin
+DecA
+DecA
+DecA
+DecA
+Dec
+Dec
+Dec
+Enc
+Enc
+Enc
+Enc
+Enc
+EncD
+EncA
+EncA
+EncA
+EncD
+EncA
+EncA
+EncA
+EncD
+DecA
+DecA
+DecA
+DecA
+Dec
+Dec
+Dec
+Dec
+642×192
+322×192
+162×384
+82×576
+Dec
+DecU
+DecU
+DecU
+DecA
+642×192
+642×192
+642×192
+322×384
+322×384
+322×384
+162×576
+162×576
+162×576
+82×768
+82×768
+82×768
+82×768
+82×768
+82×768
+82×768
+82×768
+82×768
+162×768
+162×576
+162×576
+162×576
+162×576
+322×576
+322×384
+322×384
+322×384
+322×384
+642×384
+642×192
+642×192
+642×192
+642×192
+In
+Out
+Enc
+Dec
+642×4
+642×4
+768
+Embedding
+768
+Embedding
++
+Attention
+Output
++
+Output
+Skip
+Attention
+Skip
+Input
+Rin×Cin
+Rin×Cin
+Input
+642×4
+642×4
+Nh = Cin / Nc
+Nc = 64
+1
+Nc
+Rin×Nh×Nc
+Number of GPUs
+32
+Learning rate max (αref)
+0.0002
+Adam β1
+0.9
+FID
+6.96
+Minibatch size
+2048
+Learning rate decay (tref)
+∞
+Adam β2
+0.99
+EMA length (σrel)
+0.075
+Duration (Mimg)
+2147.5
+Learning rate rampup (Mimg)
+10
+Loss scaling
+100
+Model capacity (Mparams)
+277.8
+Mixed-precision (FP16)
+full
+Noise distribution mean (Pmean)
+−0.4
+Attention res.
+16, 8
+Model complexity (Gflops)
+100.3
+Dropout probability
+10%
+Noise distribution std. (Pstd)
+1.0
+Attention blocks
+15
+Sampling cost (Tflops)
+7.58
+Figure 18. Full architecture diagram and hyperparameters for CONFIG C (Architectural streamlining).
+In practice, we implement u(σ) as a simple one-layer
+MLP (not shown in Figure 17) that is trained alongside
+the main denoiser network and discarded afterwards. The
+MLP evaluates cnoise(σ) as defined by Equation 8, com-
+putes Fourier features for the resulting scalar (see Ap-
+pendix B.3), and feeds the resulting feature vector through
+a fully-connected layer that outputs one scalar. All practi-
+cal details of the MLP, including initialization, magnitude-
+preserving scaling, and forced weight normalization, fol-
+low the choices made in our training configurations (Appen-
+dices B.2–B.7).
+Intuitive interpretation.
+To gain further insight onto the
+meaning of Equation 21, let us solve for the minimum of
+L(Dθ, u) by setting its derivative to zero with respect to
+u(σ):
+0 = dL(Dθ, u)
+du(σ)
+(22)
+=
+d
+du(σ)
+ λ(σ)
+eu(σ) L(Dθ; σ) + u(σ)
+
+(23)
+= −λ(σ)
+eu(σ) L(Dθ; σ) + 1,
+(24)
+which leads to
+eu(σ) = λ(σ)L(Dθ; σ)
+(25)
+u(σ) = ln L(Dθ; σ) + ln λ(σ).
+(26)
+In other words, u(σ) effectively keeps track of how L(Dθ; σ)
+evolves over time. Plugging Equation 25 back into Equa-
+tion 21, we arrive at an alternative interpretation of the over-
+all training loss:
+L(Dθ, u) = Eσ
+ λ(σ)L(Dθ; σ)
+
+λ(σ)L(Dθ; σ)
+ +
+
+u(σ)
+
+(27)
+= Eσ
+L(Dθ; σ)
+
+L(Dθ; σ)
+ +
+
+Eσu(σ)
+
+,
+(28)
+where the bracketed expressions are treated as constants
+when computing ∇θL(Dθ, u). In other words, Equation 21
+effectively scales the gradients originating from noise level σ
+by the reciprocal of L(Dθ; σ), equalizing their contribution
+between noise levels and over time.
+Note that the optimum of Equations 21 and 28 with re-
+spect to θ does not depend on the choice of λ(σ). In theory,
+we could thus drop λ(σ) altogether, i.e., set λ(σ) = 1. We
+21
+
+
+===== [Page 22] =====
+Encoder block
+Decoder block
+1
+768
+Embedding
+1000
+GrpNorm
+SiLU
+Conv 3×3
+×
+Down 2×2
+SiLU
+Dropout
+Conv 3×3
++1
+Linear
+Conv 1×1
+Down 2×2
+Rin×Cin
+Rout×Cout
+Rout×Cout
+GrpNorm
+SiLU
+Conv 3×3
+×
+Up 2×2
+SiLU
+Dropout
+Conv 3×3
++1
+Linear
+Conv 1×1
+Up 2×2
+Rin×(Cin+Cskip)
+Rout×Cout
+Rin×(Cin+Cskip)
+Rout×Cout
+Concat
+Linear
+SiLU
+Linear
+Linear
++
+SiLU
+192
+GrpNorm
+GrpNorm
+Fourier
+Reshape
+Matmul
+×
+Softmax
+Matmul
+Reshape
+Conv 1×1
+PixNorm
++
+Rin×(Cin×3)
+Q
+K
+V
+Rin×Cin
+Input
+Output
+Split
+Conv 1×1
+Config D: Magnitude-preserving learned layers
+To encoder and 
+decoder blocks
+Attention
+Noise
+level
+Class
+label
+Rin
+2×Nh
+Rin
+2×Nh
+Fixed-function
+Learned
+Not always present
+Learned,
+weight norm.
+Cout
+Cout
+cnoise
+×
+1000
+Noisy
+image
+cskip
++
+Denoised
+image
+GrpNorm
+Conv 3×3
+SiLU
+642×192
+642×4
+Out
+cout
+cin
+DecA
+DecA
+DecA
+DecA
+Dec
+Dec
+Dec
+Enc
+Enc
+Enc
+Enc
+Enc
+EncD
+EncA
+EncA
+EncA
+EncD
+EncA
+EncA
+EncA
+EncD
+DecA
+DecA
+DecA
+DecA
+Dec
+Dec
+Dec
+Dec
+642×192
+322×192
+162×384
+82×576
+Dec
+DecU
+DecU
+DecU
+DecA
+642×192
+642×192
+642×192
+322×384
+322×384
+322×384
+162×576
+162×576
+162×576
+82×768
+82×768
+82×768
+82×768
+82×768
+82×768
+82×768
+82×768
+82×768
+162×768
+162×576
+162×576
+162×576
+162×576
+322×576
+322×384
+322×384
+322×384
+322×384
+642×384
+642×192
+642×192
+642×192
+642×192
+In
+Out
+Enc
+Dec
+642×4
+642×4
+768
+Embedding
+768
+Embedding
++
+Attention
+Output
++
+Output
+Skip
+Attention
+Skip
+Input
+Rin×Cin
+Rin×Cin
+Input
+642×4
+642×4
+768
+Conv 3×3
+642×192
+Concat
+1
+642×4
+In
+Nh = Cin / Nc
+Nc = 64
+Rin×Nh×Nc×3
+1
+Nc
+Rin×Nh×Nc
+Number of GPUs
+32
+Learning rate max (αref)
+0.0100
+Adam β1
+0.9
+FID
+3.75
+Minibatch size
+2048
+Learning rate decay (tref)
+∞
+Adam β2
+0.99
+EMA length (σrel)
+0.225
+Duration (Mimg)
+2147.5
+Learning rate rampup (Mimg)
+10
+Loss scaling
+1
+Model capacity (Mparams)
+277.8
+Mixed-precision (FP16)
+full
+Noise distribution mean (Pmean)
+−0.4
+Attention res.
+16, 8
+Model complexity (Gflops)
+101.2
+Dropout probability
+10%
+Noise distribution std. (Pstd)
+1.0
+Attention blocks
+15
+Sampling cost (Tflops)
+7.64
+Figure 19. Full architecture diagram and hyperparameters for CONFIG D (Magnitude-preserving learned layers).
+have tested this in practice and found virtually no impact on
+the resulting FID or convergence speed. However, we choose
+to keep λ(σ) defined according to Equation 15 as a practical
+safety precaution; Equation 28 only becomes effective once
+u(σ) has converged reasonably close to the optimum, so
+the choice of λ(σ) is still relevant at the beginning of the
+training.
+B.3. Architectural streamlining (CONFIG C)
+The network architecture of CONFIG B contains several dif-
+ferent types of trainable parameters that each behave in a
+slightly different way: weights and biases of three kinds
+(uniform-initialized, zero-initialized, and self-attention) as
+well as group normalization scaling parameters and class
+embeddings. Our goal in CONFIG C is eliminate these differ-
+ences and make all the remaining parameters behave more
+or less identically. To this end, we make several changes to
+the architecture that can be seen by comparing Figures 17
+and 18.
+Biases and group normalizations.
+We have found that
+we can simply remove all biases with no ill effects. We do
+this for all convolutions, fully-connected layers, and group
+normalization layers in the denoiser network as well as in
+the loss weighting MLP (Equation 21). In theory, this could
+potentially lead to reduced expressive power of the network,
+especially when sensing the overall scale of the input values.
+Even though we have not seen this to be an issue in practice,
+we mitigate the danger by concatenating an additional chan-
+nel of constant 1 to the incoming noisy image in the input
+block (“In”).
+Furthermore, we remove all other bias-like constructs for
+consistency; namely, the dynamic conditioning offset de-
+rived from the embedding vector in the encoder and decoder
+blocks and the subtraction of the empirical mean in group
+normalization. We further simplify the group normalization
+layers by removing their learned scale parameter. After these
+changes, the operation becomes
+bx,y,c,g =
+ax,y,c,g
+q
+1
+NxNyNc
+P
+i,j,ka2
+i,j,k,g + ϵ
+,
+(29)
+where ax,y,c,g and bx,y,c,g denote the incoming and outgoing
+activations, respectively, for pixel (x, y), channel c, and
+group g, and Nx, Ny, and Nc indicate their corresponding
+dimensions. We set ϵ = 10−4.
+22
+
+
+===== [Page 23] =====
+Encoder block
+Decoder block
+1
+768
+Embedding
+1000
+GrpNorm
+SiLU
+Conv 3×3
+×
+Down 2×2
+SiLU
+Dropout
+Conv 3×3
++1
+Linear
+Conv 1×1
+Down 2×2
+Rin×Cin
+Rout×Cout
+Rout×Cout
+GrpNorm
+SiLU
+Conv 3×3
+×
+Up 2×2
+SiLU
+Dropout
+Conv 3×3
++1
+Linear
+Conv 1×1
+Up 2×2
+Rin×(Cin+Cskip)
+Rout×Cout
+Rin×(Cin+Cskip)
+Rout×Cout
+Concat
+Linear
+SiLU
+Linear
+Linear
++
+SiLU
+192
+GrpNorm
+GrpNorm
+Fourier
+Reshape
+Matmul
+×
+Softmax
+Matmul
+Reshape
+Conv 1×1
+PixNorm
++
+Rin×(Cin×3)
+Q
+K
+V
+Rin×Cin
+Input
+Output
+Split
+Conv 1×1
+Config E: Control effective learning rate
+To encoder and 
+decoder blocks
+Attention
+Noise
+level
+Class
+label
+Rin
+2×Nh
+Rin
+2×Nh
+Fixed-function
+Learned
+Not always present
+Learned, forced
+weight norm.
+Cout
+Cout
+cnoise
+×
+1000
+Noisy
+image
+cskip
++
+Denoised
+image
+GrpNorm
+Conv 3×3
+SiLU
+642×192
+642×4
+Out
+cout
+cin
+DecA
+DecA
+DecA
+DecA
+Dec
+Dec
+Dec
+Enc
+Enc
+Enc
+Enc
+Enc
+EncD
+EncA
+EncA
+EncA
+EncD
+EncA
+EncA
+EncA
+EncD
+DecA
+DecA
+DecA
+DecA
+Dec
+Dec
+Dec
+Dec
+642×192
+322×192
+162×384
+82×576
+Dec
+DecU
+DecU
+DecU
+DecA
+642×192
+642×192
+642×192
+322×384
+322×384
+322×384
+162×576
+162×576
+162×576
+82×768
+82×768
+82×768
+82×768
+82×768
+82×768
+82×768
+82×768
+82×768
+162×768
+162×576
+162×576
+162×576
+162×576
+322×576
+322×384
+322×384
+322×384
+322×384
+642×384
+642×192
+642×192
+642×192
+642×192
+In
+Out
+Enc
+Dec
+642×4
+642×4
+768
+Embedding
+768
+Embedding
++
+Attention
+Output
++
+Output
+Skip
+Attention
+Skip
+Input
+Rin×Cin
+Rin×Cin
+Input
+642×4
+642×4
+768
+Conv 3×3
+642×192
+Concat
+1
+642×4
+In
+Nh = Cin / Nc
+Nc = 64
+Rin×Nh×Nc×3
+1
+Nc
+Rin×Nh×Nc
+Number of GPUs
+32
+Learning rate max (αref)
+0.0100
+Adam β1
+0.9
+FID
+3.02
+Minibatch size
+2048
+Learning rate decay (tref)
+70000
+Adam β2
+0.99
+EMA length (σrel)
+0.145
+Duration (Mimg)
+2147.5
+Learning rate rampup (Mimg)
+10
+Loss scaling
+1
+Model capacity (Mparams)
+277.8
+Mixed-precision (FP16)
+full
+Noise distribution mean (Pmean)
+−0.4
+Attention res.
+16, 8
+Model complexity (Gflops)
+101.2
+Dropout probability
+10%
+Noise distribution std. (Pstd)
+1.0
+Attention blocks
+15
+Sampling cost (Tflops)
+7.64
+Figure 20. Full architecture diagram and hyperparameters for CONFIG E (Control effective learning rate).
+Cosine attention.
+The 1×1 convolutions responsible for
+producing the query and key vectors for self-attention behave
+somewhat differently compared to the other convolutions.
+This is because the resulting values of wi,j (Equation 12)
+scale quadratically with respect to the overall magnitude
+of the convolution weights, as opposed to linear scaling
+in other convolutions. We eliminate this discrepancy by
+utilizing cosine attention [15, 51, 54]. In practice, we do
+this by replacing the group normalization, executed right
+before the convolution, with pixelwise feature vector nor-
+malization [33] (“PixelNorm”), executed right after it. This
+operation is defined as
+bx,y,c =
+ax,y,c
+q
+1
+Nc
+P
+ia2
+x,y,i + ϵ
+,
+(30)
+where we use ϵ = 10−4, similar to Equation 29.
+To gain further insight regarding the effect of this nor-
+malization, we note that, ignoring ϵ, Equation 30 can be
+equivalently written as
+bx,y =
+p
+Nc
+ax,y
+∥ax,y∥2
+.
+(31)
+Let us denote the normalized query and key vectors by
+ˆqi and ˆkj, respectively. Substituting Equation 31 into Equa-
+tion 12 gives
+wi,j =
+1
+√Nc
+
+ˆqi, ˆkj
+
+(32)
+=
+1
+√Nc
+p
+Nc
+qi
+∥qi∥2
+,
+p
+Nc
+kj
+∥kj∥2
+
+(33)
+=
+p
+Nc cos(ϕi,j) ,
+(34)
+where ϕi,j denotes the angle between qi and kj. In other
+words, the attention weights are now determined exclusively
+by the directions of the query and key vectors, and their
+lengths no longer have any effect. This curbs the uncon-
+trolled growth of wi,j during training and enables using 16-
+bit floating point throughout the entire self-attention block.
+Other changes.
+To unify the behavior of the remaining
+trainable parameters, we change the zero-initialized layers
+(dark green) and the class embeddings to use the same uni-
+form initialization as the rest of the layers. In order to retain
+the same overall magnitude after the class embedding layer,
+23

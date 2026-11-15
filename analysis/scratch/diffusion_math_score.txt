@@ -1,0 +1,1139 @@
+# Source PDF: C:\Users\Maha Mamdouh\Desktop\ML learning phase\deep learning math books\math behind flow matching and diffusion models.pdf
+# Extracted Pages: 18-32 of 56
+
+
+===== [Page 18] =====
+3.3
+Conditional and Marginal Score Functions
+Theorem 12 (Continuity Equation)
+Let us consider an flow model with vector field utarget
+t
+with X0 ∼pinit. Then Xt ∼pt for all 0 ≤t ≤1 if and
+only if
+∂tpt(x) = −div(ptutarget
+t
+)(x)
+for all x ∈Rd, 0 ≤t ≤1,
+(24)
+where ∂tpt(x) = d
+dtpt(x) denotes the time-derivative of pt(x). Equation 24 is known as the continuity equation.
+For the mathematically-inclined reader, we present a self-contained proof of the Continuity Equation in appendix B.
+Before we move on, let us try and understand intuitively the continuity equation.
+The left-hand side ∂tpt(x)
+describes how much the probability pt(x) at x changes over time. Intuitively, the change should correspond to the
+net inflow of probability mass. For a flow model, a particle Xt follows along the vector field utarget
+t
+. As you might
+recall from physics, the divergence measures a sort of net outflow from the vector field. Therefore, the negative
+divergence measures the net inflow. Scaling this by the total probability mass currently residing at x, we get that
+the net −div(ptut) measures the total inflow of probability mass. Since probability mass is conserved, the left-hand
+and right-hand side of the equation should be the same! We now proceed with a proof of the marginalization trick
+from theorem 10.
+Proof. By theorem 12, we have to show that the marginal vector field utarget
+t
+, as defined as in eq. (19), satisfies the
+continuity equation. We can do this by direct calculation:
+∂tpt(x)
+(i)
+= ∂t
+Z
+pt(x|z)pdata(z)dz
+=
+Z
+∂tpt(x|z)pdata(z)dz
+(ii)
+=
+Z
+−div(pt(·|z)utarget
+t
+(·|z))(x)pdata(z)dz
+(iii)
+= −div
+Z
+pt(x|z)utarget
+t
+(x|z)pdata(z)dz
+
+(iv)
+= −div
+
+pt(x)
+Z
+utarget
+t
+(x|z)pt(x|z)pdata(z)
+pt(x)
+dz
+
+(x)
+(v)
+= −div
+ptutarget
+t
+
+(x),
+where in (i) we used the definition of pt(x) in eq. (13), in (ii) we used the continuity equation for the conditional
+probability path pt(·|z), in (iii) we swapped the integral and divergence operator using eq. (23), in (iv) we multiplied
+and divided by pt(x), and in (v) we used eq. (19). The beginning and end of the above chain of equations show
+that the continuity equation is fulfilled for utarget
+t
+. By theorem 12, this is enough to imply eq. (20), and we are
+done.
+3.3
+Conditional and Marginal Score Functions
+We just successfully constructed a training target for a flow model. We now extend this reasoning to SDEs. To
+do so, let us define the marginal score function of pt as ∇log pt(x). We can use this to extend the ODE from the
+18
+
+
+===== [Page 19] =====
+3.3
+Conditional and Marginal Score Functions
+Figure 7: Illustration of theorem 13. Simulating a probability path with SDEs. This repeats the plots from fig. 6
+with SDE sampling using eq. (25). Data distribution pdata in blue background. Gaussian pinit in red background.
+Top row: Conditional path. Bottom row: Marginal probability path. As one can see, the SDE transports samples
+from pinit into samples from δz (for the conditional path) and to pdata (for the marginal path).
+previous section to an SDE, as the following result demonstrates.
+Theorem 13 (SDE extension trick)
+Define the conditional and marginal vector fields utarget
+t
+(x|z) and utarget
+t
+(x) as before.
+Then, for diffusion
+coefficient σt ≥0, we may construct an SDE which follows the same probability path:
+X0 ∼pinit,
+dXt =
+
+utarget
+t
+(Xt) + σ2
+t
+2 ∇log pt(Xt)
+
+dt + σtdWt
+(25)
+⇒Xt ∼pt
+(0 ≤t ≤1)
+(26)
+In particular, X1 ∼pdata for this SDE. The same identity holds if we replace the marginal probability pt(x)
+and vector field utarget
+t
+(x) with the conditional probability path pt(x|z) and vector field utarget
+t
+(x|z).
+19
+
+
+===== [Page 20] =====
+3.3
+Conditional and Marginal Score Functions
+We illustrate the theorem in fig. 7. The formula in theorem 13 is useful because, similar to before, we can express
+the marginal score function via the conditional score function ∇log pt(x|z)
+∇log pt(x) = ∇pt(x)
+pt(x)
+= ∇
+R
+pt(x|z)pdata(z)dz
+pt(x)
+=
+R
+∇pt(x|z)pdata(z)dz
+pt(x)
+=
+Z
+∇log pt(x|z)pt(x|z)pdata(z)
+pt(x)
+dz
+(27)
+and the conditional score function ∇log pt(x|z) is something we usually know analytically, as illustrated by the
+following example.
+Example 14 (Score Function for Gaussian Probability Paths.)
+For the Gaussian path pt(x|z) = N(x; αtz, β2
+t Id), we can use the form of the Gaussian probability density (see
+eq. (81)) to get
+∇log pt(x|z) = ∇log N(x; αtz, β2
+t Id) = −x −αtz
+β2
+t
+.
+(28)
+Note that the score is a linear function of x. This is a unique feature of Gaussian distributions.
+In the remainder of this section, we will prove theorem 13 via the Fokker-Planck equation, which extends the
+continuity equation from ODEs to SDEs. To do so, let us first define the Laplacian operator ∆via
+∆wt(x) =
+d
+X
+i=1
+∂2
+∂2xi
+wt(x) = div(∇wt)(x).
+(29)
+Theorem 15 (Fokker-Planck Equation)
+Let pt be a probability path and let us consider the SDE
+X0 ∼pinit,
+dXt = ut(Xt)dt + σtdWt.
+Then Xt has distribution pt for all 0 ≤t ≤1 if and only if the Fokker-Planck equation holds:
+∂tpt(x) = −div(ptut)(x) + σ2
+t
+2 ∆pt(x)
+for all x ∈Rd, 0 ≤t ≤1.
+(30)
+A self-contained proof of the Fokker-Planck equation can be found in appendix B. Note that the continuity equation
+is recovered from the Fokker-Planck equation when σt = 0. The additional Laplacian term ∆pt might be hard to
+rationalize at first. Those familiar with physics will note that the same term also appears in the heat equation
+(which is in fact a special case of the Fokker-Planck equation). Heat diffuses through a medium. We also add a
+diffusion process (not a physical but a mathematical one) and hence we add this additional Laplacian term. Let
+us now use the Fokker-Planck equation to help us prove theorem 13.
+Proof of Theorem 13. By theorem 15, we need to show that that the SDE defined in eq. (25) satisfies the Fokker-
+20
+
+
+===== [Page 21] =====
+3.3
+Conditional and Marginal Score Functions
+Figure 8: Top row: Particles evolving under the Langevin dynamics given by eq. (31), with p(x) taken to be a
+Gaussian mixture with 5 modes. Bottom row: A kernel density estimate of the same samples shown in the top row.
+As one can see, the distribution of samples converges to the equilibrium distribution p (blue background colour).
+Planck equation for pt. We can do this by direction calculation:
+∂tpt(x)
+(i)
+= −div(ptutarget
+t
+)(x)
+(ii)
+= −div(ptutarget
+t
+)(x) −σ2
+t
+2 ∆pt(x) + σ2
+t
+2 ∆pt(x)
+(iii)
+= −div(ptutarget
+t
+)(x) −div(σ2
+t
+2 ∇pt)(x) + σ2
+t
+2 ∆pt(x)
+(iv)
+= −div(ptutarget
+t
+)(x) −div(pt
+σ2
+t
+2 ∇log pt
+
+)(x) + σ2
+t
+2 ∆pt(x)
+(v)
+= −div
+
+pt
+
+utarget
+t
++ σ2
+t
+2 ∇log pt
+
+(x) + σ2
+t
+2 ∆pt(x),
+where in (i) we used the Contuity Equation, in (ii) we added and subtracted the same term, in (iii) we used the
+definition of the Laplacian (eq. (29)), in (iv) we used that ∇log pt =
+∇pt
+pt , and in (v) we used the linearity of
+the divergence operator. The above derivation shows that the SDE defined in eq. (25) satisfies the Fokker-Planck
+equation for pt. By theorem 15, this implies Xt ∼pt for 0 ≤t ≤1, as desired.
+Remark 16 (Langevin dynamics.)
+The above construction has a famous special case when the probability path is static, i.e. pt = p for a fixed
+21
+
+
+===== [Page 22] =====
+3.3
+Conditional and Marginal Score Functions
+distribution p. In this case, we set utarget
+t
+= 0 and obtain the SDE
+dXt = σ2
+t
+2 ∇log p(Xt)dt + σtdWt,
+(31)
+which is commonly known as Langevin dynamics. The fact that pt is static implies that ∂tpt(x) = 0. It follows
+immediately from theorem 13 that these dynamics satisfy the Fokker-Planck equation for the static path pt = p
+in theorem 13. Therefore, we may conclude that p is a stationary distribution of Langevin dynamics, so that
+X0 ∼p
+⇒
+Xt ∼p
+(t ≥0)
+As with many Markov chains, these dynamics converge to the stationary distribution p under rather general
+conditions (see section 3.3). That is, if we instead we take X0 ∼p′̸ = p, so that Xt ∼p′
+t, then under mild
+conditions pt →p. This fact makes Langevin dynamics extremely useful, and it accordingly serves as the basis
+for e.g., molecular dynamics simulations, and many other Markov chain Monte Carlo (MCMC) methods across
+Bayesian statistics and the natural sciences.
+Let us summarize the results of this section.
+Summary 17 (Derivation of the Training Target)
+The flow training target is the marginal vector field utarget
+t
+. To construct it, we choose a conditional probability
+path pt(x|z) that fulfils p0(·|z) = pinit, p1(·|z) = δz. Next, we find a conditional vector field uflow
+t
+(x|z) such
+that its corresponding flow ψtarget
+t
+(x|z) fulfills
+X0 ∼pinit
+⇒
+Xt = ψtarget
+t
+(X0|z) ∼pt(·|z),
+or, equivalently, that utarget
+t
+satisfies the continuity equation. Then the marginal vector field defined by
+utarget
+t
+(x) =
+Z
+utarget
+t
+(x|z)pt(x|z)pdata(z)
+pt(x)
+dz,
+(32)
+follows the marginal probability path, i.e.,
+X0 ∼pinit,
+dXt = utarget
+t
+(Xt)dt ⇒Xt ∼pt
+(0 ≤t ≤1).
+(33)
+In particular, X1 ∼pdata for this ODE, so that utarget
+t
+"converts noise into data", as desired.
+Extending to SDEs. For a time-dependent diffusion coefficient σt ≥0, we can extend the above ODE to
+an SDE with the same marginal probability path:
+X0 ∼pinit,
+dXt =
+
+utarget
+t
+(Xt) + σ2
+t
+2 ∇log pt(Xt)
+
+dt + σtdWt
+(34)
+⇒Xt ∼pt
+(0 ≤t ≤1),
+(35)
+where ∇log pt(x) is the marginal score function
+∇log pt(x) =
+Z
+∇log pt(x|z)pt(x|z)pdata(z)
+pt(x)
+dz.
+(36)
+22
+
+
+===== [Page 23] =====
+3.3
+Conditional and Marginal Score Functions
+In particular, for the trajectories Xt of the above SDE, it holds that X1 ∼pdata, so that the SDE "converts
+noise into data", as desired. An important example is the Gaussian probability path, yielding the formulae:
+pt(x|z) =N(x; αtz, β2
+t Id)
+(37)
+uflow
+t
+(x|z) =
+ 
+˙αt −
+˙βt
+βt
+αt
+!
+z +
+˙βt
+βt
+x
+(38)
+∇log pt(x|z) = −x −αtz
+β2
+t
+,
+(39)
+for noise schedulers αt, βt ∈R: continuously differentiable, monotonic functions such that α0 = β1 = 0
+α1 = β0 = 1.
+23
+
+
+===== [Page 24] =====
+4
+Training the Generative Model
+In the last two sections, we showed how to construct a generative model with a vector field uθ
+t given by a neural
+network, and we derived a formula for the training target utarget
+t
+. In this section, we will describe how to train the
+neural network uθ
+t to approximate the training target utarget
+t
+. First, we restrict ourselves to ODEs again, in doing
+so recovering flow matching. Second, we explain how to extend the approach to SDEs via score matching. Finally,
+we consider the special case of Gaussian probability paths, in doing so recovering denoising diffusion models. With
+these tools, we will at last have an end-to-end procedure to train and sample from a generative model with ODEs
+and SDEs.
+4.1
+Flow Matching
+As before, let us consider a flow model given by
+X0 ∼pinit,
+dXt = uθ
+t(Xt) dt.
+▶flow model
+(40)
+As we learned, we want the neural network uθ
+t to equal the marginal vector field utarget
+t
+.
+In other words, we
+would like to find parameters θ so that uθ
+t ≈utarget
+t
+. In the following, we denote by Unif = Unif[0,1] the uniform
+distribution on the interval [0, 1], and by E the expected value of a random variable. An intuitive way of obtaining
+uθ
+t ≈utarget
+t
+is to use a mean-squared error, i.e. to use the flow matching loss defined as
+LFM(θ) = Et∼Unif,x∼pt[∥uθ
+t(x) −utarget
+t
+(x)∥2]
+(41)
+(i)
+= Et∼Unif,z∼pdata,x∼pt(·|z)[∥uθ
+t(x) −utarget
+t
+(x)∥2],
+(42)
+where pt(x) =
+R
+pt(x|z)pdata(z)dz is the marginal probability path and in (i) we used the sampling procedure given
+by eq. (13). Intuitively, this loss says: First, draw a random time t ∈[0, 1]. Second, draw a random point z from our
+data set, sample from pt(·|z) (e.g., by adding some noise), and compute uθ
+t (x). Finally, compute the mean-squared
+error between the output of our neural network and the marginal vector field utarget
+t
+(x). Unfortunately, we are not
+done here. While we do know the formula for utarget
+t
+by theorem 10
+utarget
+t
+(x) =
+Z
+utarget
+t
+(x|z)pt(x|z)pdata(z)
+pt(x)
+dz,
+(43)
+we cannot compute it efficiently because the above integral is intractable. Instead, we will exploit the fact that the
+conditional velocity field utarget
+t
+(x|z) is tractable. To do so, let us define the conditional flow matching loss
+LCFM(θ) = Et∼Unif,z∼pdata,x∼pt(·|z)[∥uθ
+t(x) −utarget
+t
+(x|z)∥2].
+(44)
+Note the difference to eq. (41): we use the conditional vector field utarget
+t
+(x|z) instead of the marginal vector
+utarget
+t
+(x). As we have an analytical formula for utarget
+t
+(x|z), we can minimize the above loss easily. But wait, what
+sense does it make to regress against the conditional vector field if it’s the marginal vector field we care about?
+As it turns out, by explicitly regressing against the tractable, conditional vector field, we are implicitly regressing
+against the intractable, marginal vector field. The next result makes this intuition precise.
+24
+
+
+===== [Page 25] =====
+4.1
+Flow Matching
+Theorem 18
+The marginal flow matching loss equals the conditional flow matching loss up to a constant. That is,
+LFM(θ) = LCFM(θ) + C,
+where C is independent of θ. Therefore, their gradients coincide:
+∇θLFM(θ) = ∇θLCFM(θ).
+Hence, minimizing LCFM(θ) with e.g., stochastic gradient descent (SGD) is equivalent to minimizing LFM(θ)
+with in the same fashion.
+In particular, for the minimizer θ∗of LCFM(θ), it will hold that uθ∗
+t
+= utarget
+t
+(assuming an infintely expressive parameterization).
+Proof. The proof works by expanding the mean-squared error into three components and removing constants:
+LFM(θ)
+(i)
+= Et∼Unif,x∼pt[∥uθ
+t (x) −utarget
+t
+(x)∥2]
+(ii)
+= Et∼Unif,x∼pt[∥uθ
+t(x)∥2 −2uθ
+t(x)T utarget
+t
+(x) + ∥utarget
+t
+(x)∥2]
+(iii)
+= Et∼Unif,x∼pt
+
+∥uθ
+t(x)∥2
+−2Et∼Unif,x∼pt[uθ
+t (x)T utarget
+t
+(x)] + Et∼Unif[0,1],x∼pt[∥utarget
+t
+(x)∥2]
+|
+{z
+}
+=:C1
+(iv)
+= Et∼Unif,z∼pdata,x∼pt(·|z)[∥uθ
+t(x)∥2] −2Et∼Unif,x∼pt[uθ
+t (x)T utarget
+t
+(x)] + C1
+where (i) holds by definition, in (ii) we used the formula ∥a−b∥2 = ∥a∥2 −2aT b+∥b∥2, in (iii) we define a constant
+C1 and in (iv) we used the sampling procedure of pt given by eq. (13). Let us reexpress the second summand:
+Et∼Unif,x∼pt[uθ
+t(x)T utarget
+t
+(x)]
+(i)
+=
+1
+Z
+0
+Z
+pt(x)uθ
+t(x)T utarget
+t
+(x) dx dt
+(ii)
+=
+1
+Z
+0
+Z
+pt(x)uθ
+t(x)T
+Z
+utarget
+t
+(x|z)pt(x|z)pdata(z)
+pt(x)
+dz
+
+dx dt
+(iii)
+=
+1
+Z
+0
+Z Z
+uθ
+t(x)T utarget
+t
+(x|z)pt(x|z)pdata(z) dz dx dt
+(iv)
+= Et∼Unif,z∼pdata,x∼pt(·|z)[uθ
+t(x)T utarget
+t
+(x|z)]
+where in (i) we expressed the expected value as an integral, in (ii) we use eq. (43), in (iii) we use the fact that
+integrals are linear, in (iv) we express the integral as an expected value. Note that this was really the crucial
+step of the proof: The beginning of the equality used the marginal vector field utarget
+t
+(x), while the end uses the
+25
+
+
+===== [Page 26] =====
+4.1
+Flow Matching
+conditional vector field utarget
+t
+(x|z). We plug is into the equation for LFM to get:
+LFM(θ)
+(i)
+= Et∼Unif,z∼pdata,x∼pt(·|z)[∥uθ
+t(x)∥2] −2Et∼Unif,z∼pdata,x∼pt(·|z)[uθ
+t (x)T utarget
+t
+(x|z)] + C1
+(ii)
+= Et∼Unif,z∼pdata,x∼pt(·|z)[∥uθ
+t (x)∥2 −2uθ
+t(x)T utarget
+t
+(x|z) + ∥utarget
+t
+(x|z)∥2 −∥utarget
+t
+(x|z)∥2] + C1
+(iii)
+= Et∼Unif,z∼pdata,x∼pt(·|z)[∥uθ
+t(x) −utarget
+t
+(x|z)∥2] + Et∼Unif,z∼pdata,x∼pt(·|z)[−∥utarget
+t
+(x|z)∥2]
+|
+{z
+}
+C2
++C1
+(iv)
+= LCFM(θ) + C2 + C1
+|
+{z
+}
+=:C
+where in (i) we plugged in the derived equation, in (ii) we added and subtracted the same value, in (iii) we used
+the formula ∥a−b∥2 = ∥a∥2 −2aT b+∥b∥2 again, and in (iv) we defined a constant in θ. This finishes the proof.
+Once uθ
+t has been trained, we may simulate the flow model
+dXt = uθ
+t (Xt) dt,
+X0 ∼pinit
+(45)
+via e.g., algorithm 1 to obtain samples X1 ∼pdata. This whole pipeline is called flow matching in the literature
+[14, 16, 1, 15]. The training procedure is summarized in algorithm 5 and visualized in fig. 9. Let us now instantiate
+the conditional flow matching loss for the choice of Gaussian probability paths:
+Example 19 (Flow Matching for Gaussian Conditional Probability Paths)
+Let us return to the example of Gaussian probability paths pt(·|z) = N(αtz; β2
+t Id), where we may sample from
+the conditional path via
+ϵ ∼N(0, Id)
+⇒
+xt = αtz + βtϵ ∼N(αtz, β2
+t Id) = pt(·|z).
+(46)
+As we derived in eq. (21), the conditional vector field utarget
+t
+(x|z) is given by
+utarget
+t
+(x|z) =
+ 
+˙αt −
+˙βt
+βt
+αt
+!
+z +
+˙βt
+βt
+x,
+(47)
+where ˙αt = ∂tαt and ˙βt = ∂tβt are the respective time derivatives. Plugging in this formula, the conditional
+flow matching loss reads
+LCFM(θ) = Et∼Unif,z∼pdata,x∼N(αtz,β2
+t Id)[∥uθ
+t (x) −
+ 
+˙αt −
+˙βt
+βt
+αt
+!
+z −
+˙βt
+βt
+x∥2]
+(i)
+= Et∼Unif,z∼pdata,ϵ∼N(0,Id)[∥uθ
+t (αtz + βtϵ) −( ˙αtz + ˙βtϵ)∥2]
+where in (i) we plugged in eq. (46) and replaced x by αtz+βtϵ. Note the simplicity of LCFM : We sample a data
+point z, sample some noise ϵ and then we take a mean squared error. Let us make this even more concrete for
+the special case of αt = t, and βt = 1 −t. The corresponding probability pt(x|z) = N(tz, (1 −t)2) is sometimes
+26
+
+
+===== [Page 27] =====
+4.1
+Flow Matching
+Figure 9: Illustration of theorem 18 with a Gaussian CondOT probability path: simulating an ODE from a trained
+flow matching model. The data distribution is the chess board pattern (top right). Top row: Histogram from
+ground truth marginal probability path pt(x). Bottom row: Histogram of samples from flow matching model. As
+one can see, the top row and bottom row match after training (up to training error). The model was trained using
+algorithm 5.
+referred to as the (Gaussian) CondOT probability path. Then we have ˙αt = 1, ˙βt = −1, so that
+Lcfm(θ) =Et∼Unif,z∼pdata,ϵ∼N(0,Id)[∥uθ
+t (tz + (1 −t)ϵ) −(z −ϵ)∥2]
+Many famous state-of-the-art models have been trained using this simple yet effective procedure, e.g. Stable
+Diffusion 3, Meta’s Movie Gen Video, and probably many more proprietary models. In fig. 9, we visualize it
+in a simple example and in algorithm 5 we summarize the training procedure.
+Algorithm 3 Flow Matching Training Procedure (here for Gaussian CondOT path pt(x|z) = N(tz, (1 −t)2))
+Require: A dataset of samples z ∼pdata, neural network uθ
+t
+1: for each mini-batch of data do
+2:
+Sample a data example z from the dataset.
+3:
+Sample a random time t ∼Unif[0,1].
+4:
+Sample noise ϵ ∼N(0, Id)
+5:
+Set x = tz + (1 −t)ϵ
+(General case: x ∼pt(·|z))
+6:
+Compute loss
+L(θ) =∥uθ
+t(x) −(z −ϵ)∥2
+(General case: = ∥uθ
+t(x) −utarget
+t
+(x|z)∥2)
+7:
+Update the model parameters θ via gradient descent on L(θ).
+8: end for
+27
+
+
+===== [Page 28] =====
+4.2
+Score Matching
+4.2
+Score Matching
+Let us extend the algorithm we just found from ODEs to SDEs. Remember we can extend the target ODE to an
+SDE with the same marginal distribution given by
+dXt =
+
+utarget
+t
+(Xt) + σ2
+t
+2 ∇log pt(Xt)
+
+dt + σtdWt
+(48)
+X0 ∼pinit,
+(49)
+⇒Xt ∼pt
+(0 ≤t ≤1)
+(50)
+where utarget
+t
+is the marginal vector field and ∇log pt(x) is the marginal score function represented via the formula
+∇log pt(x) =
+Z
+∇log pt(x|z)pt(x|z)pdata(z)
+pt(x)
+dz.
+(51)
+To approximate the marginal score ∇log pt, we can use a neural network that we call score network sθ
+t : Rd×[0, 1] →
+Rd. In the same way as before, we can design a score matching loss and a conditional score matching loss:
+LSM(θ) = Et∼Unif,z∼pdata,x∼pt(·|z)[∥sθ
+t(x) −∇log pt(x)∥2]
+▶score matching loss
+LCSM(θ) = Et∼Unif,z∼pdata,x∼pt(·|z)[∥sθ
+t(x) −∇log pt(x|z)∥2]
+▶conditional score matching loss
+where again the difference is using the marginal score ∇log pt(x) vs. using the conditional score ∇log pt(x|z). As
+before, we ideally would want to minimize the score matching loss but can’t because we don’t know ∇log pt(x).
+But similarly as before, the conditional score matching loss is a tractable alternative:
+Theorem 20
+The score matching loss equals the conditional score matching loss up to a constant:
+LSM(θ) = LCSM(θ) + C,
+where C is independent of parameters θ. Therefore, their gradients coincide:
+∇θLSM(θ) = ∇θLCSM(θ).
+In particular, for the minimizer θ∗, it will hold that sθ∗
+t
+= ∇log pt.
+Proof. Note that the formula for ∇log pt (eq. (51)) looks the same as the formula for utarget
+t
+(eq. (43)). Therefore,
+the proof is identical to the proof of theorem 18 replacing utarget
+t
+with ∇log pt.
+The above procedure describes the vanilla procedure of training a diffusion model. After training, we can choose
+an arbitrary diffusion coefficient σt ≥0 and then simulate the SDE
+X0 ∼pinit,
+dXt =
+
+uθ
+t(Xt) + σ2
+t
+2 sθ
+t(Xt)
+
+dt + σtdWt,
+(52)
+to generate samples X1 ∼pdata. In theory, every σt should give samples X1 ∼pdata at perfect training. In practice,
+we encounter two types of errors: (1) numerical errors by simulating the SDE imperfectly and (2) training errors
+28
+
+
+===== [Page 29] =====
+4.2
+Score Matching
+(i.e., the model uθ
+t is not exactly equal to utarget
+t
+). Therefore, there is an optimal unknown noise level σt - this can
+be determined empirically by just testing our different values of empirically (see e.g. [1, 12, 17]). At first sight, it
+might seem to be a disadvantage that we have to learn both sθ
+t and uθ
+t if we wanted to use diffusion model now
+as opposed to a flow model. However, note we can often directly sθ
+t and uθ
+t in a single network with two outputs,
+so that the additional computational effort is usually minimal. Further, as we will see now for the special case of
+the Gaussian probability path, sθ
+t and uθ
+t may be converted into one another so that we don’t have to train them
+separately.
+Remark 21 (Denoising Diffusion Models)
+If you are familiar with diffusion models, you have probably encountered the term denoising diffusion model.
+This model has become so popular that most people nowadays drop the word "denoising" and simply use the
+term "diffusion model" to describe it. In the language of this document, these are simply diffusion models with
+Gaussian probability paths pt(·|z) = N(αtz; β2
+t Id). However, it is important to note that this might not be
+immediately obvious if you read some of the first diffusion model papers: they use a different time convention
+(time is inverted) - so you need apply an appropriate time re-scaling - and they construct their probability path
+via so-called forward processes (we will discuss this in section 4.3).
+Example 22 (Denoising Diffusion Models: Score Matching for Gaussian Probability Paths)
+First, let us instantiate the denoising score matching loss for the case of pt(x|z) = N(αtz, β2
+t Id). As we derived
+in eq. (28), the conditional score ∇log pt(x|z) has the formula
+∇log pt(x|z) = −x −αtz
+β2
+t
+.
+(53)
+Plugging in this formula, the conditional score matching loss becomes:
+LCSM(θ) = Et∼Unif,z∼pdata,x∼pt(·|z)[∥sθ
+t(x) + x −αtz
+β2
+t
+∥2]
+(i)
+= Et∼Unif,z∼pdata,ϵ∼N(0,Id)[∥sθ
+t(αtz + βtϵ) + ϵ
+βt
+∥2]
+= Et∼Unif,z∼pdata,ϵ∼N(0,Id)[ 1
+β2
+t
+∥βtsθ
+t(αtz + βtϵ) + ϵ∥2]
+where in (i) we plugged in eq. (46) and replaced x by αtz + βtϵ. Note that the network sθ
+t essentially learns
+to predict the noise that was used to corrupt a data sample z. Therefore, the above training loss is also called
+denoising score matching and it was the one of the first procedures used to learn diffusion models. It was soon
+realized that the above loss is numerically unstable for βt ≈0 close to zero (i.e. denoising score matching only
+works if you add a sufficient amount of noise). In some of the first works on denoising diffusion models (see
+Denoising Diffusion Probabilitic Models, [9]) it was therefore proprosed to drop the constant
+1
+β2
+t in the loss
+and reparameterize sθ
+t into a noise predictor network ϵθ
+t : Rd × [0, 1] →Rd via:
+−βtsθ
+t(x) = ϵθ
+t(x)
+⇒
+LDDPM(θ) =Et∼Unif,z∼pdata,ϵ∼N(0,Id)
+
+∥ϵθ
+t (αtz + βtϵ) −ϵ∥2
+29
+
+
+===== [Page 30] =====
+4.2
+Score Matching
+As before, the network ϵθ
+t essentially learns to predict the noise that was used to corrupt a data sample z. In
+algorithm 4, we summarize the training procedure.
+Algorithm 4 Score Matching Training Procedure for Gaussian probability path
+Require: A dataset of samples z ∼pdata, score network sθ
+t or noise predictor ϵθ
+t
+1: for each mini-batch of data do
+2:
+Sample a data example z from the dataset.
+3:
+Sample a random time t ∼Unif[0,1].
+4:
+Sample noise ϵ ∼N(0, Id)
+5:
+Set xt = αtz + βtϵ
+(General case: xt ∼pt(·|z))
+6:
+Compute loss
+L(θ) =∥sθ
+t (xt) + ϵ
+βt
+∥2
+(General case: = ∥sθ
+t(xt) −∇log pt(xt|z)∥2)
+Alternatively: L(θ) =∥ϵθ
+t (xt) −ϵ∥2
+7:
+Update the model parameters θ via gradient descent on L(θ).
+8: end for
+Beyond its simplicity, there is another useful property of the Gaussian probability path: By learning sθ
+t or ϵθ
+t,
+we also learn uθ
+t automatically and the other way around:
+Proposition 1 (Conversion formula for Gaussian probability path)
+For the Gaussian probability path pt(x|z) = N(αtz, β2
+t Id), it holds that that the conditional (resp. marginal)
+vector field can be converted into the conditional (resp. marginal) score:
+utarget
+t
+(x|z) =
+
+β2
+t
+˙αt
+αt
+−˙βtβt
+
+∇log pt(x|z) + ˙αt
+αt
+x
+utarget
+t
+(x) =
+
+β2
+t
+˙αt
+αt
+−˙βtβt
+
+∇log pt(x) + ˙αt
+αt
+x
+where the formula for the above marginal vector field utarget
+t
+is called probability flow ODE in the literature
+(more correctly, the corresponding ODE).
+Proof. For the conditional vector field and conditional score, we can derive:
+utarget
+t
+(x|z) =
+ 
+˙αt −
+˙βt
+βt
+αt
+!
+z +
+˙βt
+βt
+x
+(i)
+=
+
+β2
+t
+˙αt
+αt
+−˙βtβt
+ αtz −x
+β2
+t
+
++ ˙αt
+αt
+x =
+
+β2
+t
+˙αt
+αt
+−˙βtβt
+
+∇log pt(x|z) + ˙αt
+αt
+x
+where in (i) we just did some algebra. By taking integrals, the same identity holds for the marginal flow vector
+field and the marginal score function:
+utarget(x) =
+Z
+utarget
+t
+(x|z)pt(x|z)pdata(z)
+pt(x)
+dz =
+Z 
+β2
+t
+˙αt
+αt
+−˙βtβt
+
+∇log pt(x|z) + ˙αt
+αt
+x
+ pt(x|z)pdata(z)
+pt(x)
+dz
+(i)
+=
+
+β2
+t
+˙αt
+αt
+−˙βtβt
+
+∇log pt(x) + ˙αt
+αt
+x
+30
+
+
+===== [Page 31] =====
+4.2
+Score Matching
+where in (i) we used eq. (51).
+Figure 10: A comparison of the score, as obtained in two different ways. Top: A visualization of the score field
+sθ
+t (x) learned independently with score matching (see algorithm 4). Bottom: A visualization of the score field ˜sθ
+t(x)
+parameterized using uθ
+t(x) as in eq. (55).
+We can use the conversion formula to parameterize the score network sθ
+t and the vector field network uθ
+t into one
+another via
+uθ
+t =
+
+β2
+t
+˙αt
+αt
+−˙βtβt
+
+sθ
+t(x) + ˙αt
+αt
+x.
+(54)
+Similarly, so long as β2
+t ˙αt −αt ˙βtβt̸ = 0 (always true for t ∈[0, 1)), it follows that
+sθ
+t (x) = αtuθ
+t (x) −˙αtx
+β2
+t ˙αt −αt ˙βtβt
+.
+(55)
+Using this parameterization, it can be shown that the denoising score matching and the conditional flow matching
+losses are the same up to a constant.
+We conclude that for Gaussian probability paths there is no need to
+separately train both the marginal score and the marginal vector field, as knowledge of one is sufficient to
+compute the other. In particular, we can choose whether we want to use flow matching or score matching
+to train it. In fig. 10, we compare visually the score as approximated using score matching and the parameterized
+score using eq. (55). If we have trained a score network sθ
+t , we know by eq. (52) that we can use arbitrary σt ≥0
+to sample from the SDE
+X0 ∼pinit,
+dXt =
+
+β2
+t
+˙αt
+αt
+−˙βtβt + σ2
+t
+2
+
+sθ
+t(x) + ˙αt
+αt
+x
+
+dt + σtdWt
+(56)
+31
+
+
+===== [Page 32] =====
+4.3
+A Guide to the Diffusion Model Literature
+to obtain samples X1 ∼pdata (up to training and simulation error). This corresponds to stochastic sampling from
+a denoising diffusion model.
+4.3
+A Guide to the Diffusion Model Literature
+There is a whole family of models around diffusion models and flow matching in the literature. When you read
+these papers, you will likely find a different (but equivalent) way of presenting the material from this class. This
+makes it sometimes a little confusing to read these papers. For this reason, we want to give a brief overview over
+various frameworks and their differences and put them also in their historical context. This is not necessary to
+understand the remainder of this document but rather intended to be a support for you in case you read the
+literature.
+Discrete time vs. continuous time.
+The first denoising diffusion model papers [28, 29, 9] did not use SDEs but
+constructed Markov chains in discrete time, i.e. with time steps t = 0, 1, 2, 3, . . . . To this date, you will find a lot
+of works in the literature working with this discrete-time formulation. While this construction is appealing due to
+its simplicity, the disadvantage of the time-discrete approach is that it forces you to choose a time discretization
+before training. Further, the loss function needs to be approximated via an evidence lower bound (ELBO) - which
+is, as the name suggests, only a lower bound to the loss we actually want to minimize. Later, Song et al. [32]
+showed that these constructions were essentially an approximation of a time-continuous SDEs. Further, the ELBO
+loss becomes tight (i.e. it is not a lower bound anymore) in the continuous time case (e.g. note that theorem 18
+and theorem 20 are equalities and not lower bounds - this would be different in the discrete time case). This made
+the SDE construction popular because it was considered mathematically "cleaner" and that one could control the
+simulation error via ODE/SDE samplers post training. It is important to note however that both models employ
+the same loss and are not fundamentally different.
+"Forward process" vs probability paths.
+The first wave of denoising diffusion models [28, 29, 9, 32] did not use
+the term probability path but constructed a noising procedure of a data point z ∈Rd via a so-called forward
+process. This is an SDE of the form
+¯X0 = z,
+d ¯Xt = uforw
+t
+( ¯Xt)dt + σforw
+t
+d ¯Wt
+(57)
+The idea is that after drawing a data point z ∼pdata one simulates the forward process and thereby corrupts or
+"noises" the data. The forward process is designed such that for t →∞its distribution converges to a Gaussian
+N(0, Id).
+In other words, for T ≫0 it holds that ¯XT ∼N(0, Id) approximately.
+Note that this essentially
+corresponds to a probability path: the conditional distribution of ¯Xt given ¯X0 = z is a conditional probability
+path ¯pt(·|z) and the distribution of ¯Xt marginalized over z ∼pdata corresponds to a marginal probability path ¯pt.2
+However, note that with this construction, we need to know the distribution of Xt|X0 = z in closed form in order
+to train our models to avoid simulating the SDE. This essentially restrict the vector field uforw
+t
+to ones such that
+we know the distribution ¯Xt| ¯X0 = z in closed form. Therefore, throughout the diffusion model literature, vector
+fields in forward processes are always of the affine form, i.e. uforw
+t
+(x) = atx for some continuous function at. For
+2Note however that they use an inverted time convention: ¯p0(·|z) = pdata here.
+32
