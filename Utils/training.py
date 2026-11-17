@@ -15,6 +15,7 @@ try:
     )
     from Utils.VAE_CLIP import StabilityVAE, CLIP_EMBED
     from Utils.configs import model_configs, mask_configs, zeta_configs, loss_configs, optim_configs
+    from Utils.embedding_cache import compute_whitening_params, whiten_posterior_latents
 except ImportError:
     from loss import EDM_LOSS_NOD
     from utils import (
@@ -23,6 +24,7 @@ except ImportError:
     )
     from VAE_CLIP import StabilityVAE, CLIP_EMBED
     from configs import model_configs, mask_configs, zeta_configs, loss_configs, optim_configs
+    from embedding_cache import compute_whitening_params, whiten_posterior_latents
 from graphs.logger2 import Logger
 from data_augmentation.data_collector import get_dataloader_path, _ImageLabelDictCollate
 
@@ -126,6 +128,88 @@ def build_optimizer_param_groups(
     return param_groups, lr_per_component
 
 
+_RAW_BATCH_COLLATE = _ImageLabelDictCollate()
+
+
+def _training_collate_fn(batch):
+    """Collate either cached-embedding sample dicts or raw pixel/caption samples."""
+    if isinstance(batch[0], dict) and "vae_mean" in batch[0]:
+        collated = {
+            "vae_mean": torch.stack([item["vae_mean"] for item in batch]),
+            "vae_std": torch.stack([item["vae_std"] for item in batch]),
+            "prompts": [str(item.get("prompts", "")) for item in batch],
+        }
+        if "clip_embs" in batch[0]:
+            collated["clip_embs"] = torch.stack([item["clip_embs"] for item in batch])
+        return collated
+    return _RAW_BATCH_COLLATE(batch)
+
+
+def _is_cached_embedding_dataset(ds) -> bool:
+    return (
+        ds is not None
+        and hasattr(ds, "has_clip_cache")
+        and hasattr(ds, "raw_mean")
+        and hasattr(ds, "shards")
+    )
+
+
+def _resolve_whitening_scale_bias(
+    vae,
+    model_config: dict[str, Any],
+    device: torch.device | str,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    if vae is not None and hasattr(vae, "scale") and hasattr(vae, "bias"):
+        return vae.scale.to(device=device, dtype=torch.float32), vae.bias.to(device=device, dtype=torch.float32)
+    scale, bias = compute_whitening_params(
+        raw_mean=model_config["raw_mean"],
+        raw_std=model_config["raw_std"],
+        final_mean=model_config.get("mean_data", 0.0),
+        final_std=model_config["sigma_data"],
+    )
+    return scale.to(device=device, dtype=torch.float32), bias.to(device=device, dtype=torch.float32)
+
+
+def _encode_or_unpack_batch(
+    batch,
+    device: torch.device | str,
+    vae,
+    clip,
+    whitening_scale: torch.Tensor,
+    whitening_bias: torch.Tensor,
+    amp_ctx,
+    deterministic_vae: bool = False,
+    generator: Optional[torch.Generator] = None,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Return `(whitened_latents_fp32, text_embeddings)` from cached or raw batches."""
+    if isinstance(batch, dict) and "vae_mean" in batch:
+        vae_mean = batch["vae_mean"].to(device)
+        vae_std = batch["vae_std"].to(device)
+        latent_images = whiten_posterior_latents(
+            vae_mean,
+            vae_std,
+            scale=whitening_scale,
+            bias=whitening_bias,
+            deterministic=deterministic_vae,
+            generator=generator,
+        )
+        if "clip_embs" in batch:
+            text_embeddings = batch["clip_embs"].to(device=device, dtype=torch.float32)
+        else:
+            if clip is None:
+                raise RuntimeError("Batch has cached VAE latents without cached CLIP embeddings, so `clip` is required.")
+            with amp_ctx:
+                text_embeddings = clip.encode_text(list(batch["prompts"]))
+        return latent_images, text_embeddings
+
+    images_rgb, prompts = _unpack_batch(batch)
+    images = _scale_pixels_to_255(images_rgb.to(device))
+    with amp_ctx:
+        latent_images = vae.encode(images).float()
+        text_embeddings = clip.encode_text(prompts)
+    return latent_images, text_embeddings
+
+
 def _unpack_batch(batch) -> tuple[torch.Tensor, list[str]]:
     if isinstance(batch, dict):
         return batch["pixel_values"], list(batch["prompts"])
@@ -173,14 +257,21 @@ def _build_val_probe_batch(
     gen = torch.Generator(device="cpu").manual_seed(seed)
     indices = torch.randperm(len(val_dataset), generator=gen)[:n].tolist()
     items = [val_dataset[i] for i in indices]
-    collated = _ImageLabelDictCollate()(items)
-    imgs_rgb, prompts = _unpack_batch(collated)
+    collated = _training_collate_fn(items)
 
     device = model_config["device"]
-    imgs_255 = _scale_pixels_to_255(imgs_rgb.to(device))
+    w_scale, w_bias = _resolve_whitening_scale_bias(vae, model_config, device)
     with torch.no_grad():
-        latents = vae.encode(imgs_255).float()
-        text_embs = clip.encode_text(prompts)
+        latents, text_embs = _encode_or_unpack_batch(
+            collated,
+            device=device,
+            vae=vae,
+            clip=clip,
+            whitening_scale=w_scale,
+            whitening_bias=w_bias,
+            amp_ctx=nullcontext(),
+            deterministic_vae=True,
+        )
         rnd_norm = torch.randn([n, 1, 1, 1], generator=gen).to(device=device, dtype=torch.float32)
         sigma = (rnd_norm * mask_config["p_std"] + mask_config["p_mean"]).exp().clamp(
             min=model_config["sigma_min"], max=model_config["sigma_max"]
@@ -294,7 +385,7 @@ def training_HDMOE(
             "num_workers": num_workers,
             "pin_memory": device_str.startswith("cuda"),
             "drop_last": len(dataset) >= micro_bs,
-            "collate_fn": _ImageLabelDictCollate(),
+            "collate_fn": _training_collate_fn,
         }
         if num_workers > 0:
             dl_kwargs["persistent_workers"] = True
@@ -303,23 +394,37 @@ def training_HDMOE(
         active_dataloader = get_dataloader_path(model_config, data_dir=model_config["data_dir"])
     data_iter = iter(active_dataloader)
 
-    if vae is None:
-        vae = StabilityVAE(
-            batch_size=micro_bs,
-            raw_mean=model_config["raw_mean"],
-            raw_std=model_config["raw_std"],
-            final_mean=model_config["mean_data"],
-            final_std=model_config["sigma_data"],
-        )
-        vae.init(device=device)
-    elif hasattr(vae, "vae") and getattr(vae, "vae", None) is None:
-        vae.init(device=device)
+    train_vae_cached = _is_cached_embedding_dataset(dataset)
+    val_vae_cached = val_dataset is None or _is_cached_embedding_dataset(val_dataset)
+    need_vae = not (train_vae_cached and val_vae_cached)
 
-    if clip is None:
-        clip = CLIP_EMBED(device=device)
-        clip.init()
-    elif hasattr(clip, "model") and getattr(clip, "model", None) is None:
-        clip.init()
+    train_clip_cached = train_vae_cached and bool(getattr(dataset, "has_clip_cache", False))
+    val_clip_cached = val_dataset is None or (
+        _is_cached_embedding_dataset(val_dataset) and bool(getattr(val_dataset, "has_clip_cache", False))
+    )
+    need_clip = not (train_clip_cached and val_clip_cached)
+
+    if need_vae:
+        if vae is None:
+            vae = StabilityVAE(
+                batch_size=micro_bs,
+                raw_mean=model_config["raw_mean"],
+                raw_std=model_config["raw_std"],
+                final_mean=model_config["mean_data"],
+                final_std=model_config["sigma_data"],
+            )
+            vae.init(device=device)
+        elif hasattr(vae, "vae") and getattr(vae, "vae", None) is None:
+            vae.init(device=device)
+
+    if need_clip:
+        if clip is None:
+            clip = CLIP_EMBED(device=device)
+            clip.init()
+        elif hasattr(clip, "model") and getattr(clip, "model", None) is None:
+            clip.init()
+
+    whitening_scale, whitening_bias = _resolve_whitening_scale_bias(vae, model_config, device)
 
     model = preconditioned_HDMOEM_v3(
         IN_in_channels=model_config["img_channels"],
@@ -529,11 +634,21 @@ def training_HDMOE(
     grad_clip = float(Optim_config.get("grad_clip", 100.0))
 
     cached_null_emb = None
+    if train_clip_cached and getattr(dataset, "null_text_emb", None) is not None:
+        cached_null_emb = dataset.null_text_emb.to(device=device).detach()
+    elif val_dataset is not None and getattr(val_dataset, "null_text_emb", None) is not None:
+        cached_null_emb = val_dataset.null_text_emb.to(device=device).detach()
+
     val_probe_batch = None
     if model_config["total_steps"] > 0:
-        if cfg_drop_prob > 0.0 and hasattr(clip, "encode_text"):
-            with torch.no_grad():
-                cached_null_emb = clip.encode_text([""]).detach()
+        if cfg_drop_prob > 0.0 and cached_null_emb is None:
+            if clip is not None and hasattr(clip, "encode_text"):
+                with torch.no_grad():
+                    cached_null_emb = clip.encode_text([""]).detach()
+            elif train_clip_cached:
+                raise RuntimeError(
+                    "Cached CLIP training with cfg_drop_prob > 0 requires `clip_null_emb.pt` in cache or a `clip` encoder."
+                )
         if val_dataset is not None:
             val_probe_batch = _build_val_probe_batch(
                 val_dataset, model_config, mask_config, vae, clip,
@@ -566,19 +681,26 @@ def training_HDMOE(
                 data_iter = iter(active_dataloader)
                 batch = next(data_iter)
 
-            images_rgb, prompts = _unpack_batch(batch)
-            images = _scale_pixels_to_255(images_rgb.to(device))
             amp_ctx = torch.amp.autocast("cuda", dtype=torch.bfloat16) if amp_enabled else nullcontext()
 
             with torch.no_grad():
-                with amp_ctx:
-                    latent_images = vae.encode(images).float()
-                    text_embeddings = clip.encode_text(prompts)
+                latent_images, text_embeddings = _encode_or_unpack_batch(
+                    batch,
+                    device=device,
+                    vae=vae,
+                    clip=clip,
+                    whitening_scale=whitening_scale,
+                    whitening_bias=whitening_bias,
+                    amp_ctx=amp_ctx,
+                    deterministic_vae=False,
+                )
                 if cfg_drop_prob > 0.0:
                     cur_bs_txt = text_embeddings.shape[0]
                     drop_mask = torch.rand(cur_bs_txt, device=device) < cfg_drop_prob
                     if drop_mask.any():
                         if cached_null_emb is None:
+                            if clip is None:
+                                raise RuntimeError("cfg_drop_prob > 0 requires `clip` or cached `clip_null_emb.pt`.")
                             cached_null_emb = clip.encode_text([""]).detach()
                         text_embeddings = text_embeddings.clone()
                         text_embeddings[drop_mask] = cached_null_emb.to(
