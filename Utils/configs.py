@@ -33,7 +33,7 @@ model_configs = {
     'Unet_model_channels': 128,  # Base 128 -> 512 at the Spatial Cross-Attention bottleneck
     'Unet_channel_mult_emb': 4,
     'Unet_label_balance': 0.5,
-    'Unet_concat_balances': [0.7, 0.3],
+    'Unet_concat_balances': [0.3, 0.3],
     'pool_size': 16,  # 4x4 latent pooling blocks
     'attn_pool_balance': 1.0,
 

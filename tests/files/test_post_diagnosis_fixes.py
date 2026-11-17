@@ -14,7 +14,7 @@ from Utils.loss import EDM_LOSS_NOD
 from Utils.training import apply_activation_checkpointing, build_optimizer_param_groups, training_HDMOE
 from Utils.utils import EMA, Lr_Scheduler, MaskGenerator, WSDScheduler, save_checkpoint
 from graphs.logger2 import Logger
-from models.model_components import Unet_block, Vit_block, Vit_expert
+from models.model_components import Unet_block, Unet_expert, Vit_block, Vit_expert
 from models.model_internals import MP_Attention, mp_cat, mp_sum
 from tests.files.model_factory import build_tiny_model, random_batch
 
@@ -598,6 +598,34 @@ class TestPostDiagnosisFixes(unittest.TestCase):
         self.assertTrue(torch.isfinite(out_nt).all())
 
         self.assertEqual(model_configs["VIT_patch_sizes"], [1, 2])
+        self.assertTrue(all(b <= 0.5 for b in model_configs["Unet_concat_balances"]))
+
+    def test_unet_expert_preserves_text_conditioning_and_bottleneck_grad(self):
+        torch.manual_seed(0)
+        unet = Unet_expert(
+            img_resolution=32, img_channels=32, time_emb_dim=32, text_emb_dim=64,
+            num_blocks=2, channel_mult=[1, 2, 4], kernel_size=(3, 3), model_channels=32,
+            label_balance=model_configs["Unet_label_balance"],
+            concat_balance=model_configs["Unet_concat_balances"][0],
+        )
+        unet.eval()
+        x = torch.randn(2, 32, 32, 32)
+        t = torch.randn(2, 32)
+        txt1 = torch.randn(2, 16, 64)
+        txt2 = torch.randn(2, 16, 64)
+        with torch.no_grad():
+            y1 = unet(x, t, txt1)
+            y2 = unet(x, t, txt2)
+        rel_diff = ((y1 - y2).norm() / (y1.norm() + 1e-8)).item()
+        self.assertGreater(rel_diff, 0.05, f"Unet_expert text sensitivity collapsed: {rel_diff:.4e}")
+
+        unet.train()
+        out = unet(x, t, txt1)
+        out.pow(2).mean().backward()
+        b_grad = sum(p.grad.abs().sum().item() for p in unet.bottleneck_attn.parameters() if p.grad is not None)
+        l_grad = sum(p.grad.abs().sum().item() for p in unet.map_label.parameters() if p.grad is not None)
+        self.assertGreater(b_grad, 1e-4, f"bottleneck_attn gradient starved: {b_grad:.4e}")
+        self.assertGreater(l_grad, 1e-4, f"map_label gradient starved: {l_grad:.4e}")
 
 
 if __name__ == "__main__":

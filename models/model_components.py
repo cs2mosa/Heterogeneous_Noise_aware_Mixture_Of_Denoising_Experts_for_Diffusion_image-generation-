@@ -295,6 +295,11 @@ class Unet_expert(nn.Module):
         self.label_balance = label_balance
         self.concat_balance = concat_balance
         self.map_noise = m.MP_Conv(in_channels=time_emb_dim, out_channels=self.emb_size, kernel=())
+        self.map_label = (
+            m.MP_Conv(in_channels=text_emb_dim, out_channels=self.emb_size, kernel=())
+            if text_emb_dim > 0
+            else None
+        )
         self.encoders = nn.ModuleDict()
         self.out_channels = img_channels + 1
         # _______________________________________________________________________________________________#
@@ -393,6 +398,9 @@ class Unet_expert(nn.Module):
                           Shape (Batch, img_channels, H, W).
         """
         emb = self.map_noise(time_emb)
+        if self.map_label is not None and text_emb is not None:
+            pooled_text = text_emb.mean(dim=1) if text_emb.ndim == 3 else text_emb
+            emb = m.mp_sum(emb, self.map_label(m.normalize(pooled_text)), t=self.label_balance)
         emb = m.mp_silu(emb)
         x = torch.cat([x, torch.ones_like(x[:, :1])], dim=1)
         skips = []
