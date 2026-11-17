@@ -180,7 +180,11 @@ class Unet_block(nn.Module):
         self.conv_gain2 = conv_gain
         self.conv_skip = m.MP_Conv(in_channels=in_channels, out_channels=out_channels,
                                    kernel=(1, 1)) if in_channels != out_channels else None
-        self.emb_layer = m.MP_Conv(in_channels=emb_size, out_channels=out_channels, kernel=())
+        self.emb_layer = (
+            m.MP_Conv(in_channels=emb_size, out_channels=out_channels, kernel=())
+            if emb_size is not None and emb_size > 0
+            else None
+        )
         self.conv_res1 = m.MP_Conv(in_channels=out_channels if self.type == 'enc' else in_channels,
                                    out_channels=out_channels, kernel=self.kernel)
         self.conv_res2 = m.MP_Conv(in_channels=out_channels, out_channels=out_channels, kernel=self.kernel)
@@ -190,7 +194,7 @@ class Unet_block(nn.Module):
 
     def forward(self,
                 x: torch.Tensor,
-                embedding: torch.Tensor
+                embedding: Optional[torch.Tensor] = None
                 ) -> torch.Tensor:
         """
         the forward method of the Unet block
@@ -200,7 +204,6 @@ class Unet_block(nn.Module):
                 Note: concatenation with the skip connection must be done in the Full Unet class
             :return: processed output tensor of dimensions -> (batch , out_channels, new_height, new_width)
         """
-        embedding = 1 + self.emb_layer(embedding, gain=self.emb_gain)
         # up for decoders : down for encoders
         x = m.resample(x, mode=self.resample)
         if self.type == 'enc':
@@ -209,8 +212,10 @@ class Unet_block(nn.Module):
             x = m.normalize(x, dim=[1])
 
         main_branch = self.conv_res1(m.mp_silu(x), gain=self.conv_gain1)
-        # embedding dimensions (batch,embedding_size) -> (batch, intermediate_channels,1,1) for broadcasting
-        main_branch = main_branch * embedding.unsqueeze(2).unsqueeze(3).to(x.dtype)
+        if self.emb_layer is not None and embedding is not None:
+            emb_scale = 1 + self.emb_layer(embedding, gain=self.emb_gain)
+            # embedding dimensions (batch,embedding_size) -> (batch, intermediate_channels,1,1) for broadcasting
+            main_branch = main_branch * emb_scale.unsqueeze(2).unsqueeze(3).to(x.dtype)
         main_branch = m.normalize(main_branch)  # ensure magnitude preservation
         main_branch = m.mp_silu(main_branch)
         # dropout only in training mode
@@ -665,9 +670,24 @@ class Vit_expert(nn.Module):
         self.in_channels = in_channels
         self.unpatch_proj = m.MP_Conv(in_channels=emb_dim, out_channels=in_channels, kernel=())
         if patch_size > 1:
-            # Bilinear token upsampling + full-res 3x3 detail skip removes PixelShuffle block aliasing
-            self.unpatch_skip = m.MP_Conv(in_channels=in_channels, out_channels=in_channels, kernel=(3, 3))
-            self.unpatch_refine = m.MP_Conv(in_channels=in_channels, out_channels=in_channels, kernel=(3, 3))
+            # Bilinear token upsampling + nonlinear time-conditioned full-res blocks break the
+            # outer-band linear Wiener bottleneck while avoiding PixelShuffle block aliasing.
+            self.unpatch_skip = Unet_block(
+                in_channels=in_channels,
+                out_channels=in_channels,
+                kernel=(3, 3),
+                emb_size=time_dim,
+                resample='keep',
+                Type='dec',
+            )
+            self.unpatch_refine = Unet_block(
+                in_channels=in_channels,
+                out_channels=in_channels,
+                kernel=(3, 3),
+                emb_size=time_dim,
+                resample='keep',
+                Type='dec',
+            )
         else:
             self.unpatch_skip = None
             self.unpatch_refine = None
@@ -725,8 +745,9 @@ class Vit_expert(nn.Module):
             if pad_h > 0 or pad_w > 0:
                 x = x[:, :, :orig_h, :orig_w]
             x = m.normalize(x)
-            detail_skip = self.unpatch_skip(m.normalize(x_in))
-            x = self.unpatch_refine(m.mp_sum(x, detail_skip, t=0.5))
+            t_cond = time_emb.squeeze(1) if (time_emb is not None and time_emb.ndim == 3) else time_emb
+            detail_skip = self.unpatch_skip(m.normalize(x_in), embedding=t_cond)
+            x = self.unpatch_refine(m.mp_sum(x, detail_skip, t=0.5), embedding=t_cond)
         elif pad_h > 0 or pad_w > 0:
             x = x[:, :, :orig_h, :orig_w]
 

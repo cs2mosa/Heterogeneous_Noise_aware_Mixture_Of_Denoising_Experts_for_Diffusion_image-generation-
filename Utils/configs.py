@@ -19,7 +19,7 @@ model_configs = {
 
     # --- ViT Settings ---
     'VIT_num_blocks': 10,
-    'VIT_patch_sizes': [2, 2],
+    'VIT_patch_sizes': [1, 2],
     'VIT_num_groups': 4,
     'VIT_num_heads': 12,
     'VIT_emb_size': 768,

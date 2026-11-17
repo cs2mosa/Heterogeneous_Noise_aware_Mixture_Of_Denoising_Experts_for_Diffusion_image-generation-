@@ -557,5 +557,48 @@ class TestPostDiagnosisFixes(unittest.TestCase):
             self.assertNotIn(forbidden, code_src)
 
 
+    def test_vit_expert_fullres_head_is_nonlinear_and_time_conditioned(self):
+        torch.manual_seed(0)
+        vit = Vit_expert(
+            num_heads=4, num_groups=4, in_channels=16, seq_ln=64,
+            emb_dim=32, num_blocks=2, patch_size=2, time_dim=32, text_dim=0,
+        )
+        vit.eval()
+        self.assertIsInstance(vit.unpatch_skip, Unet_block)
+        self.assertIsInstance(vit.unpatch_refine, Unet_block)
+
+        # Verify full-res skip path itself is nonlinear and modulated by time_emb
+        x1 = torch.randn(2, 16, 16, 16)
+        x2 = torch.randn(2, 16, 16, 16)
+        t1 = torch.randn(2, 32)
+        t2 = torch.randn(2, 32)
+        with torch.no_grad():
+            s1 = vit.unpatch_skip(x1, embedding=t1)
+            s2 = vit.unpatch_skip(x2, embedding=t1)
+            s12 = vit.unpatch_skip(x1 + x2, embedding=t1)
+            nonlin_err = (s12 - (s1 + s2)).norm().item() / (s12.norm().item() + 1e-8)
+            self.assertGreater(nonlin_err, 0.01, "unpatch_skip must be nonlinear at full resolution")
+
+            s_t2 = vit.unpatch_skip(x1, embedding=t2)
+            time_diff = (s1 - s_t2).abs().mean().item()
+            self.assertGreater(time_diff, 1e-4, "unpatch_skip must respond to time_emb")
+
+            # Verify safe handling of time_emb=None and time_dim=0
+            out_no_t = vit(x1, time_emb=None)
+            self.assertEqual(out_no_t.shape, x1.shape)
+            self.assertTrue(torch.isfinite(out_no_t).all())
+
+        vit_notime = Vit_expert(
+            num_heads=4, num_groups=4, in_channels=16, seq_ln=64,
+            emb_dim=32, num_blocks=1, patch_size=2, time_dim=0, text_dim=0,
+        )
+        with torch.no_grad():
+            out_nt = vit_notime(x1)
+        self.assertEqual(out_nt.shape, x1.shape)
+        self.assertTrue(torch.isfinite(out_nt).all())
+
+        self.assertEqual(model_configs["VIT_patch_sizes"], [1, 2])
+
+
 if __name__ == "__main__":
     unittest.main()
